@@ -87,6 +87,7 @@ _REGISTRY: dict[str, Callable[[], Indicator]] = {
     "carico-antropico": lambda: AnthropogenicLoadIndicator(
         POPULATION_SOURCE, PRESENCES_SOURCE
     ),
+    "gini-stagionalita": lambda: TouristPresenceGiniIndicator(PRESENCES_SOURCE),
     "quota-mobilita-ingresso": lambda: InboundMobilityShareIndicator(FLOWS_OD_SOURCE),
     "quota-mobilita-uscita": lambda: OutboundMobilityShareIndicator(FLOWS_OD_SOURCE),
     "quota-intra-ambito": lambda: IntraAmbitoShareIndicator(FLOWS_OD_SOURCE),
@@ -287,6 +288,91 @@ class TouristAccommodationFacilitiesIndicator(_HospitalityFacilitiesShareIndicat
         "strutture_alb",
         "strutture_exalb",
     )
+
+class TouristPresenceGiniIndicator(Indicator):
+    """Normalized Gini of the temporal distribution of daily tourist presences."""
+
+    name = "Concentrazione temporale delle presenze turistiche (Gini)"
+    type = INDICATORS_TYPES[1]
+    _PRESENCE_COLUMN = "presenze_vodafone"
+    _LOW_COVERAGE_VALUE = -1.0
+    _MIN_COVERAGE = 0.8
+
+    description = (
+        "L'indice di Gini misura quanto le presenze turistiche giornaliere in un comune "
+        "sono concentrate nel periodo selezionato. "
+        "Il valore 0 indica una distribuzione uniforme, il valore 1 la massima concentrazione. "
+        f"Il calcolo è disponibile solo con almeno l'{_MIN_COVERAGE*100}% di copertura temporale; "
+        f"i comuni sotto questa soglia hanno valore {_LOW_COVERAGE_VALUE} "
+    )
+    index_value_unit_description = "Indice di Gini normalizzato (0 = uniforme, 1 = concentrato)"
+    availableForVariation = False
+
+    def __init__(self, source_file):
+        super().__init__(
+            phenomena=[
+                PresencesPhenomenon(
+                    source_file,
+                    col=self._PRESENCE_COLUMN,
+                    name=self._PRESENCE_COLUMN,
+                )
+            ],
+            combinator=self._compute_gini,
+        )
+
+    @staticmethod
+    def _gini(values: np.ndarray) -> float:
+        values = np.asarray(values, dtype=float)
+        # Validity check: if less than 2 days are available, either negative values are present, or total sum is zero, NaN is returned
+        if (values.size < 2 or not np.isfinite(values).all() or (values < 0).any() or values.sum() <= 0):
+            return np.nan
+        
+        values = np.sort(values) # It has to be computed on the ordered time series 
+        count = values.size
+        weighted_sum = np.dot(2 * np.arange(1, count + 1) - count - 1, values)
+        return float(weighted_sum / (count * values.sum()) * count / (count - 1))  # Normalized (index between 0 and 1)
+
+    def _compute_gini(
+        self,
+        df: pd.DataFrame,
+        *,
+        filtered_data: dict[str, pd.DataFrame],
+        start_date,
+        end_date,
+        **_extra,
+    ) -> pd.Series:
+        if start_date is None or end_date is None:
+            return pd.Series(np.nan, index=df.index, dtype=float)
+
+        start, end = pd.Timestamp(start_date), pd.Timestamp(end_date)
+        data_range = pd.date_range(start, end, freq="D")
+        if data_range.empty:
+            return pd.Series(np.nan, index=df.index, dtype=float)
+
+        source = self.phenomena[0]._panel
+        if source is None:
+            raise RuntimeError("Tourist presences must be resolved before Gini calculation")
+        source = source[source["DATA"].between(start, end)][["ID_COMUNE", "DATA", self._PRESENCE_COLUMN]]
+        observed = filtered_data[self._PRESENCE_COLUMN].copy()
+        observed["DATA"] = pd.to_datetime(observed["DATA"])
+        source_by_comune = {
+            str(comune): group.set_index("DATA")[self._PRESENCE_COLUMN]
+            for comune, group in source.groupby("ID_COMUNE", sort=False)
+        }
+        observed_by_comune = {
+            str(comune): group.groupby("DATA")[self._PRESENCE_COLUMN].mean()
+            for comune, group in observed.groupby("ID_COMUNE", sort=False)
+        }
+
+        gini_by_comune = {}
+        for comune in df["ID_COMUNE"].astype(str):
+            if source_by_comune.get(comune, pd.Series(dtype=float)).reindex(data_range).notna().mean() < self._MIN_COVERAGE:
+                gini_by_comune[comune] = self._LOW_COVERAGE_VALUE
+                continue
+
+            gini_by_comune[comune] = self._gini(observed_by_comune.get(comune, pd.Series(dtype=float)).dropna().to_numpy(dtype=float))
+
+        return df["ID_COMUNE"].astype(str).map(gini_by_comune)
 
 
 class AvailableAccommodationFacilitiesIndicator(_HospitalityFacilitiesShareIndicator):
