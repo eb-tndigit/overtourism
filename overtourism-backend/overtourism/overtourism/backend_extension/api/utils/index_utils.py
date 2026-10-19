@@ -80,7 +80,13 @@ def _compute_min_max(gdf_final):
 # Columns whose name contains one of these markers are ratios / scores, not counts: they are rounded to
 # the given number of decimals. Every other numeric column (except AREA_NAME / geometry) is a count and
 # is rounded to an integer.
-_DECIMAL_COLUMNS = {"INDICE": 2, "Periodo": 2, "quota": 3, "PageRank": 5}
+_DECIMAL_COLUMNS = {
+    "INDICE": 2,
+    "Periodo": 2,
+    "quota": 3,
+    "PageRank": 5,
+    "superficie": 2,
+}
 
 
 def _round_count_columns(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:

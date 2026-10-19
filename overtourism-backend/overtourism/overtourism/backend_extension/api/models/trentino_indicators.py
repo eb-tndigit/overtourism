@@ -13,6 +13,7 @@ from overtourism.overtourism.backend_extension.api.models.trenitno_phenomena imp
     PopulationPhenomenon,
     PresencesPhenomenon,
     ProvenienzaPhenomenon,
+    SurfacePhenomenon,
 )
 from overtourism.overtourism.setup import index_data_path
 
@@ -63,6 +64,12 @@ _REGISTRY: dict[str, Callable[[], Indicator]] = {
     ),
     "turisticita": lambda: TourismIndexIndicator(
         POPULATION_SOURCE, PRESENCES_SOURCE, "presenze_vodafone"
+    ),
+    "densita-turistica": lambda: TouristDensityIndicator(
+        PRESENCES_SOURCE, MAP_SHAPEFILE
+    ),
+    "densita-antropica": lambda: AnthropogenicDensityIndicator(
+        PRESENCES_SOURCE, POPULATION_SOURCE, MAP_SHAPEFILE
     ),
     "incidenza-alloggi-turistici-strutture": lambda: TouristAccommodationFacilitiesIndicator(
         STRUCTURES_SOURCE
@@ -149,6 +156,86 @@ class TourismIndexIndicator(Indicator):
             ],
             combinator=self.divide("presences", "population"),
         )
+
+
+class TouristDensityIndicator(Indicator):
+    """Vodafone tourists + visitors presences per km² of the comune's surface."""
+
+    name = "Indice di densità turistica"
+    type = INDICATORS_TYPES[3]
+    description = "L'indice di densità turistica definisce il <strong>rapporto</strong> fra il <strong>numero medio giornaliero di turisti ed escursionisti</strong> presenti in un comune e la sua <strong>superficie</strong> in km². L'indice fornisce una misura della pressione turistica sul territorio. L'indice è calcolato partendo dai dati Vodafone per quanto riguarda le presenze di turisti ed escursionisti e dai confini amministrativi ISTAT per la superficie dei comuni."
+    index_value_unit_description = "Presenze turistiche per km²"
+
+    def __init__(self, presences_source, surface_source):
+        super().__init__(
+            phenomena=[
+                PresencesPhenomenon(
+                    presences_source,
+                    col="presenze_vodafone",
+                    name="presenze_vodafone",
+                ),
+                PresencesPhenomenon(
+                    presences_source,
+                    col="presenze_escursionisti_vodafone",
+                    name="presenze_escursionisti_vodafone",
+                ),
+                SurfacePhenomenon(surface_source),
+            ],
+            combinator=self.compute_density,
+        )
+
+    def compute_density(
+        self,
+        df: pd.DataFrame,
+        **extra,
+    ) -> pd.Series:
+        numerator = (
+            df[["presenze_vodafone", "presenze_escursionisti_vodafone"]]
+            .fillna(0)
+            .sum(axis=1)
+        )
+        return numerator.div(df["superficie"].replace(0, np.nan))
+
+
+class AnthropogenicDensityIndicator(Indicator):
+    """Inhabitants and Vodafone tourist presences per km² of comune area."""
+
+    name = "Indice di densità antropica"
+    type = INDICATORS_TYPES[3]
+    description = "L'indice di densità antropica misura il rapporto fra la popolazione residente e il numero medio giornaliero di turisti ed escursionisti rilevati da Vodafone, rispetto alla superficie del comune in km²."
+    index_value_unit_description = "Abitanti e presenze turistiche per km²"
+
+    def __init__(self, presences_source, population_source, surface_source):
+        super().__init__(
+            phenomena=[
+                PresencesPhenomenon(
+                    presences_source,
+                    col="presenze_vodafone",
+                    name="presenze_vodafone",
+                ),
+                PresencesPhenomenon(
+                    presences_source,
+                    col="presenze_escursionisti_vodafone",
+                    name="presenze_escursionisti_vodafone",
+                ),
+                PopulationPhenomenon(population_source),
+                SurfacePhenomenon(surface_source),
+            ],
+            combinator=self.compute_density_anthropogenic,
+        )
+
+    def compute_density_anthropogenic(
+        self,
+        df: pd.DataFrame,
+        **extra,
+    ) -> pd.Series:
+        vodafone_presences = (
+            df[["presenze_vodafone", "presenze_escursionisti_vodafone"]]
+            .fillna(0)
+            .sum(axis=1)
+        )
+        numerator = vodafone_presences + df["population"]
+        return numerator.div(df["superficie"].replace(0, np.nan))
 
 
 def _hospitality_share(numerator: str, denominator_components: tuple[str, ...]):
