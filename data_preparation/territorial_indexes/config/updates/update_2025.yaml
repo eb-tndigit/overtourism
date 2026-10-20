@@ -39,6 +39,13 @@ datasets:
         reader: csv
         adapter: vodafone_raw
 
+  vodafone_arrivi:
+    enabled: true
+    sources:                                  # Vodafone ARRIVALS (source countries of tourists, yearly): same layout as the presences
+      - file: vodafone_arrivals.csv           # it must contain ALL the days of the year (the index is yearly)
+        reader: csv
+        adapter: vodafone_raw
+
   presenze_alb:
     enabled: true
     sources:                                  # arrivals + presences of 2025, used as downloaded (no normalization); the 2024 files of the base build

@@ -32,12 +32,8 @@ from utils.config import (
 )
 from utils.datasets import (
     DATASETS,
-    EE_PRELIEVI_VALUE_COLS,
-    GAS_PRELIEVI_VALUE_COLS,
-    PRESENZE_ALB_VALUE_COLS,
     PRESENZE_MEASURES,
     PRESENZE_TAGS,
-    PRESENZE_XALB_VALUE_COLS,
 )
 from utils.io import ensure_dir, read_df, save_computed_dfs
 from utils.steps.process_std_data import (
@@ -52,6 +48,7 @@ from utils.steps.process_std_data import (
     process_covisits,
     process_energy,
     process_provenienza,
+    process_provenienza_arrivi,
     process_popolazione,
     process_presenze_stay,
     process_strutture,
@@ -90,6 +87,10 @@ DATASET_PROCESSORS = {
     "vodafone_provenienza": lambda df, maps, strutture, window, dataset: process_provenienza(
         df, maps["area_comune"], window
     ),
+    # arrivals -> top source countries; areas with several comuni are split by beds
+    "vodafone_arrivi": lambda df, maps, strutture, window, dataset: process_provenienza_arrivi(
+        df, maps["area_comune"], strutture, window
+    ),
 }
 # not processed part by part, see below: the ISPAT presences (alb / extralb) are not normalized and are
 # processed from the raw files; the OD co-visits are yearly indicators, computed on all the days of a year
@@ -101,6 +102,7 @@ PROCESS_ORDER = (
     "strutture",
     "vodafone",
     "vodafone_provenienza",
+    "vodafone_arrivi",
     "presenze_alb",
     "presenze_extralb",
     "vodafone_covisits",
@@ -111,9 +113,7 @@ PROCESS_ORDER = (
 )
 
 
-def _process_covisits(
-    parts, normalized_dir, mapping_dir, maps, type_format, window
-):
+def _process_covisits(parts, normalized_dir, mapping_dir, maps, type_format, window):
     """Flow indicators of the update. They are yearly, so they are computed on ALL the days of each year:
     the standardized co-visits of the base build (if any) + every part of the update (later ones win on
     the common dates). Only the years touched by the update are returned."""
@@ -206,7 +206,9 @@ def process_update_std_data(
     logger.info("Time window of the update: %s", window)
 
     maps = load_mappings(mapping_dir)
-    if "vodafone_provenienza" in config.datasets:  # areaId -> ID_COMUNE (as for the OD flows)
+    if {"vodafone_provenienza", "vodafone_arrivi"} & set(
+        config.datasets
+    ):  # areaId -> ID_COMUNE (as for the OD flows)
         maps = {
             **maps,
             "area_comune": covisits_area_comune(
@@ -224,7 +226,9 @@ def process_update_std_data(
                 beds = process_beds(
                     read_strutture_std(normalized_dir, type_format),
                     maps["mapping_comuni"],
-                    Window(DATA_START, window.end),  # also the earlier years: beds of the nearest year
+                    Window(
+                        DATA_START, window.end
+                    ),  # also the earlier years: beds of the nearest year
                 )
             logger.info("[%s] processing the raw arrivals / presences", dataset)
             done[dataset] = _process_presenze(
@@ -234,7 +238,9 @@ def process_update_std_data(
         if dataset == "vodafone_covisits":
             ds_parts = [p for p in parts if p.dataset == dataset]
             if ds_parts:
-                logger.info("[%s] processing %s", dataset, [p.std_name for p in ds_parts])
+                logger.info(
+                    "[%s] processing %s", dataset, [p.std_name for p in ds_parts]
+                )
                 done[dataset] = _process_covisits(
                     ds_parts,
                     normalized_dir,
@@ -250,7 +256,7 @@ def process_update_std_data(
             std = read_df(normalized_dir, part.std_name, type_format)
             strutture = (
                 _processed_reference("strutture", done, out_dir, type_format)
-                if dataset == "vodafone"
+                if dataset in ("vodafone", "vodafone_arrivi")
                 else None
             )
             if dataset == "vodafone":

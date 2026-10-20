@@ -14,7 +14,7 @@ columns below. `DATA` is `YYYY` for yearly phenomena (`phen_popolazione`, `phen_
 | `phen_presenze` | comune × day | Vodafone presences (tourists, visitors) + ISPAT hotel / extra-hotel presences | areas split by beds (tourists) or population (visitors); stays spread with the average length of stay |
 | `phen_consumption` | comune × day | monthly electricity and gas withdrawals | each month spread evenly over its days |
 | `phen_flussi_od` | comune × year | Vodafone OD co-visits | indicators computed per area, then passed to comuni; visitors weigh 0.5 |
-| `phen_provenienza` | comune × year | Vodafone presences by country of origin | normalized HHI of tourist user-days; small areas left empty |
+| `phen_provenienza` | comune × year | Vodafone presences (HHI) and arrivals (main market) by country of origin | normalized HHI of tourist user-days; main market from tourist arrivals (areas split by beds); small areas left empty (HHI) |
 
 ## Common rules
 
@@ -166,8 +166,13 @@ Columns: `quota_ingresso`, `quota_uscita`, `quota_intra_ambito`, `pagerank`, eac
 
 ## `phen_provenienza` (comune × year)
 
-Columns: `hhi_provenienza`, `giorni_coperti`.
+Columns: `hhi_provenienza`, `giorni_coperti` (concentration, from the presences) and `volume_totale` plus
+`volume_mercato_11`, `nome_mercato_1`, ..., `volume_mercato_N`, `nome_mercato_N` (top source countries, from the arrivals;
+`N` is `provenienza.top_n_countries` in `config/settings.yaml`, default 3). The two parts are joined with an **outer join**
+on `DATA` + `ID_COMUNE`: a year / comune present in only one source keeps the other columns empty. In an update both
+datasets (`vodafone_provenienza`, `vodafone_arrivi`) must be updated together.
 
+### `hhi_provenienza` (concentration of the source markets)
 * **Starting data**: the standardized Vodafone presences (same raw files as `phen_presenze`), `TOURIST` profile, area
   level, per day × area × `userCountry`.
 * **Computation**: yearly user-days per area and country → shares `s_c` → `H = Σ s_c²` → normalized
@@ -181,6 +186,47 @@ Columns: `hhi_provenienza`, `giorni_coperti`.
 * **Partial years**: `giorni_coperti` below 360 flags a partial year (warning). In the update the file must contain all
   the days of the year, because the index is computed on the update data only.
 
+### Top source-country volumes and total arrivals
+* **Starting data**: Vodafone **arrivals** `vodafone_arrivals.csv`, same layout as `vodafone_attendences_new.csv` (`locId`, `date`,
+  `value`, `userProfile`, `locType`, `userCountry`) but `value` counts arrivals. `TOURIST` profile, area level
+  (`TN_MKT_AL_3`), per day × area × `userCountry`; standardized as `vodafone_arrivi_std` (value column `arrivi`).
+  Arrivals, not presences, because a presence counts the same person again on every day of the stay: with presences a market
+  with long stays weighs more than the number of people it brings.
+* **Countries** (`utils/markets.py`): recognized Italian and European alpha-3 codes and names are rendered as
+  English country names (for example, `ITA` → `Italia`, `DEU` → `Germania`). Other supplied country labels are retained.
+* **Computation**: (1) arrivals per year, area and country; (2) an area with several comuni is **split** among them
+  proportionally to `tot_postiletto` of the year, like the tourist presences of `phen_presenze` (arrivals are additive, so,
+  unlike the HHI, they can be split; integer counts stay integer with the largest-remainder rule and totals are checked);
+  (3) per comune, countries are ranked by arrivals descending (ties alphabetically). The top `N` countries and their
+  arrival volumes are written to the parquet; unused ranks are empty.
+* **Assumptions**: `volume_totale` includes every visible arrival, including rows with no country. Country volumes do not
+  include arrivals with no country or countries outside the top `N`.
+  Vodafone hides counts below a privacy threshold (about 15), so volumes are the *visible* arrivals. Arrivals are smaller
+  than presences (by the average length of stay), so privacy censoring bites more. **No minimum volume is applied in the
+  file**: small comuni are kept with their volumes; consumers can filter by `volume_totale`. Country volumes of comuni in
+  a shared area are equal by construction (same area, same split).
+* **Partial years**: a year with fewer than 360 days (`ARRIVI_FULL_YEAR_DAYS`) in the file is kept but a warning is logged;
+  there is no coverage column for the arrivals (`giorni_coperti` is the one of the presences). In the update the file must contain
+  all the days of the year.
+
+## Presences or arrivals: which indicators are affected
+Presences are user-days: a person who stays 5 days is counted 5 times. This is right for the stock indicators (how many
+people are present on an average day) and wrong when the question is "how many people / from where". Checked one by one:
+
+| Phenomenon | Uses | Affected? |
+|---|---|---|
+| `phen_presenze` (and the indicators on it: turisticità, densità, carico antropico, turismo sommerso) | daily presences, compared with ISPAT presences / residents / km² | No. They measure the average daily load, which is what presences are for; the hidden-tourism ratio compares presences with presences |
+| `phen_flussi_od` | user-days of co-visits (`ND`, `UD`), shares and PageRank on user-days | No. Ratios of user-days with the same unit; there is no arrivals counterpart in the OD file. The shares are *of user-days* (a long stay weighs more), by design |
+| `phen_consumption`, `phen_popolazione`, `phen_strutture` | not Vodafone | No |
+| `phen_provenienza.hhi_provenienza` | share of each country in the **presences** | **Yes**, see below |
+
+`hhi_provenienza` measures how concentrated the *people* are across the markets, but it is computed on user-days, so a market
+with long stays weighs more. Example: Italians 50 arrivals × 2 nights, Germans 50 × 7 nights. On arrivals the two markets are
+equal (normalized HHI 0); on presences Germans are 78% and the index is 0.31. The new index (arrivals) and the HHI (presences)
+can therefore disagree in the same file. Recomputing the HHI on the arrivals is a small change (the standardized arrivals have
+the same layout, only `value` is `arrivi`), but it changes the values already produced and `PROVENIENZA_MIN_PRESENZE` (100
+user-days) would have to be revisited, because arrivals are fewer; it has **not** been done here.
+
 ## Points still to verify on the real data
 
 These parts were written without access to the real files; check them before trusting the numbers:
@@ -188,4 +234,7 @@ These parts were written without access to the real files; check them before tru
   files;
 * that `vodafone_covisits.csv` contains the 2025 days;
 * the ISPAT presences of 2022–2024 and the choice of reading `vodafone_attendences_new.csv` for April–December 2024;
+* `vodafone_arrivals.csv`: that `userCountry` is ISO alpha-3 / alpha-2 / English names (otherwise the run stops with the list of
+  the values found), the period it covers (all the days of every year), that `TOURIST` / `TN_MKT_AL_3` are present as in the
+  presences, and that rows with an empty `userCountry` (if any) are totals that must be ignored;
 * the full pipeline has been tested on synthetic data only (`python -m pytest tests`), not run end to end.

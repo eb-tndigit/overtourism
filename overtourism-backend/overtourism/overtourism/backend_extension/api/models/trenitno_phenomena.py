@@ -68,6 +68,10 @@ PHENOMENON_LABELS_IT: dict[str, str] = {
     # The label contains "quota" on purpose: index_utils rounds the columns with "quota" / "PageRank" in their
     # label to decimals (an index in [0, 1] must not be rounded to an integer).
     "hhi_provenienza": "quota di concentrazione dei mercati (HHI normalizzato)",
+    # Main source market (phen_provenienza): yearly arrivals of the main market and of all the markets (integers)
+    "volume_mercato_1": "arrivi dal mercato principale",
+    "volume_totale": "arrivi totali",
+    "main_markets": "Mercati principali",
     # Consumption indicators (phen_consumption): daily electricity / gas consumption, services vs total
     "ee_services": "consumi elettrici servizi",
     "ee_total": "consumi elettrici totali",
@@ -271,3 +275,30 @@ class ProvenienzaPhenomenon(FlowIndicatorPhenomenon):
 
     def __init__(self, source, col="hhi_provenienza", name=None):
         super().__init__(source, col, name=name or "hhi_provenienza")
+
+
+class ProvenienzaVolumePhenomenon(FlowIndicatorPhenomenon):
+    """
+    One numeric arrivals column of ``phen_provenienza``: ``volume_mercato_1`` (arrivals of the main source
+    market of the comune) or ``volume_totale`` (arrivals of all the markets), yearly, per comune.
+
+    Same yearly resolution as the other provenienza phenomena: the yearly value is broadcast to every day of the year
+    and averaged over the requested window (a window inside one year returns that year's arrivals). The comune-years
+    without arrivals data (the arrivals file may cover fewer years than the presences, so the row exists in the file
+    with an empty value) are dropped, so that they do not extend ``date_bounds()`` / ``years_range``.
+    The comune-years whose ``volume_totale`` is below ``min_total`` (too few arrivals for a reliable share) are dropped
+    too: both volume phenomena of an indicator must be given the same ``min_total``, so they drop the same rows
+    and the regional value is computed on the reliable comuni only.
+    ``nome_mercato_principale`` is text and is NOT a phenomenon: it cannot be averaged over a window.
+    """
+
+    def __init__(self, source, col, name=None, min_total: float = 0):
+        super().__init__(source, col, name=name or col)
+        self.min_total = min_total
+
+    def _normalise_columns(self, raw: pd.DataFrame) -> pd.DataFrame:
+        df = super()._normalise_columns(raw)
+        keep = df[self.name].notna() & (
+            raw.loc[df.index, "volume_totale"] >= self.min_total
+        )
+        return df[keep]

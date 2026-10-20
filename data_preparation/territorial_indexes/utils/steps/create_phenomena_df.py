@@ -31,7 +31,14 @@ from utils.config import (
     TYPE_FORMAT,
     setup_logging,
 )
-from utils.datasets import CONSUMPTION_VALUE_COLS, DATASETS, PHENOMENA, phenomena_to_recompute
+from utils.datasets import (
+    ARRIVI_VALUE_COLS,
+    CONSUMPTION_VALUE_COLS,
+    DATASETS,
+    PHENOMENA,
+    PROVENIENZA_VALUE_COLS,
+    phenomena_to_recompute,
+)
 from utils.io import ensure_dir, read_df, save_computed_dfs
 from utils.window import Window, clip
 
@@ -106,6 +113,16 @@ def compute_consumption(df_ee, df_gas, df_ee_total, df_gas_total):
     )
 
 
+def compute_provenienza(df_hhi, df_arrivi):
+    """phen_provenienza: concentration of the source markets (HHI, from the presences) + top source countries (from the
+    arrivals). Outer join on DATA + ID_COMUNE: a year / comune present in only one source keeps the other columns empty."""
+    keys = ["DATA", "ID_COMUNE"]
+    df_arrivi = df_arrivi.copy()
+    df_arrivi["DATA"] = df_arrivi["DATA"].astype(df_hhi["DATA"].dtype)
+    out = df_hhi.merge(df_arrivi[keys + ARRIVI_VALUE_COLS], on=keys, how="outer")
+    return out[keys + PROVENIENZA_VALUE_COLS + ARRIVI_VALUE_COLS].sort_values(keys).reset_index(drop=True)
+
+
 # phenomenon -> how it is built from the processed dataframes {dataset: df}
 BUILDERS = {
     "phen_popolazione": lambda pr: pr["popolazione"],
@@ -118,8 +135,8 @@ BUILDERS = {
     ),
     # yearly flow indicators per comune (quota in ingresso / uscita, quota intra-ambito, PageRank)
     "phen_flussi_od": lambda pr: pr["vodafone_covisits"],
-    # yearly concentration (normalized HHI) of the source markets of the tourists, per comune
-    "phen_provenienza": lambda pr: pr["vodafone_provenienza"],
+    # yearly concentration (normalized HHI) of the source markets + top source countries (arrivals), per comune
+    "phen_provenienza": lambda pr: compute_provenienza(pr["vodafone_provenienza"], pr["vodafone_arrivi"]),
 }
 assert set(BUILDERS) == set(PHENOMENA)
 

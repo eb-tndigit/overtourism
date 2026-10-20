@@ -70,6 +70,10 @@ datasets:
     std: ""                                # base build: derived from vodafone_std
     processed: vodafone_provenienza_pr
     update: vodafone_provenienza_update_pr
+  vodafone_arrivi:                         # Vodafone ARRIVALS (vodafone_arrivals.csv): source countries
+    std: vodafone_arrivi_std
+    processed: vodafone_arrivi_pr
+    update: vodafone_arrivi_update_pr
   ee_totale:
     std: ee_totale_std
     processed: ee_totale_pr
@@ -89,7 +93,11 @@ phenomena:
   phen_presenze: [vodafone, presenze_alb, presenze_extralb]
   phen_consumption: [ee_prelievi, gas_prelievi, ee_totale, gas_totale]
   phen_flussi_od: [vodafone_covisits]
-  phen_provenienza: [vodafone_provenienza]
+  phen_provenienza: [vodafone_provenienza, vodafone_arrivi]
+
+# Provenienza: source countries of the tourists (utils/main_market.py)
+provenienza:
+  top_n_countries: 3  # quota/name pairs in phen_provenienza; shared by base build and updates
 
 # Data lake / platform
 platform:

@@ -34,6 +34,7 @@ territorial_indexes/
     ├── cleaning.py, io.py, readers.py, remote.py  helpers, read/write, file readers, S3 / DigitalHub
     ├── disaggregation.py, stay_distribution.py    area -> comune split, monthly -> daily presences
     ├── flows.py, provenienza.py                   flow indicators, concentration of the source markets
+    ├── markets.py, main_market.py                 country names and top source countries (from arrivals)
     ├── adapters/                                  layout of each yearly source -> standard layout
     ├── update/                                    readers and config parsing of the update
     └── steps/                                     download_data, standardize_raw_data, process_std_data,
@@ -77,7 +78,7 @@ json mappings are in `Output/mapping`). Every step reads the output of the previ
    `mapping/` is **never downloaded again** (`--force-download` overrides this, `--skip-download` skips the step). A partially
    written or outdated file is not detected: delete it or force the download.
 2. **Standardization** uniforms column names, the `DATA` / `LOCATION` schema, dates and comune names, without filtering or
-   aggregating. Output: `popolazione_std`, `strutture_std`, `vodafone_std`, `ee_prelievi_std`, `gas_prelievi_std`,
+   aggregating. Output: `popolazione_std`, `strutture_std`, `vodafone_std`, `vodafone_arrivi_std`, `ee_prelievi_std`, `gas_prelievi_std`,
    `ee_totale_std`, `gas_totale_std`, `vodafone_covisits_std` (the Vodafone OD co-visits are reduced to the rows the indicators
    use). The ISPAT arrivals / presences are read directly from `raw_data` in step 2.
 3. **Processing** applies the time window, resolves `ID_COMUNE` and moves every dataset to its final granularity (comune ×
@@ -140,6 +141,8 @@ Notes:
   enabled together.
 * The final files of the base build must have the same columns as the update: after a change of the output columns (e.g.
   the addition of `presenze_escursionisti_vodafone`, `ee_total`, `gas_total`) **rerun the base build** before the update.
+* `phen_provenienza` needs **both** `vodafone_provenienza` and `vodafone_arrivi` in the update (`vodafone_arrivals.csv`, with
+  ALL the days of the year). It gained the three main-market columns: rerun the base build before the update.
 * The 2024 ISPAT presence files (downloaded by the base build) are needed by the 2025 update for the stays crossing the new year.
 
 ### The update config (`config/updates/<round>.yaml`)
@@ -191,7 +194,7 @@ may need a new adapter.
 | `phen_presenze` | comune × day | `presenze_alb`, `presenze_xalb`, `presenze_vodafone`, `presenze_escursionisti_vodafone` |
 | `phen_consumption` | comune × day | `ee_services`, `ee_total`, `gas_services`, `gas_total` |
 | `phen_flussi_od` | comune × year | `quota_ingresso`, `quota_uscita`, `quota_intra_ambito`, `pagerank` × (`tourist`, `visitor`, `combined`), `giorni_coperti` |
-| `phen_provenienza` | comune × year | `hhi_provenienza`, `giorni_coperti` |
+| `phen_provenienza` | comune × year | `hhi_provenienza`, `giorni_coperti`, `volume_totale`, top-country `volume_mercato_N` / `nome_mercato_N` pairs (`N` configurable in `config/settings.yaml`) |
 
 Empty values in `phen_flussi_od` and `phen_provenienza` are expected in some cases (small areas, missing flows); see
 METHODOLOGY.md. The step 2 log reports the share of empty values per column of `phen_flussi_od`.

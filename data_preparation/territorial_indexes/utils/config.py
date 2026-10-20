@@ -105,6 +105,15 @@ BASE_WINDOW = Window(_PER["start"], _PER["base_end"])
 UPDATE_WINDOW = Window(_PER["update_start"], _PER["update_end"])
 
 TYPE_FORMAT = _S["type_format"]
+TOP_N_PROVENIENZA_COUNTRIES = (_S.get("provenienza") or {}).get("top_n_countries", 3)
+if (
+    isinstance(TOP_N_PROVENIENZA_COUNTRIES, bool)
+    or not isinstance(TOP_N_PROVENIENZA_COUNTRIES, int)
+    or TOP_N_PROVENIENZA_COUNTRIES < 1
+):
+    raise ValueError(
+        f"{SETTINGS_FILE}: provenienza.top_n_countries must be a positive integer"
+    )
 DATASET_FILES = _S["datasets"]
 PHENOMENA_FILES = _S["phenomena"]
 

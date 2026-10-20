@@ -37,7 +37,9 @@ from utils.steps.standardize_raw_data import standardize_raw_data
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_UPDATE_CONFIG = Path(__file__).resolve().parent / "config" / "updates" / "update_2025.yaml"
+DEFAULT_UPDATE_CONFIG = (
+    Path(__file__).resolve().parent / "config" / "updates" / "update_2025.yaml"
+)
 
 
 def run_update_2025(

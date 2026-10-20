@@ -8,7 +8,12 @@ is defined here once.
 
 from dataclasses import dataclass
 
-from utils.config import BASE_WINDOW, DATASET_FILES, PHENOMENA_FILES
+from utils.config import (
+    BASE_WINDOW,
+    DATASET_FILES,
+    PHENOMENA_FILES,
+    TOP_N_PROVENIENZA_COUNTRIES,
+)
 
 # value columns of the processed dataframes
 POPOLAZIONE_VALUE_COLS = ["popolazione"]
@@ -46,6 +51,18 @@ PROVENIENZA_PROFILE = "TOURIST"  # only tourists
 PROVENIENZA_LOC_TYPE = "TN_MKT_AL_3"  # area level (same as the vodafone presences)
 PROVENIENZA_MIN_PRESENZE = 100  # minimum yearly user-days of an area to compute the index (else empty)
 PROVENIENZA_FULL_YEAR_DAYS = 360  # fewer days with data: the year is partial (warning, `giorni_coperti`)
+
+# Top source countries, see utils/main_market.py. Source: Vodafone ARRIVALS, same layout
+# as the presences (`vodafone_attendences_new.csv`) but `value` counts arrivals (a person once, however long the stay).
+# Same profile / area level as the HHI. Final columns of `phen_provenienza` after the HHI ones:
+ARRIVI_RAW_FILE = "vodafone_arrivals.csv"  # data-lake object / name in raw_data
+ARRIVI_VALUE_COL = "arrivi"  # name of `value` in the standardized dataset (the presences one is `presenze`)
+ARRIVI_VALUE_COLS = ["volume_totale"] + [
+    col
+    for rank in range(1, TOP_N_PROVENIENZA_COUNTRIES + 1)
+    for col in (f"volume_mercato_{rank}", f"nome_mercato_{rank}")
+]
+ARRIVI_FULL_YEAR_DAYS = 360  # fewer days with data: the year is partial (warning)
 
 # Vodafone OD co-visits (flows between areas) -> yearly flow indicators per comune, see utils/flows.py.
 # One column per metric and profile (`<metric>_<profile in lower case>`), plus the days covered by the year
@@ -143,6 +160,8 @@ DATASETS = {
             [REF_MAPPING_VODAFONE, REF_GEOJSON],
             normalized=False,
         ),
+        # Vodafone arrivals -> top source countries (normalized like the presences, value column `arrivi`)
+        _spec("vodafone_arrivi", ARRIVI_VALUE_COLS, [REF_MAPPING_VODAFONE, REF_GEOJSON]),
         _spec("ee_prelievi", EE_PRELIEVI_VALUE_COLS, [REF_MAPPING_COMUNI]),
         _spec("gas_prelievi", GAS_PRELIEVI_VALUE_COLS, [REF_MAPPING_COMUNI]),
         _spec("ee_totale", EE_TOTALE_VALUE_COLS, [REF_MAPPING_COMUNI]),

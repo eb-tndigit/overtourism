@@ -74,7 +74,7 @@ KIND_SCHEMAS = {
 KIND_DATASETS = {
     "popolazione": {"popolazione"},
     "strutture": {"strutture"},
-    "vodafone": {"vodafone", "vodafone_provenienza"},
+    "vodafone": {"vodafone", "vodafone_provenienza", "vodafone_arrivi"},
     "presenze_raw": {"presenze_alb", "presenze_extralb"},
     "vodafone_covisits": {"vodafone_covisits"},
     "energia": {"ee_prelievi", "gas_prelievi", "ee_totale", "gas_totale"},

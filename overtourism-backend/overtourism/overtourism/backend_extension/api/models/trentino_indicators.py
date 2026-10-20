@@ -13,6 +13,7 @@ from overtourism.overtourism.backend_extension.api.models.trenitno_phenomena imp
     PopulationPhenomenon,
     PresencesPhenomenon,
     ProvenienzaPhenomenon,
+    ProvenienzaVolumePhenomenon,
     SurfacePhenomenon,
 )
 from overtourism.overtourism.setup import index_data_path
@@ -43,7 +44,9 @@ CODICI_COMUNI_FILE = index_data_path / "mapping_comuni_ISTAT.json"
 # ---------------------------------------------------------------------------
 
 # Number of classes of the discretized PageRank map (quantiles, 1 = lowest ... N = highest)
-PAGERANK_N_CLASSES = 10
+PAGERANK_N_CLASSES = 5
+MAIN_MARKET_MIN_ARRIVALS = 100
+
 
 _VARIATION_RATE_KEY = "tasso-variazione"
 _PERIOD_PERCENTAGE_IMPACT_KEY = "incidenza-periodo"
@@ -84,6 +87,9 @@ _REGISTRY: dict[str, Callable[[], Indicator]] = {
         FLOWS_OD_SOURCE, PAGERANK_N_CLASSES
     ),
     "concentrazione-mercati-provenienza": lambda: SourceMarketsConcentrationIndicator(
+        PROVENIENZA_SOURCE
+    ),
+    "dipendenza-mercato-principale": lambda: MainMarketDependenceIndicator(
         PROVENIENZA_SOURCE
     ),
     "impatto-turismo-consumi-elettrici": lambda: TourismElectricityConsumptionImpactIndicator(
@@ -590,6 +596,90 @@ class SourceMarketsConcentrationIndicator(Indicator):
     @staticmethod
     def _hhi(df: pd.DataFrame, **_extra) -> pd.Series:
         return df["hhi_provenienza"]
+
+
+class MainMarketDependenceIndicator(Indicator):
+    """Share of the yearly tourist arrivals that come from the main source market: volume_mercato_1 / volume_totale."""
+
+    name = "Indice di dipendenza dal principale mercato di origine"
+    MAIN_MARKETS_COLUMN = "main_markets"
+    MAIN_MARKET_MARKETS_DESCRIPTION = "Italia, altri paesi europei, paesi extra-europei"
+    description = (
+        "L'indice di dipendenza dal principale mercato di origine misura la <strong>quota degli arrivi di turisti "
+        "che proviene dal mercato di origine più importante</strong> di un comune (rapporto fra gli arrivi dal mercato "
+        "principale e gli arrivi totali). Valori alti indicano una forte dipendenza da un solo mercato; il mercato "
+        "principale può essere diverso da un comune all'altro. I mercati sono: "
+        + MAIN_MARKET_MARKETS_DESCRIPTION
+        + ". Sono contati gli <strong>arrivi</strong> e non le presenze, così un soggiorno lungo non pesa più "
+        "di uno breve. L'indice è annuale, riguarda solo i turisti ed è calcolato sui dati Vodafone; è lasciato vuoto "
+        "per i comuni con arrivi troppo bassi. I conteggi molto piccoli non sono forniti da Vodafone: l'indice descrive "
+        "i mercati osservati."
+    )
+    index_value_unit_description = (
+        "Quota degli arrivi dal mercato principale (0-1; 1 = un solo mercato)"
+    )
+    year_only = True
+
+    def __init__(self, source_file):
+        super().__init__(
+            phenomena=[
+                ProvenienzaVolumePhenomenon(
+                    source_file,
+                    "volume_mercato_1",
+                    min_total=MAIN_MARKET_MIN_ARRIVALS,
+                ),
+                ProvenienzaVolumePhenomenon(
+                    source_file, "volume_totale", min_total=MAIN_MARKET_MIN_ARRIVALS
+                ),
+            ],
+            combinator=self._dependence,
+        )
+
+    def _compute_indicator(
+        self,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        **extra,
+    ) -> pd.DataFrame | None:
+        result = super()._compute_indicator(start_date, end_date, **extra)
+        if result is None:
+            return None
+
+        source = self.phenomena[0]._read_source()
+        source_years = source["DATA"].astype(str).str[:4].astype(int)
+        market_names = source.loc[
+            source_years == pd.to_datetime(end_date).year,
+            ["ID_COMUNE", "nome_mercato_1", "nome_mercato_2", "nome_mercato_3"],
+        ].copy()
+        market_names["ID_COMUNE"] = market_names["ID_COMUNE"].astype(str)
+        if market_names["ID_COMUNE"].duplicated().any():
+            raise ValueError(
+                "phen_provenienza must have only one row per comune and year"
+            )
+
+        def describe_markets(row: pd.Series) -> str | None:
+            names = [
+                str(value).strip()
+                for value in row.iloc[1:]
+                if pd.notna(value) and str(value).strip()
+            ]
+            return ", ".join(names) if names else None
+
+        market_names[self.MAIN_MARKETS_COLUMN] = market_names.apply(
+            describe_markets, axis=1
+        )
+        market_names_by_comune = market_names.set_index("ID_COMUNE")[
+            self.MAIN_MARKETS_COLUMN
+        ]
+        result[self.MAIN_MARKETS_COLUMN] = result["ID_COMUNE"].astype(str).map(
+            market_names_by_comune
+        )
+        return result
+
+    @staticmethod
+    def _dependence(df: pd.DataFrame, **_extra) -> pd.Series:
+        """main / total. The comune-years below MAIN_MARKET_MIN_ARRIVALS are already dropped by the phenomena."""
+        return df["volume_mercato_1"] / df["volume_totale"].replace(0, np.nan)
 
 
 # ---------------------------------------------------------------------------

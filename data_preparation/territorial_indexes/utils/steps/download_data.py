@@ -25,6 +25,7 @@ from utils.config import (
     setup_logging,
 )
 from utils.datasets import (
+    ARRIVI_RAW_FILE,
     COVISITS_RAW_FILE,
     ENERGY_TOTAL_FILES,
     PRESENZE_BASE_YEARS,
@@ -42,6 +43,7 @@ S3_DATA = [
     "popolazione_2020_2024.parquet",
     "vodafone_attendences.parquet",
     "vodafone_attendences_new.csv",  # completes the presences up to the end of the base window (2024-12-31)
+    ARRIVI_RAW_FILE,  # Vodafone arrivals (source countries of the tourists)
     COVISITS_RAW_FILE,  # Vodafone OD co-visits (flows between areas)
     # ISPAT arrivals / presences (alb, extralb) of the base years; later years come with the updates
     *(

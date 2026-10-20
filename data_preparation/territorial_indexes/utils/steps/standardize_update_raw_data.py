@@ -33,6 +33,7 @@ from utils.config import (
     TYPE_FORMAT,
     setup_logging,
 )
+from utils.datasets import ARRIVI_VALUE_COL
 from utils.io import ensure_dir, save_computed_dfs
 from utils.steps.standardize_raw_data import (
     standardize_covisits_columns,
@@ -53,6 +54,13 @@ STANDARDIZERS = {
     "vodafone_covisits": lambda df, geojson: standardize_covisits_columns(df),
     # energy: the reader (energy_csv) already gives the standard layout of the base normalized files
     "energia": lambda df, geojson: df,
+}
+# datasets of a kind with a different standardization (same raw layout as the kind)
+DATASET_STANDARDIZERS = {
+    # arrivals: same layout as the presences, the value column is `arrivi`
+    "vodafone_arrivi": lambda df, geojson: standardize_vodafone_columns(
+        df, geojson, value_name=ARRIVI_VALUE_COL
+    ),
 }
 # kinds used as downloaded (no normalization): ISPAT arrivals / presences
 RAW_KINDS = {"presenze_raw"}
@@ -87,7 +95,7 @@ def standardize_update_raw_data(
     raw_dir, mapping_dir = Path(raw_dir), Path(mapping_dir)
 
     geojson = None
-    if {"vodafone", "vodafone_provenienza"} & set(config.datasets):
+    if {"vodafone", "vodafone_provenienza", "vodafone_arrivi"} & set(config.datasets):
         from utils.readers import read_geojson
 
         geojson = read_geojson(mapping_dir / Path(REFERENCES["geojson"]).name)
@@ -105,7 +113,9 @@ def standardize_update_raw_data(
                     src.file,
                 )
                 continue
-            std = STANDARDIZERS[kind](aligned, geojson)
+            std = (DATASET_STANDARDIZERS.get(dataset) or STANDARDIZERS[kind])(
+                aligned, geojson
+            )
             frames.setdefault(src.part_name(dataset), []).append(std)
 
     dict_std = {

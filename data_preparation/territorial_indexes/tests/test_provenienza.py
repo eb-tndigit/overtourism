@@ -2,9 +2,10 @@ import pandas as pd
 import pytest
 
 from utils.config import BASE_WINDOW
-from utils.datasets import phenomena_to_recompute
+from utils.datasets import ARRIVI_VALUE_COLS, phenomena_to_recompute
 from utils.provenienza import comune_hhi, normalized_hhi
-from utils.steps.process_std_data import process_provenienza
+from utils.steps.create_phenomena_df import compute_provenienza
+from utils.steps.process_std_data import process_provenienza, process_provenienza_arrivi
 
 
 def _hhi(values):
@@ -78,6 +79,78 @@ def test_process_provenienza_needs_country():
             _std({"ITA": 1}).drop(columns="userCountry"),
             pd.DataFrame({"areaId": ["7"], "ID_COMUNE": ["022007"]}),
         )
+
+
+def test_arrivals_count_countryless_rows_and_report_top_country_shares():
+    rows = [
+        {
+            "DATA": "2023-05-01",
+            "locId": "7",
+            "locType": "TN_MKT_AL_3",
+            "userProfile": "TOURIST",
+            "userCountry": country,
+            "arrivi": value,
+        }
+        for country, value in [
+            ("ITA", 50),
+            ("DEU", 30),
+            ("FRA", 10),
+            (None, 10),
+        ]
+    ]
+    out = process_provenienza_arrivi(
+        pd.DataFrame(rows), pd.DataFrame({"areaId": ["7"], "ID_COMUNE": ["022007"]})
+    )
+
+    row = out.iloc[0]
+    assert row["volume_totale"] == 100
+    assert [row[f"nome_mercato_{rank}"] for rank in range(1, 4)] == [
+        "Italy",
+        "Germany",
+        "France",
+    ]
+    assert [row[f"volume_mercato_{rank}"] for rank in range(1, 4)] == [50, 30, 10]
+    assert list(out.columns) == ["DATA", "ID_COMUNE", *ARRIVI_VALUE_COLS]
+    phenomenon = compute_provenienza(
+        pd.DataFrame(
+            {
+                "DATA": [2023],
+                "ID_COMUNE": ["022007"],
+                "hhi_provenienza": [0.2],
+                "giorni_coperti": [1],
+            }
+        ),
+        out,
+    )
+    assert list(phenomenon.columns) == [
+        "DATA",
+        "ID_COMUNE",
+        "hhi_provenienza",
+        "giorni_coperti",
+        *ARRIVI_VALUE_COLS,
+    ]
+    assert phenomenon.loc[0, "volume_mercato_1"] == 50
+
+
+def test_arrivals_without_country_column_still_count_in_total():
+    df = pd.DataFrame(
+        [
+            {
+                "DATA": "2023-05-01",
+                "locId": "7",
+                "locType": "TN_MKT_AL_3",
+                "userProfile": "TOURIST",
+                "arrivi": 17,
+            }
+        ]
+    )
+    out = process_provenienza_arrivi(
+        df, pd.DataFrame({"areaId": ["7"], "ID_COMUNE": ["022007"]})
+    )
+
+    assert out["volume_totale"].tolist() == [17]
+    assert out[[f"nome_mercato_{rank}" for rank in range(1, 4)]].isna().all().all()
+    assert out[[f"volume_mercato_{rank}" for rank in range(1, 4)]].isna().all().all()
 
 
 def test_phenomenon_needs_only_vodafone_provenienza():

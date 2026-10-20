@@ -3,7 +3,7 @@
 STEP 1 - Standardization.
 
 Input : Output/data/raw_data/
-Output: Output/data/normalized/   (popolazione_std, strutture_std, vodafone_std,
+Output: Output/data/normalized/   (popolazione_std, strutture_std, vodafone_std, vodafone_arrivi_std,
                                    ee_prelievi_std, gas_prelievi_std, vodafone_covisits_std)
 
 The ISPAT presences (alb / extralb arrivals and presences) are NOT normalized: they are processed from raw_data.
@@ -36,6 +36,8 @@ from utils.config import (
 )
 from utils.io import raw_path, read_df, save_computed_dfs
 from utils.datasets import (
+    ARRIVI_RAW_FILE,
+    ARRIVI_VALUE_COL,
     COVISITS_LOC_TYPE,
     COVISITS_PROFILES,
     COVISITS_RAW_FILE,
@@ -114,9 +116,14 @@ def read_base_strutture(raw_dir):
 
 
 def standardize_vodafone_columns(
-    df, geojson_comuni_json_data, comune_col="comune", date_col="date"
+    df,
+    geojson_comuni_json_data,
+    comune_col="comune",
+    date_col="date",
+    value_name="presenze",
 ):
-    """vodafone presences: granularity vodafone areas, daily"""
+    """vodafone presences (`value_name="presenze"`) or arrivals (`value_name="arrivi"`): granularity vodafone
+    areas, daily. Same layout and same standardization, only the name of the value column changes."""
     df[comune_col] = convert_vodafone_comuni(df, geojson_comuni_json_data)
     logger.info(
         "Unification of Vigo di Fassa and Pozza di Fassa in Vodafone dataset (ID 22250)"
@@ -124,7 +131,7 @@ def standardize_vodafone_columns(
     mask = df[comune_col].isin(["VIGO DI FASSA", "POZZA DI FASSA"])
     df.loc[mask, comune_col] = "SAN GIOVANNI DI FASSA"
     df = _standardize_columns(df, date_col=date_col, df_name="vodafone_df")
-    df.rename(columns={"value": "presenze"}, inplace=True)
+    df.rename(columns={"value": value_name}, inplace=True)
     return standard_ordering_cols(df)
 
 
@@ -154,6 +161,17 @@ def read_base_vodafone(raw_dir, type_format=TYPE_FORMAT) -> pd.DataFrame:
         new["date"].max(),
     )
     return pd.concat([old[~replaced], new], ignore_index=True)
+
+
+def read_base_arrivals(raw_dir) -> pd.DataFrame:
+    """Vodafone arrivals of the base build: the single file `vodafone_arrivals.csv` (same layout as
+    `vodafone_attendences_new.csv`, but `value` counts arrivals). The time window is applied in step 2."""
+    path = Path(raw_dir) / ARRIVI_RAW_FILE
+    if not path.exists():
+        raise FileNotFoundError(f"{path} not found: run the download step")
+    df = pd.read_csv(path)
+    logger.info("[vodafone_arrivi] %s: %d rows (%s .. %s)", ARRIVI_RAW_FILE, len(df), df["date"].min(), df["date"].max())
+    return df
 
 
 def read_energy_category(path) -> pd.DataFrame:
@@ -293,12 +311,16 @@ def standardize_raw_data(
     strutture_df = read_base_strutture(raw_dir)
     vodafone_df = read_base_vodafone(raw_dir, type_format)
     geojson = read_geojson(mapping_dir / Path(REFERENCES["geojson"]).name)
+    arrivals_df = read_base_arrivals(raw_dir)
     covisits_df = read_covisits_raw(raw_dir / COVISITS_RAW_FILE)
 
     dict_std = {
         "popolazione_std": standardize_popolazione_columns(popolazione_df),
         "strutture_std": standardize_strutture_columns(strutture_df),
         "vodafone_std": standardize_vodafone_columns(vodafone_df, geojson),
+        DATASETS["vodafone_arrivi"].std_name: standardize_vodafone_columns(
+            arrivals_df, geojson, value_name=ARRIVI_VALUE_COL
+        ),
         DATASETS["ee_prelievi"].std_name: standardize_energy_folder(
             raw_dir, "ee_prelievi"
         ),

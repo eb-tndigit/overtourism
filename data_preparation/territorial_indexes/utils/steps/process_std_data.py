@@ -7,7 +7,7 @@ Input : Output/data/normalized/   (+ mapping json files, read from Output/mappin
 Output: Output/data/data_processed/   (popolazione_pr, strutture_pr, vodafone_pr,
                                        presenze_alb_pr, presenze_extralb_pr,
                                        ee_prelievi_pr, gas_prelievi_pr, ee_totale_pr, gas_totale_pr,
-                                       vodafone_covisits_pr, vodafone_provenienza_pr)
+                                       vodafone_covisits_pr, vodafone_provenienza_pr, vodafone_arrivi_pr)
 
 Transformations: ID_COMUNE resolution, filtering, selection of the columns, computation of
 aggregated columns, disaggregation of the presences to comune x day (vodafone: areas -> comuni by beds;
@@ -44,6 +44,8 @@ from utils.config import (
     setup_logging,
 )
 from utils.datasets import (  # noqa: F401  (re-exported for convenience)
+    ARRIVI_FULL_YEAR_DAYS,
+    ARRIVI_VALUE_COL,
     COVISITS_FULL_YEAR_DAYS,
     PROVENIENZA_FULL_YEAR_DAYS,
     PROVENIENZA_LOC_TYPE,
@@ -80,6 +82,7 @@ from utils.disaggregation import (
     is_whole,
 )
 from utils.flows import build_area_comune, comune_flow_indicators
+from utils.main_market import comune_main_market
 from utils.provenienza import comune_hhi
 from utils.stay_distribution import distribute_by_stay
 from utils.io import read_df, read_json, save_computed_dfs
@@ -348,6 +351,31 @@ def process_provenienza(df, area_comune, window=BASE_WINDOW):
             "[process_provenienza] %s is a partial year (%d days): compare it with care", year, days
         )
     return out
+
+
+def process_provenienza_arrivi(df, area_comune, strutture=None, window=BASE_WINDOW):
+    """Standardized Vodafone arrivals -> comune x YEAR total and top-country volumes/names.
+    Countryless arrivals contribute to `volume_totale` but cannot be assigned a country. Areas with several
+    comuni are split by beds (`strutture`). Partial years are kept, with a warning."""
+    df = df[
+        (df["userProfile"] == PROVENIENZA_PROFILE) & (df["locType"] == PROVENIENZA_LOC_TYPE)
+    ]
+    df = clip(df, window, name="vodafone_arrivi")
+    days = df.assign(year=df["DATA"].astype(str).str[:4].astype(int)).groupby("year")["DATA"].nunique()
+    for year, n in days[days < ARRIVI_FULL_YEAR_DAYS].items():
+        logger.warning(
+            "[process_provenienza_arrivi] %s is a partial year (%d days): compare it with care", year, n
+        )
+    countries = df["userCountry"] if "userCountry" in df.columns else pd.Series(None, index=df.index)
+    df = pd.DataFrame(
+        {
+            "DATA": df["DATA"].astype(str).str[:10],
+            "areaId": df["locId"].astype(str).str.replace(r"\.0$", "", regex=True),
+            "userCountry": countries,
+            "value": pd.to_numeric(df[ARRIVI_VALUE_COL], errors="coerce").fillna(0.0),
+        }
+    )
+    return standard_ordering_cols(comune_main_market(df, area_comune, strutture))
 
 
 def stack_covisits(frames):
@@ -667,8 +695,7 @@ def process_data(
     window=BASE_WINDOW,
 ):
     """Base build: every dataset is restricted to `window` (default: period.start .. period.base_end of
-    settings.yaml), so nothing before 2022-01-01 and nothing after 2024-12-31 reaches the processed data
-    ."""
+    settings.yaml), so nothing before 2022-01-01 and nothing after 2024-12-31 reaches the processed data."""
     normalized_dir = Path(normalized_dir)
     logger.info("Time window of the base build: %s", window)
 
@@ -746,6 +773,9 @@ def process_data(
     area_comune = covisits_area_comune(mapping_dir, mapping_vodafone, mapping_comuni)
     covisits_pr = process_covisits(std["vodafone_covisits"], area_comune, window)
     provenienza_pr = process_provenienza(std["vodafone"], area_comune, window)
+    arrivi_pr = process_provenienza_arrivi(
+        std["vodafone_arrivi"], area_comune, strutture_pr, window
+    )
     dict_processed = {
         "popolazione_pr": popolazione_pr,
         "strutture_pr": strutture_pr,
@@ -758,6 +788,7 @@ def process_data(
         DATASETS["gas_totale"].processed_name: gas_total_pr,
         DATASETS["vodafone_covisits"].processed_name: covisits_pr,
         DATASETS["vodafone_provenienza"].processed_name: provenienza_pr,
+        DATASETS["vodafone_arrivi"].processed_name: arrivi_pr,
     }
 
     save_computed_dfs(
