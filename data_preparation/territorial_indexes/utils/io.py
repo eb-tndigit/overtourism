@@ -8,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from utils.cleaning import normalize_id_comune
-from utils.config import TYPE_FORMATS
+from utils.config import ENERGY_ROOT, TYPE_FORMATS
 
 logger = logging.getLogger(__name__)
 
@@ -22,10 +22,10 @@ def ensure_dir(path) -> Path:
 
 def raw_path(key, raw_dir) -> Path:
     """Where a data-lake object `key` lives in raw_data: flat (its base name), except the energy files, which
-    keep their folder (`Energia/ee_prelievi/49_3.csv` -> raw_data/ee_prelievi/49_3.csv): electricity and gas
-    have identically named category files."""
+    keep their folder (`<energy root>/ee_prelievi/49_3.csv` -> raw_data/ee_prelievi/49_3.csv): electricity and gas
+    have identically named category files. The energy root folder is `files.energy.root` of settings.yaml."""
     key = Path(key)
-    sub = key.parent.name if key.parts[0] == "Energia" else ""
+    sub = key.parent.name if key.parts[0] == ENERGY_ROOT else ""
     return Path(raw_dir) / sub / key.name
 
 
@@ -44,6 +44,21 @@ def read_df(path, name, type_format="csv", parse_ids=False):
     if parse_ids and "ID_COMUNE" in df.columns:
         df["ID_COMUNE"] = df["ID_COMUNE"].apply(normalize_id_comune)
     return df
+
+
+def read_table(path) -> pd.DataFrame:
+    """Reads a raw table (csv or parquet) choosing the reader from the file extension, so the file names
+    of settings.yaml are used exactly as written."""
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"{path} not found: run the previous step (download raw data)")
+    match path.suffix.lower():
+        case ".parquet":
+            return pd.read_parquet(path)
+        case ".csv":
+            return pd.read_csv(path)
+        case other:
+            raise NotImplementedError(f"read_table: unsupported extension {other!r} ({path})")
 
 
 def read_json(path):

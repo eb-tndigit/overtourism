@@ -35,12 +35,16 @@ from utils.config import (
     BASE_WINDOW,
     DATA_START,
     MAPPING_DIR,
+    MAPPING_FILES,
     NORMALIZED_DIR,
+    PRESENZE_FILE_PATTERN,
+    PRESENZE_MEASURES,
+    PRESENZE_TAGS,
     PROCESSED_DIR,
     RAW_DIR,
     REFERENCES,
+    STD_SUFFIX,
     TYPE_FORMAT,
-    MAPPING_FILES,
     setup_logging,
 )
 from utils.datasets import (  # noqa: F401  (re-exported for convenience)
@@ -59,9 +63,7 @@ from utils.datasets import (  # noqa: F401  (re-exported for convenience)
     COVISITS_VALUE_COLS,
     DATASETS,
     PRESENZE_BASE_YEARS,
-    PRESENZE_MEASURES,
     PRESENZE_SPILL_OVER,
-    PRESENZE_TAGS,
     POPOLAZIONE_VALUE_COLS,
     PRESENZE_ALB_VALUE_COLS,
     PRESENZE_XALB_VALUE_COLS,
@@ -535,12 +537,14 @@ def process_energy(df, mapping_comuni, value_col, source, window=BASE_WINDOW):
 def read_strutture_std(normalized_dir, type_format=TYPE_FORMAT):
     """Every normalized strutture file (base `strutture_std` + the ones of the updates, e.g.
     `strutture_2024_update_std`), stacked: on a duplicated DATA + LOCATION the later file wins.
+    The names follow `datasets.strutture.std` and `naming.std_suffix` of settings.yaml.
     """
     normalized_dir = Path(normalized_dir)
-    base = DATASETS["strutture"].std_name
+    spec = DATASETS["strutture"]
+    base = spec.std_name
     names = sorted(
         f.stem
-        for f in normalized_dir.glob(f"strutture*_std.{type_format}")
+        for f in normalized_dir.glob(f"{spec.name}*{STD_SUFFIX}.{type_format}")
         if f.stem != base
     )
     frames = [read_df(normalized_dir, n, type_format) for n in [base, *names]]
@@ -599,12 +603,13 @@ def clean_presenze_exalb(df, year, source="presenze_extralb"):
 
 
 def presenze_files(raw_dir, tag, years):
-    """Convention of the file names: {(measure, year): raw_dir/<measure>_<tag>_<year>.csv} (existing files)."""
+    """Convention of the file names (`files.presenze.pattern` of settings.yaml, e.g. `<measure>_<tag>_<year>.csv`):
+    {(measure, year): raw_dir/<file>} (existing files)."""
     raw_dir = Path(raw_dir)
     files = {}
     for y in years:
         for m in PRESENZE_MEASURES:
-            f = raw_dir / f"{m}_{tag}_{y}.csv"
+            f = raw_dir / PRESENZE_FILE_PATTERN.format(measure=m, tag=tag, year=y)
             if f.exists():
                 files[(m, int(y))] = f
     return files
@@ -777,11 +782,11 @@ def process_data(
         std["vodafone_arrivi"], area_comune, strutture_pr, window
     )
     dict_processed = {
-        "popolazione_pr": popolazione_pr,
-        "strutture_pr": strutture_pr,
-        "vodafone_pr": vodafone_pr,
-        "presenze_alb_pr": alb_pr,
-        "presenze_extralb_pr": extralb_pr,
+        DATASETS["popolazione"].processed_name: popolazione_pr,
+        DATASETS["strutture"].processed_name: strutture_pr,
+        DATASETS["vodafone"].processed_name: vodafone_pr,
+        DATASETS["presenze_alb"].processed_name: alb_pr,
+        DATASETS["presenze_extralb"].processed_name: extralb_pr,
         DATASETS["ee_prelievi"].processed_name: ee_pr,
         DATASETS["gas_prelievi"].processed_name: gas_pr,
         DATASETS["ee_totale"].processed_name: ee_total_pr,

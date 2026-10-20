@@ -3,7 +3,7 @@
 STEP 1 (update) - Standardization of the update raw data.
 
 Input : Output/data/raw_data/   (files downloaded by download_update_raw_data)
-Output: Output/data/normalized/ (<dataset>_update_std, or <dataset>_<label>_update_std)
+Output: Output/data/normalized/ (<dataset>_update_std, or <dataset>_<label>_update_std; suffixes in settings.yaml `naming`)
 
 For every source of the update config:
   1. read the raw file
@@ -30,6 +30,7 @@ from utils.config import (
     NORMALIZED_DIR,
     RAW_DIR,
     REFERENCES,
+    STD_SUFFIX,
     TYPE_FORMAT,
     setup_logging,
 )
@@ -119,7 +120,7 @@ def standardize_update_raw_data(
             frames.setdefault(src.part_name(dataset), []).append(std)
 
     dict_std = {
-        f"{name}_std": (
+        f"{name}{STD_SUFFIX}": (
             parts[0] if len(parts) == 1 else pd.concat(parts, ignore_index=True)
         )
         for name, parts in frames.items()

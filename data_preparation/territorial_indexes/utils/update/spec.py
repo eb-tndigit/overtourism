@@ -37,7 +37,7 @@ from utils.adapters import (
     check_adapter_params,
     get_adapter,
 )
-from utils.config import DATA_START, UPDATE_WINDOW
+from utils.config import DATA_START, STD_SUFFIX, UPDATE_PART_SUFFIX, UPDATE_WINDOW
 from utils.datasets import ALL_DATASETS
 from utils.window import Window
 from utils.update.sources import READERS
@@ -62,8 +62,8 @@ class SourceSpec:
     def part_name(self, dataset: str) -> str:
         """Internal name for a source part during standardization and processing."""
         if self.label:
-            return f"{dataset}_{self.label}_update"
-        return f"{dataset}_update"
+            return f"{dataset}_{self.label}{UPDATE_PART_SUFFIX}"
+        return f"{dataset}{UPDATE_PART_SUFFIX}"
 
 
 @dataclass(frozen=True)
@@ -224,7 +224,7 @@ class UpdatePart:
 
     @property
     def std_name(self) -> str:
-        return f"{self.name}_std"
+        return f"{self.name}{STD_SUFFIX}"
 
 
 def plan_parts(config: UpdateConfig) -> list:

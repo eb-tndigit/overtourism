@@ -11,9 +11,9 @@ columns below. `DATA` is `YYYY` for yearly phenomena (`phen_popolazione`, `phen_
 |---|---|---|---|
 | `phen_popolazione` | comune × year | ISPAT resident population | value at 1 January |
 | `phen_strutture` | comune × year | ISPAT accommodation statistics | totals recomputed from the components |
-| `phen_presenze` | comune × day | Vodafone presences (tourists, visitors) + ISPAT hotel / extra-hotel presences | areas split by beds (tourists) or population (visitors); stays spread with the average length of stay |
-| `phen_consumption` | comune × day | monthly electricity and gas withdrawals | each month spread evenly over its days |
-| `phen_flussi_od` | comune × year | Vodafone OD co-visits | indicators computed per area, then passed to comuni; visitors weigh 0.5 |
+| `phen_presenze` | comune × day | Vodafone presences (tourists, visitors) + ISPAT hotel / extra-hotel presences | disaggregated (see *Disaggregation*): areas split by beds (tourists) or population (visitors); monthly ISPAT presences spread over days with the average length of stay |
+| `phen_consumption` | comune × day | monthly electricity and gas withdrawals | disaggregated in time only: each month spread evenly over its days |
+| `phen_flussi_od` | comune × year | Vodafone OD co-visits | only the total rows are used (the country breakdown is anonymized and does not add up); indicators computed per area, then passed to comuni (not split); visitors weigh 0.5 |
 | `phen_provenienza` | comune × year | Vodafone presences (HHI) and arrivals (main market) by country of origin | normalized HHI of tourist user-days; main market from tourist arrivals (areas split by beds); small areas left empty (HHI) |
 
 ## Common rules
@@ -37,14 +37,76 @@ data by exact date. An update that finds no data in its window stops with an err
 * **Comune ids**: comune names are resolved to ISTAT ids with `mapping_comuni`; rows of the whole provincia are removed.
 * **Vodafone areas** (`locType = TN_MKT_AL_3`, hereafter "areas") may cover one or several comuni, as defined by
   `mapping_vodafone`. Vigo di Fassa and Pozza di Fassa are unified in **San Giovanni di Fassa** (22250).
-* **Splitting an area over its comuni** uses weights (beds or population). The weight of the year of the day is used;
-  if that year is missing, the nearest one (the earlier on a tie, with a warning); without any weight, a uniform split.
-  Integer counts are rounded with the largest-remainder method, so the sum over the comuni equals the original value
-  exactly. Every split is checked by summing back (a mismatch stops the run).
+* **Splitting an area over its comuni** (and every other disaggregation) follows the rules of the next section,
+  *Disaggregation*.
+* **File names** (raw files, folders, file-name patterns, names of the intermediate files) are not in the code: they are
+  all in `config/settings.yaml` (`files`, `naming`, `datasets`, `references`) and in the update yaml.
 * **Update**: the update runs the same processing functions as the base build, appends its rows to the existing
   `final_data` and, on a duplicated `DATA` + `ID_COMUNE`, the update row wins. A phenomenon is recomputed only if **all**
   its datasets are in the update. Every source of the update first goes through an *adapter* that checks the file layout
   (a mismatch stops the run) and renames the columns to the standard ones.
+
+### Disaggregation
+
+Several sources are coarser than the final granularity (comune × day): Vodafone gives **areas** that may cover several
+comuni, ISPAT gives **months** for APT / the whole provincia, and the energy files give **months** per comune.
+*Disaggregation* turns one coarse value into several finer ones. Territorial splits (area → comuni) are all done by the
+same function, `disaggregate` in `utils/disaggregation.py`, called by `process_vodafone` (`process_std_data.py`),
+`stay_distribution.py` (ISPAT) and `main_market.py` (arrivals). The spread over time (month → days) is done by two
+dedicated methods, described below, because it needs more than a weight.
+
+**Principle.** A parent row (one value of a coarse area and / or period) is split among its *children* (the comuni of the
+area, the days of the month) **in proportion to a weight**: `child = parent × w_child / Σ w`. The values are therefore
+**redistributed, never created or lost**: the children add up to the parent. The weights are a supporting variable, not
+an estimate of the real distribution: where the real split is unknown, the result is a plausible allocation, not an
+observation.
+
+**Axes.**
+* *Space*: area → comuni, with `disaggregate(..., axis="space")`. This is the only axis of that function used by the
+  pipeline. The parent row lists the comuni of the area (`mapping_vodafone`, `mapping_apt`; for the whole provincia, all
+  the comuni). An area that is a single comune is unchanged.
+* *Time*: month → days. ISPAT presences use the **length-of-stay model** (see `presenze_alb` and `presenze_xalb`); the
+  energy withdrawals are divided **equally** over the days (see `phen_consumption`, done in `process_energy`).
+* `disaggregation.py` also contains a time axis (`disaggregate_time`) and a combined one (`distribute_like`: a phenomenon
+  distributed over comuni *and* days following another phenomenon as weight). They are generic tools, **not used** by the
+  current steps, so no published value depends on them.
+
+**Weights.** They are always a non-negative number per child:
+
+| Where | Axis | Weight |
+|---|---|---|
+| Vodafone tourists (`presenze_vodafone`) | space | `tot_postiletto` of the year (beds) |
+| Vodafone visitors (`presenze_escursionisti_vodafone`) | space | resident population of the year |
+| ISPAT hotels (`presenze_alb`) | space, after the time step | `alberghieri posti_letto` of the year |
+| ISPAT extra-hotels (`presenze_xalb`) | space, after the time step | `extra alb. Posti_letto` of the year |
+| Vodafone arrivals (`volume_*` of `phen_provenienza`) | space | `tot_postiletto` of the year |
+| ISPAT monthly presences | time | the stay model of `stay_distribution.py` (see `presenze_alb` and `presenze_xalb`), not a plain weight |
+| Energy (`phen_consumption`) | time | none: **equal** share for every calendar day of the month (leap days included) |
+
+**Rules of the territorial splits** (`disaggregate`; the largest-remainder rounding, rule 3, is also used inside the
+stay model, and the energy is a plain division of continuous values).
+1. *Weight of the right period.* Weights that are yearly (beds, population) are looked up for the year of the day. If that
+   year is missing, the **nearest available year** is used (the earlier one on a tie), with a warning.
+2. *No usable weight.* If all the weights of a parent are zero or missing, the parent is split **uniformly** among its
+   children, with a warning (when there are several children and something to split).
+3. *Integers stay integers.* Counts are rounded with the **largest-remainder method**: every child gets the integer part of
+   its share and the remaining units go to the children with the largest fractional parts, so the children add up to the
+   parent **exactly**. Continuous values (energy) are not rounded.
+4. *Sum check.* After every territorial split the children are summed back for every input row (and, for Vodafone, per day;
+   for the arrivals, per year) and compared with the original values. A mismatch **stops the run**; the totals are logged
+   otherwise.
+5. *Keys.* Comune ids are compared in normalized form (`22001`, `'22001'` and `'022001'` are the same id), and the output has
+   one `ID_COMUNE` per row, zero-padded.
+
+**Order for the ISPAT presences.** Time first, then space: the monthly arrivals and presences of every area are spread
+over the days with the length-of-stay model (see `presenze_alb` and `presenze_xalb`), and the resulting area × day values
+are split among the comuni with the bed weights. The check is done on the final result: the comune × day values, summed
+back by area and month, must equal the official monthly presences (a mismatch stops the run).
+
+**What is *not* disaggregated.** Quantities that are not additive cannot be split without changing their meaning, so
+they are computed on the area and **passed unchanged to every comune of the area** (a comune with several areas gets a
+weighted mean): the concentration `hhi_provenienza` and the flow indicators of `phen_flussi_od` (shares and PageRank).
+Population, structures and the energy withdrawals are already at comune level and are not split in space.
 
 ## `phen_popolazione` (comune × year)
 
@@ -133,9 +195,21 @@ Columns: `quota_ingresso`, `quota_uscita`, `quota_intra_ambito`, `pagerank`, eac
 `_combined`, plus `giorni_coperti`.
 
 * **Starting data**: Vodafone OD co-visits `vodafone_covisits.csv`: day × source area × target area, with `covisitType`
-  `ND` (users present) or `UD` (users who visit both areas), profile and country. Only area-level rows, profiles `TOURIST`
-  and `VISITOR`, and rows with empty `userCountry` (the total over the countries) are kept; the file is read in chunks.
-  The 2025 update reads the same object, filtered to 2025.
+  `ND` (users present) or `UD` (users who visit both areas), profile, country and cluster. Only area-level rows, profiles
+  `TOURIST` and `VISITOR`, and the **total rows** are kept; the file is read in chunks. The 2025 update reads the same
+  object, filtered to 2025.
+* **Total rows and anonymization**: for every day × source × target × `covisitType` the file starts with **one total row per
+  profile** (`TOURIST`, then `VISITOR`; `userCountry` and `userCluster` empty), followed by the breakdown by country
+  (with its cluster). The total rows are the only ones used, and **the totals are never recomputed by summing the
+  countries**, because the breakdown does not add up to the total: Vodafone's privacy rule sets to 0 every cell below
+  a threshold (about 15 users; the smallest non-zero value, in totals and countries alike, is 15), so each country row
+  only shows its visible part. On the sample file (one day, 460 total rows, 173 of them non-zero) the countries add up
+  exactly to the total in only 32% of the non-zero totals and to **less** than it in all the others, never more; overall
+  the breakdown shows 91.6% of the user-days (e.g. 1,594 of 2,091 tourist user-days for one pair), and 9 pairs with totals
+  of 16 to 27 have an all-zero breakdown. Keeping both the totals and the countries would roughly **double** the
+  user-days (the sample sums to 41,684 with the totals only and to 79,878 with every row), so there is no option to keep
+  them: a row is a total only if both `userCountry` and `userCluster` are empty. The total is itself censored (it is 0
+  below the threshold), so very small flows are invisible (see the reliability threshold below).
 * **Computation**, per year and profile, on user-days summed over the year, with `T(j)` = users present in area *j*
   (`ND`, source `*`):
   * `quota_ingresso` = UD(\*→j) / T(j): share of the users present in *j* who come from another area;
@@ -232,7 +306,8 @@ user-days) would have to be revisited, because arrivals are fewer; it has **not*
 These parts were written without access to the real files; check them before trusting the numbers:
 * the layout and content of `totale_ee.csv` / `totale_gas.csv` (one row per comune-year assumed) and of the 2025 energy
   files;
-* that `vodafone_covisits.csv` contains the 2025 days;
+* that `vodafone_covisits.csv` contains the 2025 days, and that the whole file has the structure seen in the 999-row sample
+  (total rows with empty `userCountry` and `userCluster` first, no duplicated total rows; the code warns on duplicates);
 * the ISPAT presences of 2022–2024 and the choice of reading `vodafone_attendences_new.csv` for April–December 2024;
 * `vodafone_arrivals.csv`: that `userCountry` is ISO alpha-3 / alpha-2 / English names (otherwise the run stops with the list of
   the values found), the period it covers (all the days of every year), that `TOURIST` / `TN_MKT_AL_3` are present as in the

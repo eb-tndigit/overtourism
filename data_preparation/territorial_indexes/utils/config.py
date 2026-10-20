@@ -20,10 +20,26 @@ _PATH_KEYS = (
     "processed",
     "final",
 )
-_PLATFORM_KEYS = ("project", "s3_bucket", "s3_prefix", "dhcore_env")
+_PLATFORM_KEYS = ("project", "s3_bucket", "s3_prefix", "dhcore_env", "credentials_file")
 _REFERENCE_KEYS = ("mapping_comuni", "mapping_vodafone", "mapping_apt", "geojson")
 _PERIOD_KEYS = ("start", "base_end", "update_start", "update_end")
 _DATASET_FILE_KEYS = ("std", "processed", "update")
+_NAMING_KEYS = ("std_suffix", "update_part_suffix")
+_FILES_KEYS = (
+    "popolazione",
+    "strutture_historical",
+    "strutture_2024",
+    "vodafone_presenze_old",
+    "vodafone_presenze_new",
+    "vodafone_arrivi",
+    "vodafone_covisits",
+    "presenze",
+    "energy",
+)
+_PRESENZE_FILES_KEYS = ("folder", "pattern", "measures", "tags")
+_ENERGY_FILES_KEYS = ("root", "folders", "category_files", "category_glob", "totals")
+# references that are json mappings (the other one, the geojson, is not read by `load_mappings`)
+_MAPPING_REFERENCE_KEYS = ("mapping_comuni", "mapping_vodafone", "mapping_apt")
 
 
 def load_settings(path=SETTINGS_FILE) -> dict:
@@ -42,12 +58,16 @@ def load_settings(path=SETTINGS_FILE) -> dict:
                     "references",
                     "datasets",
                     "phenomena",
+                    "naming",
+                    "files",
                 ),
             ),
             ("paths", _PATH_KEYS),
             ("period", _PERIOD_KEYS),
             ("platform", _PLATFORM_KEYS),
             ("references", _REFERENCE_KEYS),
+            ("naming", _NAMING_KEYS),
+            ("files", _FILES_KEYS),
         )
         for key in keys
         if key not in (settings.get(section, {}) if section else settings)
@@ -58,6 +78,15 @@ def load_settings(path=SETTINGS_FILE) -> dict:
         for key in _DATASET_FILE_KEYS:
             if key not in dataset_cfg:
                 missing.append(f"datasets.{dataset_name}.{key}")
+    files = settings.get("files") or {}
+    for section, keys in (("presenze", _PRESENZE_FILES_KEYS), ("energy", _ENERGY_FILES_KEYS)):
+        body = files.get(section)
+        if not isinstance(body, dict):
+            continue  # already reported as missing above
+        missing += [f"files.{section}.{key}" for key in keys if key not in body]
+    update_cfg = settings.get("update") or {}
+    if "default_config" not in update_cfg:
+        missing.append("update.default_config")
     for phenomenon_name, deps in (settings.get("phenomena") or {}).items():
         if not isinstance(deps, list):
             raise TypeError(
@@ -123,15 +152,39 @@ S3_BUCKET = _S["platform"]["s3_bucket"]
 S3_PREFIX = _S["platform"]["s3_prefix"]
 S3_ENV = _S["platform"]["dhcore_env"]
 
+CREDENTIALS_FILE = _S["platform"]["credentials_file"]
+
 _LOCAL = (_S.get("update") or {}).get("local_source_dir")
 LOCAL_SOURCE_DIR = _resolve(PACKAGE_DIR, _LOCAL) if _LOCAL else None
+DEFAULT_UPDATE_CONFIG = _resolve(PACKAGE_DIR, _S["update"]["default_config"])
 
+# ---- file names (everything comes from settings.yaml: no file name is written in the code)
+# json mappings: reference key -> file name in MAPPING_DIR (derived from `references`)
+MAPPING_FILES = {k: Path(REFERENCES[k]).name for k in _MAPPING_REFERENCE_KEYS}
 
-MAPPING_FILES = {
-    "mapping_comuni": "mapping_comuni_ISTAT.json",
-    "mapping_vodafone": "mapping_comuni_into_vodafone_Trento.json",
-    "mapping_apt": "map_comuni_into_apt.json",
-}
+STD_SUFFIX = _S["naming"]["std_suffix"]
+UPDATE_PART_SUFFIX = _S["naming"]["update_part_suffix"]
+
+_FILES = _S["files"]
+# raw base-build objects (data-lake keys)
+POPOLAZIONE_RAW_FILE = _FILES["popolazione"]
+STRUTTURE_HISTORICAL_RAW_FILE = _FILES["strutture_historical"]
+STRUTTURE_2024_RAW_FILE = _FILES["strutture_2024"]
+VODAFONE_OLD_RAW_FILE = _FILES["vodafone_presenze_old"]
+VODAFONE_NEW_RAW_FILE = _FILES["vodafone_presenze_new"]
+ARRIVI_RAW_FILE = _FILES["vodafone_arrivi"]
+COVISITS_RAW_FILE = _FILES["vodafone_covisits"]
+# ISPAT arrivals / presences: <PRESENZE_FOLDER>/<PRESENZE_FILE_PATTERN.format(measure, tag, year)>
+PRESENZE_FOLDER = _FILES["presenze"]["folder"]
+PRESENZE_FILE_PATTERN = _FILES["presenze"]["pattern"]
+PRESENZE_MEASURES = tuple(_FILES["presenze"]["measures"])
+PRESENZE_TAGS = dict(_FILES["presenze"]["tags"])  # dataset -> tag in the file names
+# energy
+ENERGY_ROOT = _FILES["energy"]["root"]
+ENERGY_FOLDERS = dict(_FILES["energy"]["folders"])  # dataset -> sub-folder
+ENERGY_CATEGORY_FILES = tuple(_FILES["energy"]["category_files"])
+ENERGY_CATEGORY_GLOB = _FILES["energy"]["category_glob"]
+ENERGY_TOTAL_FILES = dict(_FILES["energy"]["totals"])  # dataset -> data-lake key
 
 
 def setup_logging(level=logging.INFO):

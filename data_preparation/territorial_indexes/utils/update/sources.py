@@ -51,10 +51,12 @@ def read_energy_csv(buffer) -> RawData:
 
 def read_covisits_csv(buffer, start=None, end=None, chunksize=1_000_000) -> RawData:
     """Vodafone OD co-visits csv, read in chunks (the file is too big to be kept whole): only the rows of the
-    time window and the ones used by the flow indicators are kept (see standardize_covisits_columns).
+    time window and the ones used by the flow indicators (area level, profiles, TOTAL rows) are kept, see
+    standardize_covisits_columns / covisits_total_mask.
     Default window: the whole year(s) of the update period (the indicators are yearly)."""
     from utils.config import UPDATE_WINDOW
-    from utils.datasets import COVISITS_LOC_TYPE, COVISITS_PROFILES, COVISITS_TOTAL_ROWS_ONLY
+    from utils.datasets import COVISITS_LOC_TYPE, COVISITS_PROFILES
+    from utils.steps.standardize_raw_data import covisits_total_mask
 
     start = pd.Timestamp(str(start)) if start else pd.Timestamp(UPDATE_WINDOW.start.year, 1, 1)
     end = pd.Timestamp(str(end)) if end else UPDATE_WINDOW.end
@@ -67,8 +69,7 @@ def read_covisits_csv(buffer, start=None, end=None, chunksize=1_000_000) -> RawD
             & (chunk["locType"].str.strip() == COVISITS_LOC_TYPE)
             & chunk["userProfile"].str.strip().isin(COVISITS_PROFILES)
         )
-        if COVISITS_TOTAL_ROWS_ONLY:
-            keep &= chunk["userCountry"].str.strip() == ""
+        keep &= covisits_total_mask(chunk)  # total rows only, the breakdown by country is discarded
         parts.append(chunk[keep])
     return RawData(pd.concat(parts, ignore_index=True))
 
