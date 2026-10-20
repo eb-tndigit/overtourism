@@ -76,6 +76,7 @@ class Indicator:
     availableForVariation: bool = True
     extraFields: list[str] = []
     internal_only = False
+    year_only = False
 
     # How this indicator's own daily INDICE values collapse to one row per
     # comune when *it* is used as a phenomenon by a parent Indicator (see

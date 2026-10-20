@@ -39,16 +39,6 @@ MACRO_AREAS_FILE = index_data_path / "map_comuni_into_apt.json"
 CODICI_COMUNI_FILE = index_data_path / "mapping_comuni_ISTAT.json"
 
 # ---------------------------------------------------------------------------
-# Types definition
-# ---------------------------------------------------------------------------
-INDICATORS_TYPES = [
-    "Gestione della Sostenibilità",
-    "Impatti socio-economici",
-    "Impatti culturali",
-    "Impatti ambientali",
-]
-
-# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 
@@ -126,7 +116,6 @@ class AccommodationCapacityIndicator(Indicator):
     """Beds per resident: NUMLETTI_TOT / POPOLAZIONE."""
 
     name = "Indice di ricettività"
-    type = INDICATORS_TYPES[1]
     description = "L'indice di ricettività definisce il <strong>rapporto</strong> fra i <strong>letti presenti negli esercizi ricettivi</strong> e gli <strong>abitanti</strong> di una stessa area. L'indice è una misura della capacità turistica rispetto alla dimensione, in termini di popolazione, di un'area. L'indice è calcolato partendo dai dati ISPAT relativi alla popolazione residente e alla consistenza degli esercizi alberghieri e extra-alberghieri."
     index_value_unit_description = "Rapporto posti letto / popolazione"
 
@@ -144,7 +133,6 @@ class TourismIndexIndicator(Indicator):
     """Total presences per resident."""
 
     name = "Indice di turisticità"
-    type = INDICATORS_TYPES[1]
     description = "L'indice di turisticità definisce il <strong>rapporto</strong> fra il <strong>numero medio giornaliero di turisti negli esercizi ricettivi</strong> di una specifica area e il<strong>numero di abitanti</strong> della stessa area. L'indice fornisce una misura dell'effettiva incidenza del turismo rispetto alla dimensione, in termini di popolazione, di un'area. L'indice è calcolato partendo dai dati Vodafone per quanto riguarda le presenze turistiche e dai dati ISPAT relativi alla popolazione residente."
     index_value_unit_description = "Rapporto fra numero turisti e popolazione"
 
@@ -162,7 +150,6 @@ class TouristDensityIndicator(Indicator):
     """Vodafone tourists + visitors presences per km² of the comune's surface."""
 
     name = "Indice di densità turistica"
-    type = INDICATORS_TYPES[3]
     description = "L'indice di densità turistica definisce il <strong>rapporto</strong> fra il <strong>numero medio giornaliero di turisti ed escursionisti</strong> presenti in un comune e la sua <strong>superficie</strong> in km². L'indice fornisce una misura della pressione turistica sul territorio. L'indice è calcolato partendo dai dati Vodafone per quanto riguarda le presenze di turisti ed escursionisti e dai confini amministrativi ISTAT per la superficie dei comuni."
     index_value_unit_description = "Presenze turistiche per km²"
 
@@ -201,7 +188,6 @@ class AnthropogenicDensityIndicator(Indicator):
     """Inhabitants and Vodafone tourist presences per km² of comune area."""
 
     name = "Indice di densità antropica"
-    type = INDICATORS_TYPES[3]
     description = "L'indice di densità antropica misura il rapporto fra la popolazione residente e il numero medio giornaliero di turisti ed escursionisti rilevati da Vodafone, rispetto alla superficie del comune in km²."
     index_value_unit_description = "Abitanti e presenze turistiche per km²"
 
@@ -268,7 +254,6 @@ class _HospitalityShareIndicator(Indicator):
 
 class _HospitalityFacilitiesShareIndicator(_HospitalityShareIndicator):
     phenomenon_class = FacilitiesTotalPhenomenon
-    type = INDICATORS_TYPES[1]
     index_value_unit_description = "Quota delle strutture sul totale"
 
 
@@ -309,7 +294,6 @@ class AvailableAccommodationFacilitiesIndicator(_HospitalityFacilitiesShareIndic
 
 class _HospitalityBedsShareIndicator(_HospitalityShareIndicator):
     phenomenon_class = BedsPhenomenon
-    type = INDICATORS_TYPES[1]
     index_value_unit_description = "Quota dei posti letto sul totale"
 
 
@@ -352,7 +336,6 @@ class HiddenTourismIndicator(Indicator):
     """Calculates the hidden tourism indicator as the ratio between Vodafone registered attendences and accomodancy ones"""
 
     name = "Turismo non intercettato"
-    type = INDICATORS_TYPES[0]
     description = "L'indice misura il <strong>rapporto</strong> fra le <strong>presenze di turisti misurate</strong> attraverso l'analisi di dati da rete di telefonia mobile e le <strong>presenze ufficiali</strong> di turisti in strutture alberghiere e extra-alberghiere. L'indice è stato calcolato partendo dai dati ISPAT sul movimento turistico e dai dati Vodafone relativi alle presenze misurate."
     index_value_unit_description = "Rapporto fra presenze misurate e ufficiali"
 
@@ -395,7 +378,6 @@ class AnthropogenicLoadIndicator(Indicator):
     """
 
     name = "Carico Antropico"
-    type = INDICATORS_TYPES[0]
     description = (
         "L'indice misura il rapporto fra le presenze complessive rilevate "
         "attraverso i dati Vodafone, comprendenti turisti ed escursionisti, "
@@ -462,7 +444,7 @@ class _FlowIndicator(Indicator):
     """Base of the indicators that read one metric of phen_flussi_od (tourists + excursionists, weighted)."""
 
     metric: str = ""
-    type = INDICATORS_TYPES[0]
+    year_only = True
 
     def __init__(self, source_file, combinator=None):
         super().__init__(
@@ -538,9 +520,9 @@ class DiscretizedPageRankIndicator(_FlowIndicator):
     """
 
     metric = "pagerank"
-    name = "Flussi - PageRank discretizzato"
+    name = "Flussi - Centralità nella rete"
     description = (
-        "Il PageRank misura la <strong>centralità di un'area nella rete dei flussi</strong> fra aree: è alto "
+        "Questo indice misura la <strong>centralità di un'area nella rete dei flussi</strong> fra aree: è alto "
         "per le tappe che ricevono flusso da aree a loro volta rilevanti. Per la lettura su mappa il valore è "
         "<strong>discretizzato in classi di quantili</strong> (1 = centralità più bassa, "
         "{n} = più alta; 0 = dato non disponibile): le classi indicano la posizione relativa fra i comuni."
@@ -585,7 +567,6 @@ class SourceMarketsConcentrationIndicator(Indicator):
     """Normalized HHI of the source markets of the tourists: 0 = many markets evenly, 1 = a single market."""
 
     name = "Provenienza - Indice di concentrazione mercati provenienza"
-    type = INDICATORS_TYPES[0]
     description = (
         "L'indice di concentrazione dei mercati di provenienza misura quanto le <strong>presenze di turisti "
         "provengono da pochi paesi</strong>. È l'<strong>indice di Herfindahl-Hirschman (HHI) normalizzato</strong> "
@@ -598,6 +579,7 @@ class SourceMarketsConcentrationIndicator(Indicator):
     index_value_unit_description = (
         "Indice HHI normalizzato (0 = mercati diversificati, 1 = un solo mercato)"
     )
+    year_only = True
 
     def __init__(self, source_file):
         super().__init__(
@@ -624,7 +606,6 @@ class _ConsumptionImpactIndicator(Indicator):
 
     services_column: str = ""
     total_column: str = ""
-    type = INDICATORS_TYPES[1]
     index_value_unit_description = (
         "Rapporto fra consumi del settore servizi e consumi totali"
     )
