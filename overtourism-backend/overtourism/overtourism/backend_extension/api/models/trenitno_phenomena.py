@@ -68,6 +68,7 @@ PHENOMENON_LABELS_IT: dict[str, str] = {
     # The label contains "quota" on purpose: index_utils rounds the columns with "quota" / "PageRank" in their
     # label to decimals (an index in [0, 1] must not be rounded to an integer).
     "hhi_provenienza": "quota di concentrazione dei mercati (HHI normalizzato)",
+    "tempo_medio_turisti": "tempo medio di viaggio dei turisti (minuti)",
     # Main source market (phen_provenienza): yearly arrivals of the main market and of all the markets (integers)
     "volume_mercato_1": "arrivi dal mercato principale",
     "volume_totale": "arrivi totali",
@@ -275,6 +276,13 @@ class ProvenienzaPhenomenon(FlowIndicatorPhenomenon):
 
     def __init__(self, source, col="hhi_provenienza", name=None):
         super().__init__(source, col, name=name or "hhi_provenienza")
+
+
+class MeanTouristTravelTimePhenomenon(FlowIndicatorPhenomenon):
+    """Yearly arrival-weighted estimated journey time to each comune, in minutes."""
+
+    def __init__(self, source, col="tempo_medio_turisti", name=None):
+        super().__init__(source, col, name=name or "tempo_medio_turisti")
 
 
 class ProvenienzaVolumePhenomenon(FlowIndicatorPhenomenon):

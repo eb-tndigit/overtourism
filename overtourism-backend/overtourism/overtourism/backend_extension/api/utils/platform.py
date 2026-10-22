@@ -21,6 +21,7 @@ def download_index_data(overwrite: bool = False) -> None:
         "phen_presenze.parquet",
         "phen_provenienza.parquet",
         "phen_strutture.parquet",
+        "phen_tempo_medio_turisti.parquet",
     ]
     artifacts = [
         "map_comuni_into_apt.json",
