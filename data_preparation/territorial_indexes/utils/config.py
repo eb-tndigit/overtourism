@@ -145,6 +145,14 @@ if (
     )
 DATASET_FILES = _S["datasets"]
 PHENOMENA_FILES = _S["phenomena"]
+TRAVEL_TIMES = _S.get("travel_times") or {}
+TRAVEL_TIMES_MATRIX_FILE = _resolve(
+    PACKAGE_DIR,
+    TRAVEL_TIMES.get("matrix_file", "../Output/travel_times/matrice_tempi_verso_trentino.csv"),
+)
+REFERENCE_CITY_ITALY = str(TRAVEL_TIMES.get("reference_city_italy", "Milano")).strip()  # default: Milano 
+if not REFERENCE_CITY_ITALY:
+    raise ValueError(f"{SETTINGS_FILE}: travel_times.reference_city_italy must not be empty")
 
 # platform (DigitalHub) / data lake
 PROJECT = _S["platform"]["project"]

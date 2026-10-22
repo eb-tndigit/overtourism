@@ -384,7 +384,7 @@ def load_foreign_countries() -> List[str]:
     )
     tourist_municipal_arrivals = arrivals[
         (arrivals["userProfile"] == "TOURIST")
-        & arrivals["locType"].isin(["TM_MKT_AL_3", "TN_MKT_AL_3"])
+        & (arrivals["locType"] == "TN_MKT_AL_3")
     ]
     countries = tourist_municipal_arrivals["userCountry"]
     countries = countries.dropna().astype(str).str.strip().str.upper()

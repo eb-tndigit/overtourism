@@ -137,6 +137,10 @@ BUILDERS = {
     "phen_flussi_od": lambda pr: pr["vodafone_covisits"],
     # yearly concentration (normalized HHI) of the source markets + top source countries (arrivals), per comune
     "phen_provenienza": lambda pr: compute_provenienza(pr["vodafone_provenienza"], pr["vodafone_arrivi"]),
+    # yearly mean travel time, weighted by tourist arrivals per origin country
+    "phen_tempo_medio_turisti": lambda pr: pr["vodafone_arrivi"][
+        ["DATA", "ID_COMUNE", "tempo_medio_turisti"]
+    ],
 }
 assert set(BUILDERS) == set(PHENOMENA)
 

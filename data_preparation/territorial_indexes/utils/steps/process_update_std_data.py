@@ -202,6 +202,9 @@ def process_update_std_data(
     normalized_dir = Path(normalized_dir)
     window = config.window
     logger.info("Time window of the update: %s", window)
+    if "vodafone_arrivi" in config.datasets:
+        from trentino_travel_times import ensure_travel_time_matrix
+        ensure_travel_time_matrix()
 
     maps = load_mappings(mapping_dir)
     if {"vodafone_provenienza", "vodafone_arrivi"} & set(
