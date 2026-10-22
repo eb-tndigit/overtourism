@@ -1,7 +1,8 @@
 # Territorial indexes: data preparation pipeline
 
 Builds the phenomenon dataframes behind the territorial indexes:
-`phen_popolazione`, `phen_strutture`, `phen_presenze`, `phen_consumption`, `phen_flussi_od`, `phen_provenienza`.
+`phen_popolazione`, `phen_strutture`, `phen_presenze`, `phen_consumption`, `phen_flussi_od`, `phen_provenienza`,
+`phen_tempo_medio_turisti`.
 There are two entry points: a **base build** (2022-2024, `gen_phenomenon_dataframes.py`) and a **yearly update**
 (`update_phenomenon_dataframes.py`, currently 2025). The base build can also run the 2025 update.
 
@@ -97,6 +98,11 @@ json mappings are in `Output/mapping`). Every step reads the output of the previ
 4. **Phenomena** builds the final files from the processed datasets (joins, column order) and applies the time window again.
    `phen_presenze` is an inner join of Vodafone, alb and extralb; `phen_consumption` an outer join of the four energy
    measures; the other phenomena are the processed dataset as it is.
+
+Before processing arrivals, the pipeline prepares `Output/travel_times/matrice_tempi_verso_trentino.csv` automatically.
+The matrix and routing caches are stored under `Output/travel_times/`; a complete existing matrix is reused, while
+previously unseen Vodafone country origins are added using cached routing blocks where possible. The standalone router
+is `trentino_travel_times.py` in this folder.
 
 The dataset → phenomenon mapping is in the `phenomena` section of `config/settings.yaml`.
 
@@ -204,6 +210,7 @@ may need a new adapter.
 | `phen_consumption` | comune × day | `ee_services`, `ee_total`, `gas_services`, `gas_total` |
 | `phen_flussi_od` | comune × year | `quota_ingresso`, `quota_uscita`, `quota_intra_ambito`, `pagerank` × (`tourist`, `visitor`, `combined`), `giorni_coperti` |
 | `phen_provenienza` | comune × year | `hhi_provenienza`, `giorni_coperti`, `volume_totale`, top-country `volume_mercato_N` / `nome_mercato_N` pairs (`N` configurable in `config/settings.yaml`) |
+| `phen_tempo_medio_turisti` | comune × year | `tempo_medio_turisti` (minutes; weighted by arrivals; Italian reference city configurable in `config/settings.yaml`) |
 
 Empty values in `phen_flussi_od` and `phen_provenienza` are expected in some cases (small areas, missing flows); see
 METHODOLOGY.md. The step 2 log reports the share of empty values per column of `phen_flussi_od`.

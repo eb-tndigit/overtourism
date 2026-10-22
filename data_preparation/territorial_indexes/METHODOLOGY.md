@@ -15,6 +15,28 @@ columns below. `DATA` is `YYYY` for yearly phenomena (`phen_popolazione`, `phen_
 | `phen_consumption` | comune × day | monthly electricity and gas withdrawals | disaggregated in time only: each month spread evenly over its days |
 | `phen_flussi_od` | comune × year | Vodafone OD co-visits | only the total rows are used (the country breakdown is anonymized and does not add up); indicators computed per area, then passed to comuni (not split); visitors weigh 0.5 |
 | `phen_provenienza` | comune × year | Vodafone presences (HHI) and arrivals (main market) by country of origin | normalized HHI of tourist user-days; main market from tourist arrivals (areas split by beds); small areas left empty (HHI) |
+| `phen_tempo_medio_turisti` | comune × year | Vodafone tourist arrivals by origin country + route-time matrix | arrival-weighted mean journey time; Italy uses one configurable reference city, foreign origins use their capitals |
+
+## `phen_tempo_medio_turisti` (comune × year)
+
+Column: `tempo_medio_turisti`, in minutes. The phenomenon is computed from the same processed Vodafone arrivals as
+`phen_provenienza`, retaining origin-country volumes before the top-country aggregation discards them.
+
+* **Starting data**: `vodafone_arrivals.csv`, tourist profile, municipality-area level, grouped by year, destination area
+  and `userCountry`. Area arrivals are allocated to comuni proportionally to yearly `tot_postiletto`, using the same
+  largest-remainder split as the main-market volumes.
+* **Travel times**: `Output/travel_times/matrice_tempi_verso_trentino.csv`, generated automatically during processing by
+  `territorial_indexes/trentino_travel_times.py`. Each origin-destination duration is joined to the destination comune. Countries
+  outside Italy use their ISO3 capital-origin row. `ITA` uses the origin municipality configured as
+  `travel_times.reference_city_italy` in `config/settings.yaml` (default `Milano`); it can be changed to another
+  municipality present in the matrix, such as `Bologna` or `Firenze`.
+* **Computation**: for each destination comune and year, `Σ(arrivals × travel_time_minutes) / Σ(arrivals)` over
+  countries with a matching route. Countryless arrivals remain part of `phen_provenienza.volume_totale`, but cannot be
+  included in this index. Missing routes are logged and excluded from both numerator and denominator.
+* **Interpretation and limits**: this is an estimate of average travel time from an assumed origin, not a measured
+  journey. Every Italian arrival is represented by the configured Italian municipality; every foreign arrival by the
+  capital. The result does not model the actual starting city, transport mode choice, or individual route. It is yearly
+  and arrival-weighted (people arriving), not weighted by days of stay.
 
 ## Common rules
 
