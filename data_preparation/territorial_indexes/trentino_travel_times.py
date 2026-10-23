@@ -72,21 +72,6 @@ CONFIG = {
     "flight_speed_kmh": 800,
     "flight_fixed_time_min": 60,  # take-off, landing, taxiing; check-in and security excluded
 
-    "test_pairs": [
-        ("Rovereto", "Trento"),
-        ("Riva del Garda", "Trento"),
-        ("Canazei", "Trento"),
-        ("Cles", "Cavalese"),
-        ("Verona", "Riva del Garda"),
-        ("Milano", "Pinzolo"),
-        ("Venezia", "Canazei"),
-        ("DEU", "Canazei"),
-        ("NLD", "Riva del Garda"),
-        ("POL", "Predazzo"),
-        ("GBR", "Pinzolo"),
-        ("USA", "Ala"),
-        ("CHN", "Trento"),
-    ],
 }
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -545,24 +530,6 @@ def save_final_matrix(points_df: pd.DataFrame, iso3: np.ndarray, km: np.ndarray,
 
 
 # =============================================================================
-# 6. LOOKUP
-# =============================================================================
-def get_time_and_distance(matrix: pd.DataFrame, origin: str, destination: str) -> str:
-    """origin: ISTAT code, municipality name or ISO3 country code; destination: ISTAT code or name of the
-    Trentino municipality. Case-insensitive."""
-    o, d = str(origin).strip(), str(destination).strip()
-    from_o = (matrix["istat_origine"] == o) | (matrix["provenienza"].str.lower() == o.lower())
-    to_d = (matrix["istat_destinazione"] == d) | (matrix["comune_destinazione"].str.lower() == d.lower())
-    r = matrix[from_o & to_d]
-    if r.empty:
-        return f"Route from '{origin}' to '{destination}' not available (destination outside Trentino, or no route)."
-    if len(r) > 1:  # several Italian municipalities with the same name
-        return f"'{origin}' is ambiguous, use the ISTAT code: {r['istat_origine'].tolist()}"
-    row = r.iloc[0]
-    return f"From {row['provenienza']} to {row['comune_destinazione']}: {row['tempo_di_percorrenza']} min ({row['distanza']} km)"
-
-
-# =============================================================================
 # 7. MAIN
 # =============================================================================
 def main():
@@ -574,12 +541,6 @@ def main():
     iso3, km_abroad, min_abroad = foreign_matrix(session, points_df)
     matrix = save_final_matrix(points_df, iso3, np.vstack([km_it, km_abroad]), np.vstack([min_it, min_abroad]))
 
-    print("\n--- Selected examples ---")
-    for o, d in CONFIG["test_pairs"]:
-        print(get_time_and_distance(matrix, o, d))
-
-    print("\n--- Top 5 longest routes ---")
-    print(matrix.nlargest(5, "tempo_di_percorrenza"))
     return matrix, points_df
 
 
