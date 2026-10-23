@@ -3,7 +3,7 @@
 STEP 1 (update) - Standardization of the update raw data.
 
 Input : Output/data/raw_data/   (files downloaded by download_update_raw_data)
-Output: Output/data/normalized/ (<dataset>_update_std, or <dataset>_<label>_update_std)
+Output: Output/data/normalized/ (<dataset>_update_std, or <dataset>_<label>_update_std; suffixes in settings.yaml `naming`)
 
 For every source of the update config:
   1. read the raw file
@@ -30,9 +30,11 @@ from utils.config import (
     NORMALIZED_DIR,
     RAW_DIR,
     REFERENCES,
+    STD_SUFFIX,
     TYPE_FORMAT,
     setup_logging,
 )
+from utils.datasets import ARRIVI_VALUE_COL
 from utils.io import ensure_dir, save_computed_dfs
 from utils.steps.standardize_raw_data import (
     standardize_covisits_columns,
@@ -54,8 +56,15 @@ STANDARDIZERS = {
     # energy: the reader (energy_csv) already gives the standard layout of the base normalized files
     "energia": lambda df, geojson: df,
 }
-# kinds used as downloaded (no normalization): ISPAT arrivals / presences
-RAW_KINDS = {"presenze_raw"}
+# datasets of a kind with a different standardization (same raw layout as the kind)
+DATASET_STANDARDIZERS = {
+    # arrivals: same layout as the presences, the value column is `arrivi`
+    "vodafone_arrivi": lambda df, geojson: standardize_vodafone_columns(
+        df, geojson, value_name=ARRIVI_VALUE_COL
+    ),
+}
+# kinds used as downloaded (no normalization): ISPAT arrivals / presences, weather
+RAW_KINDS = {"presenze_raw", "meteo_raw"}
 assert set(STANDARDIZERS) | RAW_KINDS == set(KIND_DATASETS)
 
 
@@ -87,7 +96,7 @@ def standardize_update_raw_data(
     raw_dir, mapping_dir = Path(raw_dir), Path(mapping_dir)
 
     geojson = None
-    if {"vodafone", "vodafone_provenienza"} & set(config.datasets):
+    if {"vodafone", "vodafone_provenienza", "vodafone_arrivi"} & set(config.datasets):
         from utils.readers import read_geojson
 
         geojson = read_geojson(mapping_dir / Path(REFERENCES["geojson"]).name)
@@ -105,11 +114,13 @@ def standardize_update_raw_data(
                     src.file,
                 )
                 continue
-            std = STANDARDIZERS[kind](aligned, geojson)
+            std = (DATASET_STANDARDIZERS.get(dataset) or STANDARDIZERS[kind])(
+                aligned, geojson
+            )
             frames.setdefault(src.part_name(dataset), []).append(std)
 
     dict_std = {
-        f"{name}_std": (
+        f"{name}{STD_SUFFIX}": (
             parts[0] if len(parts) == 1 else pd.concat(parts, ignore_index=True)
         )
         for name, parts in frames.items()

@@ -118,6 +118,10 @@ class Phenomenon:
     spatial_resolution: str = "comune"  # 'comune' | 'macro-area' | 'provincia'
     spatial_strategy: str = "identity"  # 'identity' | 'constant' | 'weighted'
 
+    # False: the value column is text (e.g. a label), kept as it is; `agg` must then be a text-friendly one
+    # ('first' / 'last'). Only for descriptive columns shown next to an index, never for values to compute with.
+    numeric: bool = True
+
     support_temporal: Phenomenon | None = None
     support_spatial: Phenomenon | None = None
     assign_temporal_fn: Callable | None = None
@@ -201,7 +205,8 @@ class Phenomenon:
         )
         df["ID_COMUNE"] = df["ID_COMUNE"].astype(str)
         df["DATA"] = pd.to_datetime(df["DATA"])
-        df[self.name] = pd.to_numeric(df[self.name], errors="coerce")
+        if self.numeric:
+            df[self.name] = pd.to_numeric(df[self.name], errors="coerce")
 
         # Collapse any residual duplicate (comune, date) pairs that might
         # arise from overlapping source rows after disaggregation.

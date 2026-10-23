@@ -1,7 +1,8 @@
 # Territorial indexes: data preparation pipeline
 
 Builds the phenomenon dataframes behind the territorial indexes:
-`phen_popolazione`, `phen_strutture`, `phen_presenze`, `phen_consumption`, `phen_flussi_od`, `phen_provenienza`.
+`phen_popolazione`, `phen_strutture`, `phen_presenze`, `phen_consumption`, `phen_flussi_od`, `phen_provenienza`,
+`phen_meteo`, `phen_ee_tourism_share`.
 There are two entry points: a **base build** (2022-2024, `gen_phenomenon_dataframes.py`) and a **yearly update**
 (`update_phenomenon_dataframes.py`, currently 2025). The base build can also run the 2025 update.
 
@@ -14,7 +15,7 @@ This README explains how to run the code and the steps that lead to the final fi
 
 * Python 3 with `pandas`, `numpy`, `pyyaml`, `unidecode`, `pyarrow` (parquet) and, for the tests, `pytest`.
 * `boto3`, `geopandas` and `digitalhub` are imported only when needed (download from the data lake / platform upload).
-  The S3 credentials are read from the section `platform.dhcore_env` of `~/.dhcore.ini`.
+  The S3 credentials are read from the section `platform.dhcore_env` of the file `platform.credentials_file` (default `.dhcore.ini`) in the home folder.
 * To work without the data lake, put the files in a local folder and set `update.local_source_dir` in `config/settings.yaml`
   (update only), or copy them in `Output/data/raw_data/` and run with `--skip-download`.
 
@@ -26,14 +27,15 @@ territorial_indexes/
 ├── gen_phenomenon_dataframes.py     # entry point: base build, all steps (--with-update / --update-only: also the 2025 update)
 ├── update_phenomenon_dataframes.py  # entry point: yearly update
 ├── config/
-│   ├── settings.yaml                # directories, format, period, platform
+│   ├── settings.yaml                # directories, format, period, platform, ALL the file names
 │   └── updates/                     # one yaml per yearly update
 ├── tests/
 └── utils/
-    ├── config.py, datasets.py, window.py          settings as constants, dataset registry, time window
+    ├── config.py, datasets.py, window.py          settings (incl. file names) as constants, dataset registry, time window
     ├── cleaning.py, io.py, readers.py, remote.py  helpers, read/write, file readers, S3 / DigitalHub
     ├── disaggregation.py, stay_distribution.py    area -> comune split, monthly -> daily presences
     ├── flows.py, provenienza.py                   flow indicators, concentration of the source markets
+    ├── markets.py, main_market.py                 country names and top source countries (from arrivals)
     ├── adapters/                                  layout of each yearly source -> standard layout
     ├── update/                                    readers and config parsing of the update
     └── steps/                                     download_data, standardize_raw_data, process_std_data,
@@ -52,7 +54,16 @@ directories as arguments). The main entries:
 | `type_format` | `parquet` (default) or `csv`, for **every** file; keep it the same in the base build and in the update |
 | `period` | time window: `start` (nothing before it is kept), `base_end`, `update_start`, `update_end` |
 | `references` | data-lake keys of the json mappings and of the geojson of the Vodafone areas |
-| `platform` | project, bucket and prefix of the data lake |
+| `files` | the RAW files of the base build (data-lake keys): popolazione, strutture, Vodafone presences / arrivals / co-visits, the ISPAT presences (`files.presenze`: folder, file-name pattern, measures, tags) and the energy files (`files.energy`: root, folders, category files, totals) |
+| `datasets` | names of the standardized (`std`), processed and update files of every dataset |
+| `naming` | suffixes of the intermediate files (`_std`, `_update`) |
+| `platform` | project, bucket and prefix of the data lake, name of the credentials file |
+| `update.default_config` | update yaml used by `gen_phenomenon_dataframes.py` when `--update-config` is not given |
+
+**No file name is written in the Python code** (`utils/datasets.py` included): to add, rename or replace a file, edit the
+yaml (`settings.yaml` for the base build, `config/updates/<round>.yaml` for an update). The only name left in the code is
+that of `settings.yaml` itself (`utils/config.py`), which cannot be read from itself. A missing key stops the run at
+start-up, naming the key.
 
 The year-specific parts of the yearly update (files, readers, adapters, column names) are in `config/updates/<round>.yaml`.
 
@@ -77,7 +88,7 @@ json mappings are in `Output/mapping`). Every step reads the output of the previ
    `mapping/` is **never downloaded again** (`--force-download` overrides this, `--skip-download` skips the step). A partially
    written or outdated file is not detected: delete it or force the download.
 2. **Standardization** uniforms column names, the `DATA` / `LOCATION` schema, dates and comune names, without filtering or
-   aggregating. Output: `popolazione_std`, `strutture_std`, `vodafone_std`, `ee_prelievi_std`, `gas_prelievi_std`,
+   aggregating. Output: `popolazione_std`, `strutture_std`, `vodafone_std`, `vodafone_arrivi_std`, `ee_prelievi_std`, `gas_prelievi_std`,
    `ee_totale_std`, `gas_totale_std`, `vodafone_covisits_std` (the Vodafone OD co-visits are reduced to the rows the indicators
    use). The ISPAT arrivals / presences are read directly from `raw_data` in step 2.
 3. **Processing** applies the time window, resolves `ID_COMUNE` and moves every dataset to its final granularity (comune ×
@@ -140,6 +151,8 @@ Notes:
   enabled together.
 * The final files of the base build must have the same columns as the update: after a change of the output columns (e.g.
   the addition of `presenze_escursionisti_vodafone`, `ee_total`, `gas_total`) **rerun the base build** before the update.
+* `phen_provenienza` needs **both** `vodafone_provenienza` and `vodafone_arrivi` in the update (`vodafone_arrivals.csv`, with
+  ALL the days of the year). It gained the three main-market columns: rerun the base build before the update.
 * The 2024 ISPAT presence files (downloaded by the base build) are needed by the 2025 update for the stays crossing the new year.
 
 ### The update config (`config/updates/<round>.yaml`)
@@ -191,7 +204,14 @@ may need a new adapter.
 | `phen_presenze` | comune × day | `presenze_alb`, `presenze_xalb`, `presenze_vodafone`, `presenze_escursionisti_vodafone` |
 | `phen_consumption` | comune × day | `ee_services`, `ee_total`, `gas_services`, `gas_total` |
 | `phen_flussi_od` | comune × year | `quota_ingresso`, `quota_uscita`, `quota_intra_ambito`, `pagerank` × (`tourist`, `visitor`, `combined`), `giorni_coperti` |
-| `phen_provenienza` | comune × year | `hhi_provenienza`, `giorni_coperti` |
+| `phen_provenienza` | comune × year | `hhi_provenienza`, `giorni_coperti`, `volume_totale`, top-country `volume_mercato_N` / `nome_mercato_N` pairs (`N` configurable in `config/settings.yaml`) |
+| `phen_meteo` | comune × day | `t_min`, `t_max`, `t_mean`, `hdd`, `rain_mm` |
+| `phen_ee_tourism_share` | comune × year | `quota_ee_turismo`, `presenze_medie`, `consumo_medio`, `affidabilita` (`alta` / `media` / `bassa`) |
+
+`phen_meteo` comes from the weather files `meteo/meteo_trentino_comuni_<year>.csv` (data lake, saved in `raw_data/meteo/`, one per year: the base build
+downloads the years of its window, the updates list the later ones in their yaml). `phen_ee_tourism_share` is **derived**
+from `phen_consumption`, `phen_presenze` and `phen_meteo` (`derived_phenomena` in `config/settings.yaml`), right after
+them and in the same run; it is computed only if all three are computed in that run.
 
 Empty values in `phen_flussi_od` and `phen_provenienza` are expected in some cases (small areas, missing flows); see
 METHODOLOGY.md. The step 2 log reports the share of empty values per column of `phen_flussi_od`.

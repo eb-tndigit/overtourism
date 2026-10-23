@@ -12,7 +12,14 @@ import logging
 import tempfile
 from pathlib import Path
 
-from utils.config import PROJECT, S3_BUCKET, S3_ENV, S3_PREFIX
+from utils.config import (
+    CREDENTIALS_FILE,
+    PROJECT,
+    REFERENCES,
+    S3_BUCKET,
+    S3_ENV,
+    S3_PREFIX,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +46,9 @@ def log_dataframe(file_path, name: str, type: str = "parquet"):
 
 # ---------------------------------------------------------------- S3
 def _s3_credentials(env: str) -> dict:
-    """Credentials from ~/.dhcore.ini (DHCLI)."""
+    """Credentials from the file `platform.credentials_file` of settings.yaml, in the home folder (DHCLI)."""
     config = configparser.ConfigParser()
-    config.read(Path.home() / ".dhcore.ini")
+    config.read(Path.home() / CREDENTIALS_FILE)
     section = config[env]
     return {
         "endpoint_url": section["aws_endpoint_url"],
@@ -77,12 +84,13 @@ def get_s3(name: str) -> io.BytesIO:
 
 
 def get_json_s3(name: str) -> dict:
-    """Downloads and parses a JSON, e.g. get_json_s3('mapping_ids/mapping_comuni_ISTAT.json')."""
+    """Downloads and parses a JSON by data-lake key (see `references` in settings.yaml)."""
     return json.load(get_s3(name))
 
 
-def get_mapping(mapping_name: str) -> dict:
-    return get_json_s3(f"mapping_ids/{mapping_name}")
+def get_mapping(reference: str) -> dict:
+    """JSON mapping by reference key of settings.yaml, e.g. get_mapping("mapping_comuni")."""
+    return get_json_s3(REFERENCES[reference])
 
 
 def read_shapefile_s3(base_path: str):

@@ -17,44 +17,58 @@ import logging
 from pathlib import Path
 
 from utils.config import (
-    LOCAL_SOURCE_DIR,
-    MAPPING_DIR,
-    RAW_DIR,
-    REFERENCES,
-    TYPE_FORMAT,
-    setup_logging,
-)
-from utils.datasets import (
+    ARRIVI_RAW_FILE,
     COVISITS_RAW_FILE,
+    ENERGY_CATEGORY_FILES,
+    ENERGY_FOLDERS,
+    ENERGY_ROOT,
     ENERGY_TOTAL_FILES,
-    PRESENZE_BASE_YEARS,
+    LOCAL_SOURCE_DIR,
+    METEO_FILE_PATTERN,
+    METEO_FOLDER,
+    MAPPING_DIR,
+    POPOLAZIONE_RAW_FILE,
+    PRESENZE_FILE_PATTERN,
     PRESENZE_FOLDER,
     PRESENZE_MEASURES,
     PRESENZE_TAGS,
+    RAW_DIR,
+    REFERENCES,
+    STRUTTURE_2024_RAW_FILE,
+    STRUTTURE_HISTORICAL_RAW_FILE,
+    TYPE_FORMAT,
+    VODAFONE_NEW_RAW_FILE,
+    VODAFONE_OLD_RAW_FILE,
+    setup_logging,
 )
+from utils.datasets import METEO_BASE_YEARS, PRESENZE_BASE_YEARS
 from utils.io import ensure_dir, raw_path, save_computed_dfs
 
 logger = logging.getLogger(__name__)
 
+# Data-lake objects of the base build. EVERY name comes from config/settings.yaml (section `files`).
 S3_DATA = [
-    "Annuario-TavXIII-per-comune-csv.csv",
-    "strutture_annuario_2024.ods",
-    "popolazione_2020_2024.parquet",
-    "vodafone_attendences.parquet",
-    "vodafone_attendences_new.csv",  # completes the presences up to the end of the base window (2024-12-31)
+    STRUTTURE_HISTORICAL_RAW_FILE,
+    STRUTTURE_2024_RAW_FILE,
+    POPOLAZIONE_RAW_FILE,
+    VODAFONE_OLD_RAW_FILE,
+    VODAFONE_NEW_RAW_FILE,  # completes the presences up to the end of the base window
+    ARRIVI_RAW_FILE,  # Vodafone arrivals (source countries of the tourists)
     COVISITS_RAW_FILE,  # Vodafone OD co-visits (flows between areas)
     # ISPAT arrivals / presences (alb, extralb) of the base years; later years come with the updates
     *(
-        f"{PRESENZE_FOLDER}/{measure}_{tag}_{year}.csv"
+        f"{PRESENZE_FOLDER}/{PRESENZE_FILE_PATTERN.format(measure=measure, tag=tag, year=year)}"
         for year in PRESENZE_BASE_YEARS
         for tag in PRESENZE_TAGS.values()
         for measure in PRESENZE_MEASURES
     ),
-    *ENERGY_TOTAL_FILES.values(),  # totale_ee.csv / totale_gas.csv: consumption of all the usage categories
+    # weather of the base years (one file per year); later years come with the updates
+    *(f"{METEO_FOLDER}/{METEO_FILE_PATTERN.format(year=year)}" for year in METEO_BASE_YEARS),
+    *ENERGY_TOTAL_FILES.values(),  # consumption of all the usage categories
     *(
-        f"Energia/{folder}/{filename}"
-        for folder in ("ee_prelievi", "gas_prelievi")
-        for filename in ("49_3.csv", "55_1.csv", "56_1.csv", "93_1.csv", "96.csv")
+        f"{ENERGY_ROOT}/{folder}/{filename}"
+        for folder in ENERGY_FOLDERS.values()
+        for filename in ENERGY_CATEGORY_FILES
     ),
 ]
 

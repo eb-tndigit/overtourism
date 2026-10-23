@@ -70,6 +70,10 @@ datasets:
     std: ""                                # base build: derived from vodafone_std
     processed: vodafone_provenienza_pr
     update: vodafone_provenienza_update_pr
+  vodafone_arrivi:                         # Vodafone ARRIVALS (vodafone_arrivals.csv): source countries
+    std: vodafone_arrivi_std
+    processed: vodafone_arrivi_pr
+    update: vodafone_arrivi_update_pr
   ee_totale:
     std: ee_totale_std
     processed: ee_totale_pr
@@ -78,10 +82,60 @@ datasets:
     std: gas_totale_std
     processed: gas_totale_pr
     update: gas_totale_update_pr
+  meteo:                                   # daily temperature of the comuni (not normalized: processed from raw_data)
+    std: ""
+    processed: meteo_pr
+    update: meteo_update_pr
   vodafone_covisits:
     std: vodafone_covisits_std
     processed: vodafone_covisits_pr
     update: vodafone_covisits_update_pr
+
+# Suffixes used to build the names of the intermediate files (the names of the processed / update files of every dataset
+# are in `datasets` above).
+naming:
+  std_suffix: _std          # normalized (step 1) files: <dataset>_std, <dataset>_<label>_update_std
+  update_part_suffix: _update   # an update source is called <dataset>_update or <dataset>_<label>_update
+
+# RAW source files of the base build: data-lake object keys (relative to platform.s3_prefix), saved in raw_data under
+# their base name (the energy files keep their folder, see `energy`). Nothing in the code holds a file name: add / rename
+# files here. The files of a yearly update are listed in its own yaml (config/updates/).
+files:
+  popolazione: popolazione_2020_2024.parquet
+  strutture_historical: Annuario-TavXIII-per-comune-csv.csv
+  strutture_2024: strutture_annuario_2024.ods
+  vodafone_presenze_old: vodafone_attendences.parquet   # presences up to 2024-03-31
+  vodafone_presenze_new: vodafone_attendences_new.csv   # completes the presences up to the end of the base window; on common dates it wins
+  vodafone_arrivi: vodafone_arrivals.csv                # Vodafone arrivals (source countries of the tourists)
+  vodafone_covisits: vodafone_covisits.csv              # Vodafone OD co-visits (flows between areas)
+
+  # ISPAT arrivals / presences (alb, extralb): <folder>/<pattern>, one file per measure x tag x year. The base build
+  # downloads the years of its window (period.start .. period.base_end), the updates the later ones.
+  presenze:
+    folder: Presenze
+    pattern: "{measure}_{tag}_{year}.csv"
+    measures: [arrivi, presenze]
+    tags:                            # dataset -> tag in the file names
+      presenze_alb: alb
+      presenze_extralb: exalb
+
+  # Weather: one file per year, comune x day (date, comune_id, t_min, t_max, rain_mm + station info). Like the ISPAT
+  # presences, the base build downloads the years of its window, the updates the later ones (listed in their yaml).
+  meteo:
+    folder: meteo
+    pattern: "meteo_trentino_comuni_{year}.csv"
+
+  # Energy withdrawals (electricity / gas)
+  energy:
+    root: Energia                    # root folder of the energy objects; below it the files keep their sub-folder in raw_data
+    folders:                         # dataset -> sub-folder, i.e. <root>/<folder>/<category file> (and raw_data/<folder>/)
+      ee_prelievi: ee_prelievi
+      gas_prelievi: gas_prelievi
+    category_files: [49_3.csv, 55_1.csv, 56_1.csv, 93_1.csv, 96.csv]   # ATECO usage categories (tourism-related services)
+    category_glob: "*.csv"           # category files of a raw_data folder (the totals below are excluded)
+    totals:                          # consumption of ALL the usage categories (dataset -> object key)
+      ee_totale: Energia/ee_prelievi/totale_ee.csv
+      gas_totale: Energia/gas_prelievi/totale_gas.csv
 
 phenomena:
   phen_popolazione: [popolazione]
@@ -89,15 +143,33 @@ phenomena:
   phen_presenze: [vodafone, presenze_alb, presenze_extralb]
   phen_consumption: [ee_prelievi, gas_prelievi, ee_totale, gas_totale]
   phen_flussi_od: [vodafone_covisits]
-  phen_provenienza: [vodafone_provenienza]
+  phen_provenienza: [vodafone_provenienza, vodafone_arrivi]
+  phen_meteo: [meteo]
+
+# Phenomena computed from OTHER phenomena (the inputs are phenomena, not datasets), right after them, in the same run.
+# One is computed only if ALL its inputs are computed in that run (base build: always; update: when all are updated).
+derived_phenomena:
+  phen_ee_tourism_share: [phen_consumption, phen_presenze, phen_meteo]
+
+# Weather: heating degree days of a day = max(0, base_temp - t_mean). A chosen value, not an estimate.
+meteo:
+  hdd_base_temp: 18.0
+
+# Provenienza: source countries of the tourists (utils/main_market.py)
+provenienza:
+  top_n_countries: 3  # quota/name pairs in phen_provenienza; shared by base build and updates
 
 # Data lake / platform
 platform:
   project: overtourism
   s3_bucket: most-datalake
   s3_prefix: overtourism/inputdata/
-  dhcore_env: aixpa                     # section of ~/.dhcore.ini holding the S3 credentials
+  dhcore_env: aixpa                     # section of the credentials file (below) holding the S3 credentials
+  credentials_file: .dhcore.ini         # credentials file, looked up in the home folder
 
 update:
+  # Update yaml used by gen_phenomenon_dataframes.py (--with-update / --update-only) when --update-config is not given.
+  # Relative to the data_preparation folder.
+  default_config: config/updates/update_2025.yaml
   # Read the raw files of the update from this local folder instead of S3 (null = S3)
   local_source_dir: null

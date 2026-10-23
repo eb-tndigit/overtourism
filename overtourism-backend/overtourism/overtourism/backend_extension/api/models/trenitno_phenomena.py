@@ -68,11 +68,22 @@ PHENOMENON_LABELS_IT: dict[str, str] = {
     # The label contains "quota" on purpose: index_utils rounds the columns with "quota" / "PageRank" in their
     # label to decimals (an index in [0, 1] must not be rounded to an integer).
     "hhi_provenienza": "quota di concentrazione dei mercati (HHI normalizzato)",
+    # Main source market (phen_provenienza): yearly arrivals of the main market and of all the markets (integers)
+    "volume_mercato_1": "arrivi dal mercato principale",
+    "volume_totale": "arrivi totali",
+    "main_markets": "Mercati principali",
     # Consumption indicators (phen_consumption): daily electricity / gas consumption, services vs total
     "ee_services": "consumi elettrici servizi",
     "ee_total": "consumi elettrici totali",
     "gas_services": "consumi gas servizi",
     "gas_total": "consumi gas totali",
+    # Share of the electricity consumption attributable to tourism (phen_ee_tourism_share, computed in the data preparation).
+    # Labels with "quota" are rounded to decimals by index_utils (see above): the others are rounded to integers.
+    "hdd": "gradi giorno di riscaldamento",
+    "quota_ee_turismo": "quota consumi elettrici attribuibile al turismo",
+    "presenze_medie": "presenze turistiche medie giornaliere",
+    "consumo_medio": "consumo elettrico medio giornaliero (kWh)",
+    "affidabilita": "affidabilità della stima",
 }
 
 # ---------------------------------------------------------------------------
@@ -161,7 +172,8 @@ class ExtraFacilitiesPhenomenon(Phenomenon):
 class ConsumptionPhenomenon(Phenomenon):
     """
     One column of ``phen_consumption`` (``ee_services``, ``ee_total``, ``gas_services``, ``gas_total``):
-    daily energy / gas consumption per comune. Nulls are treated as zeros by the indicators that use it.
+    daily energy / gas consumption per comune. Nulls are kept (a comune without gas network has no gas
+    consumption data): each indicator decides what a null means.
     """
 
     name = "consumption"
@@ -171,6 +183,24 @@ class ConsumptionPhenomenon(Phenomenon):
     spatial_strategy = "identity"
 
     def __init__(self, source, col, name=None):
+        super().__init__(source, col, agg="mean", municipality_id_col="ID_COMUNE")
+        self.name = name or col
+
+
+class WeatherPhenomenon(Phenomenon):
+    """
+    One column of ``phen_meteo`` (``hdd``: daily heating degree days; ``t_mean``, ``t_min``, ``t_max``): daily
+    temperature per comune, from the nearest Meteotrentino station. Days without temperature are empty
+    (they are ignored when averaging, never treated as zeros).
+    """
+
+    name = "weather"
+    temporal_resolution = "daily"
+    temporal_strategy = "identity"
+    spatial_resolution = "comune"
+    spatial_strategy = "identity"
+
+    def __init__(self, source, col="hdd", name=None):
         super().__init__(source, col, agg="mean", municipality_id_col="ID_COMUNE")
         self.name = name or col
 
@@ -271,3 +301,56 @@ class ProvenienzaPhenomenon(FlowIndicatorPhenomenon):
 
     def __init__(self, source, col="hhi_provenienza", name=None):
         super().__init__(source, col, name=name or "hhi_provenienza")
+
+
+class ProvenienzaVolumePhenomenon(FlowIndicatorPhenomenon):
+    """
+    One numeric arrivals column of ``phen_provenienza``: ``volume_mercato_1`` (arrivals of the main source
+    market of the comune) or ``volume_totale`` (arrivals of all the markets), yearly, per comune.
+
+    Same yearly resolution as the other provenienza phenomena: the yearly value is broadcast to every day of the year
+    and averaged over the requested window (a window inside one year returns that year's arrivals). The comune-years
+    without arrivals data (the arrivals file may cover fewer years than the presences, so the row exists in the file
+    with an empty value) are dropped, so that they do not extend ``date_bounds()`` / ``years_range``.
+    The comune-years whose ``volume_totale`` is below ``min_total`` (too few arrivals for a reliable share) are dropped
+    too: both volume phenomena of an indicator must be given the same ``min_total``, so they drop the same rows
+    and the regional value is computed on the reliable comuni only.
+    ``nome_mercato_principale`` is text and is NOT a phenomenon: it cannot be averaged over a window.
+    """
+
+    def __init__(self, source, col, name=None, min_total: float = 0):
+        super().__init__(source, col, name=name or col)
+        self.min_total = min_total
+
+    def _normalise_columns(self, raw: pd.DataFrame) -> pd.DataFrame:
+        df = super()._normalise_columns(raw)
+        keep = df[self.name].notna() & (
+            raw.loc[df.index, "volume_totale"] >= self.min_total
+        )
+        return df[keep]
+
+
+class ElectricityTourismSharePhenomenon(Phenomenon):
+    """
+    One column of ``phen_ee_tourism_share``: the share of the electricity consumption attributable to tourism of
+    each comune and YEAR (``quota_ee_turismo``) and its companions ``presenze_medie`` / ``consumo_medio`` (mean daily
+    tourists / kWh of the year) and ``affidabilita`` (text: alta / media / bassa, ``text=True``). The model runs in
+    the data preparation (``utils/consumption_share.py``) on the 12 months of the year; the comune-years that cannot
+    be estimated are absent from the file.
+
+    Yearly like the OD flow indicators: broadcast to the days of the year and averaged over the requested window
+    (a window inside one year returns that year's value). The text column cannot be averaged: over a window with
+    several years it takes the value of the latest year.
+    """
+
+    temporal_resolution = "yearly"
+    temporal_strategy = "constant"
+    spatial_resolution = "comune"
+    spatial_strategy = "identity"
+
+    def __init__(self, source, col, name=None, text=False):
+        super().__init__(
+            source, col, agg="last" if text else "mean", municipality_id_col="ID_COMUNE"
+        )
+        self.numeric = not text
+        self.name = name or col

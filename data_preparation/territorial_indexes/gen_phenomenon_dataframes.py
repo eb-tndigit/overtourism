@@ -6,7 +6,8 @@ Base build of the phenomenon dataframes, from scratch (entry point). Runs ALL th
     1 standardize     raw_data                     -> Output/data/normalized/
     2 process         normalized (+ mappings)      -> Output/data/data_processed/
     3 phenomena       data_processed               -> Output/data/final_data/
-                      (phen_popolazione, phen_strutture, phen_presenze)
+                      (phen_popolazione, phen_strutture, phen_presenze, phen_consumption,
+                      phen_flussi_od, phen_provenienza, phen_meteo, + derived: phen_ee_tourism_share)
 
 Every step reads the output of the previous one. Directories, file format (`type_format`, parquet by
 default) and platform settings are in config/settings.yaml.
@@ -29,15 +30,13 @@ import argparse
 import logging
 from pathlib import Path
 
-from utils.config import TYPE_FORMAT, setup_logging
+from utils.config import DEFAULT_UPDATE_CONFIG, TYPE_FORMAT, setup_logging
 from utils.steps.create_phenomena_df import compute_phenomena
 from utils.steps.download_data import download_raw_base_data
 from utils.steps.process_std_data import process_data
 from utils.steps.standardize_raw_data import standardize_raw_data
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_UPDATE_CONFIG = Path(__file__).resolve().parent / "config" / "updates" / "update_2025.yaml"
 
 
 def run_update_2025(
@@ -47,7 +46,7 @@ def run_update_2025(
     skip_download=False,
     force_download=False,
 ):
-    """Runs the yearly update of 2025 only (`config/updates/update_2025.yaml`): appends the 2025 rows to the
+    """Runs the yearly update of 2025 only (default: `update.default_config` of settings.yaml): appends the 2025 rows to the
     phenomena of the base build. Files already in raw_data are not downloaded again."""
     from update_phenomenon_dataframes import update_pipeline
 
@@ -128,7 +127,7 @@ def _parse_args(argv=None):
         "--update-config",
         type=Path,
         default=DEFAULT_UPDATE_CONFIG,
-        help="update yaml used by --with-update / --update-only (default: update_2025.yaml)",
+        help="update yaml used by --with-update / --update-only (default: `update.default_config` of settings.yaml)",
     )
     p.add_argument(
         "--upload",

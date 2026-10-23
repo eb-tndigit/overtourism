@@ -8,11 +8,13 @@ from overtourism.overtourism.backend_extension.api.models.indicator import Indic
 from overtourism.overtourism.backend_extension.api.models.trenitno_phenomena import (
     BedsPhenomenon,
     ConsumptionPhenomenon,
+    ElectricityTourismSharePhenomenon,
     FacilitiesTotalPhenomenon,
     FlowIndicatorPhenomenon,
     PopulationPhenomenon,
     PresencesPhenomenon,
     ProvenienzaPhenomenon,
+    ProvenienzaVolumePhenomenon,
     SurfacePhenomenon,
 )
 from overtourism.overtourism.setup import index_data_path
@@ -35,25 +37,20 @@ PROVENIENZA_SOURCE = (
 CONSUMPTION_SOURCE = (
     index_data_path / "phen_consumption.parquet"
 )  # daily electricity / gas consumption per comune (services and total)
+EE_TOURISM_SHARE_SOURCE = (
+    index_data_path / "phen_ee_tourism_share.parquet"
+)  # yearly share of the electricity consumption attributable to tourism per comune (computed in the data preparation)
 MACRO_AREAS_FILE = index_data_path / "map_comuni_into_apt.json"
 CODICI_COMUNI_FILE = index_data_path / "mapping_comuni_ISTAT.json"
-
-# ---------------------------------------------------------------------------
-# Types definition
-# ---------------------------------------------------------------------------
-INDICATORS_TYPES = [
-    "Gestione della Sostenibilità",
-    "Impatti socio-economici",
-    "Impatti culturali",
-    "Impatti ambientali",
-]
 
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 
 # Number of classes of the discretized PageRank map (quantiles, 1 = lowest ... N = highest)
-PAGERANK_N_CLASSES = 10
+PAGERANK_N_CLASSES = 5
+MAIN_MARKET_MIN_ARRIVALS = 100
+
 
 _VARIATION_RATE_KEY = "tasso-variazione"
 _PERIOD_PERCENTAGE_IMPACT_KEY = "incidenza-periodo"
@@ -97,12 +94,23 @@ _REGISTRY: dict[str, Callable[[], Indicator]] = {
     "concentrazione-mercati-provenienza": lambda: SourceMarketsConcentrationIndicator(
         PROVENIENZA_SOURCE
     ),
+    "dipendenza-mercato-principale": lambda: MainMarketDependenceIndicator(
+        PROVENIENZA_SOURCE
+    ),
     "impatto-turismo-consumi-elettrici": lambda: TourismElectricityConsumptionImpactIndicator(
         CONSUMPTION_SOURCE
     ),
     "impatto-turismo-consumi-gas": lambda: TourismGasConsumptionImpactIndicator(
         CONSUMPTION_SOURCE
     ),
+    "quota-consumi-elettrici-attribuibili-turismo": lambda: TourismElectricityShareIndicator(
+        EE_TOURISM_SHARE_SOURCE
+    ),
+    "indice-stagionalita-presenze": lambda: SeasonalityOfPresencesIndicator(),
+    "distanza-media-turisti": lambda: AverageTouristTravelTimeIndicator(),
+    "dipendenza-domanda-prossimita": lambda: ProximityDemandDependenceIndicator(),
+    "affollamento-turistico": lambda: TouristCrowdingIndicator(),
+    "sostenibilita-territoriale": lambda: TerritorialSustainabilityIndicator(),
     _VARIATION_RATE_KEY: lambda: VariationRateIndicator(),
     _PERIOD_PERCENTAGE_IMPACT_KEY: lambda: PeriodPercentageImpactIndicator(),
 }
@@ -124,10 +132,11 @@ def get_indicator(key: str) -> Indicator:
 
 
 class AccommodationCapacityIndicator(Indicator):
+    category = "Pressione turistica"
+    order = 10
     """Beds per resident: NUMLETTI_TOT / POPOLAZIONE."""
 
     name = "Indice di ricettività"
-    type = INDICATORS_TYPES[1]
     description = "L'indice di ricettività definisce il <strong>rapporto</strong> fra i <strong>letti presenti negli esercizi ricettivi</strong> e gli <strong>abitanti</strong> di una stessa area. L'indice è una misura della capacità turistica rispetto alla dimensione, in termini di popolazione, di un'area. L'indice è calcolato partendo dai dati ISPAT relativi alla popolazione residente e alla consistenza degli esercizi alberghieri e extra-alberghieri."
     index_value_unit_description = "Rapporto posti letto / popolazione"
 
@@ -142,10 +151,11 @@ class AccommodationCapacityIndicator(Indicator):
 
 
 class TourismIndexIndicator(Indicator):
+    category = "Pressione turistica"
+    order = 10
     """Total presences per resident."""
 
     name = "Indice di turisticità"
-    type = INDICATORS_TYPES[1]
     description = "L'indice di turisticità definisce il <strong>rapporto</strong> fra il <strong>numero medio giornaliero di turisti negli esercizi ricettivi</strong> di una specifica area e il<strong>numero di abitanti</strong> della stessa area. L'indice fornisce una misura dell'effettiva incidenza del turismo rispetto alla dimensione, in termini di popolazione, di un'area. L'indice è calcolato partendo dai dati Vodafone per quanto riguarda le presenze turistiche e dai dati ISPAT relativi alla popolazione residente."
     index_value_unit_description = "Rapporto fra numero turisti e popolazione"
 
@@ -160,10 +170,11 @@ class TourismIndexIndicator(Indicator):
 
 
 class TouristDensityIndicator(Indicator):
+    category = "Pressione turistica"
+    order = 10
     """Vodafone tourists + visitors presences per km² of the comune's surface."""
 
     name = "Indice di densità turistica"
-    type = INDICATORS_TYPES[3]
     description = "L'indice di densità turistica definisce il <strong>rapporto</strong> fra il <strong>numero medio giornaliero di turisti ed escursionisti</strong> presenti in un comune e la sua <strong>superficie</strong> in km². L'indice fornisce una misura della pressione turistica sul territorio. L'indice è calcolato partendo dai dati Vodafone per quanto riguarda le presenze di turisti ed escursionisti e dai confini amministrativi ISTAT per la superficie dei comuni."
     index_value_unit_description = "Presenze turistiche per km²"
 
@@ -190,19 +201,18 @@ class TouristDensityIndicator(Indicator):
         df: pd.DataFrame,
         **extra,
     ) -> pd.Series:
-        numerator = (
-            df[["presenze_vodafone", "presenze_escursionisti_vodafone"]]
-            .fillna(0)
-            .sum(axis=1)
-        )
+        numerator = df[["presenze_vodafone", "presenze_escursionisti_vodafone"]].sum(
+            axis=1, min_count=1
+        )  # one of the two missing = 0; both missing = no data (null)
         return numerator.div(df["superficie"].replace(0, np.nan))
 
 
 class AnthropogenicDensityIndicator(Indicator):
+    category = "Pressione turistica"
+    order = 10
     """Inhabitants and Vodafone tourist presences per km² of comune area."""
 
     name = "Indice di densità antropica"
-    type = INDICATORS_TYPES[3]
     description = "L'indice di densità antropica misura il rapporto fra la popolazione residente e il numero medio giornaliero di turisti ed escursionisti rilevati da Vodafone, rispetto alla superficie del comune in km²."
     index_value_unit_description = "Abitanti e presenze turistiche per km²"
 
@@ -230,11 +240,11 @@ class AnthropogenicDensityIndicator(Indicator):
         df: pd.DataFrame,
         **extra,
     ) -> pd.Series:
-        vodafone_presences = (
-            df[["presenze_vodafone", "presenze_escursionisti_vodafone"]]
-            .fillna(0)
-            .sum(axis=1)
-        )
+        vodafone_presences = df[
+            ["presenze_vodafone", "presenze_escursionisti_vodafone"]
+        ].sum(
+            axis=1, min_count=1
+        )  # one of the two missing = 0; both missing = no data (null)
         numerator = vodafone_presences + df["population"]
         return numerator.div(df["superficie"].replace(0, np.nan))
 
@@ -269,11 +279,12 @@ class _HospitalityShareIndicator(Indicator):
 
 class _HospitalityFacilitiesShareIndicator(_HospitalityShareIndicator):
     phenomenon_class = FacilitiesTotalPhenomenon
-    type = INDICATORS_TYPES[1]
     index_value_unit_description = "Quota delle strutture sul totale"
 
 
 class TouristAccommodationFacilitiesIndicator(_HospitalityFacilitiesShareIndicator):
+    category = "Strutture"
+    order = 30
     """Tourist accommodation facilities over tourist, hotel and extra-hotel facilities."""
 
     name = "Incidenza Alloggi turistici (strutture)"
@@ -376,6 +387,8 @@ class TouristPresenceGiniIndicator(Indicator):
 
 
 class AvailableAccommodationFacilitiesIndicator(_HospitalityFacilitiesShareIndicator):
+    category = "Strutture"
+    order = 30
     """Available accommodation facilities over all accommodation facilities."""
 
     name = "Incidenza Alloggi a disposizione (strutture)"
@@ -395,11 +408,12 @@ class AvailableAccommodationFacilitiesIndicator(_HospitalityFacilitiesShareIndic
 
 class _HospitalityBedsShareIndicator(_HospitalityShareIndicator):
     phenomenon_class = BedsPhenomenon
-    type = INDICATORS_TYPES[1]
     index_value_unit_description = "Quota dei posti letto sul totale"
 
 
 class TouristAccommodationBedsIndicator(_HospitalityBedsShareIndicator):
+    category = "Strutture"
+    order = 30
     """Tourist accommodation beds over tourist, hotel and extra-hotel beds."""
 
     name = "Incidenza Alloggi turistici (posti letto)"
@@ -417,6 +431,8 @@ class TouristAccommodationBedsIndicator(_HospitalityBedsShareIndicator):
 
 
 class AvailableAccommodationBedsIndicator(_HospitalityBedsShareIndicator):
+    category = "Strutture"
+    order = 30
     """Available accommodation beds over all accommodation beds."""
 
     name = "Incidenza Alloggi a disposizione (posti letto)"
@@ -435,10 +451,11 @@ class AvailableAccommodationBedsIndicator(_HospitalityBedsShareIndicator):
 
 
 class HiddenTourismIndicator(Indicator):
+    category = "Pressione turistica"
+    order = 10
     """Calculates the hidden tourism indicator as the ratio between Vodafone registered attendences and accomodancy ones"""
 
     name = "Turismo non intercettato"
-    type = INDICATORS_TYPES[0]
     description = "L'indice misura il <strong>rapporto</strong> fra le <strong>presenze di turisti misurate</strong> attraverso l'analisi di dati da rete di telefonia mobile e le <strong>presenze ufficiali</strong> di turisti in strutture alberghiere e extra-alberghiere. L'indice è stato calcolato partendo dai dati ISPAT sul movimento turistico e dai dati Vodafone relativi alle presenze misurate."
     index_value_unit_description = "Rapporto fra presenze misurate e ufficiali"
 
@@ -476,12 +493,13 @@ class HiddenTourismIndicator(Indicator):
 
 
 class AnthropogenicLoadIndicator(Indicator):
+    category = "Pressione turistica"
+    order = 10
     """Calculates the anthropogenic load as the ratio between Vodafone
     registered presences (tourists and excursionists) and resident population.
     """
 
     name = "Carico Antropico"
-    type = INDICATORS_TYPES[0]
     description = (
         "L'indice misura il rapporto fra le presenze complessive rilevate "
         "attraverso i dati Vodafone, comprendenti turisti ed escursionisti, "
@@ -548,7 +566,7 @@ class _FlowIndicator(Indicator):
     """Base of the indicators that read one metric of phen_flussi_od (tourists + excursionists, weighted)."""
 
     metric: str = ""
-    type = INDICATORS_TYPES[0]
+    year_only = True
 
     def __init__(self, source_file, combinator=None):
         super().__init__(
@@ -566,6 +584,8 @@ class _FlowIndicator(Indicator):
 
 
 class InboundMobilityShareIndicator(_FlowIndicator):
+    category = "Flussi"
+    order = 50
     """UD(*->j) / T(j): share of the users present in j who arrive from another area."""
 
     metric = "quota_ingresso"
@@ -583,10 +603,12 @@ class InboundMobilityShareIndicator(_FlowIndicator):
 
 
 class OutboundMobilityShareIndicator(_FlowIndicator):
+    category = "Flussi"
+    order = 50
     """UD(j->*) / T(j): share of the users present in j who go on to another area."""
 
     metric = "quota_uscita"
-    name = "Flussi - Quota di mobilità in uscita"
+    name = "Quota di mobilità in uscita"
     description = (
         "La quota di mobilità in uscita misura la <strong>quota degli utenti presenti in un'area che "
         "proseguono verso un'altra area</strong> (rapporto fra gli utenti diretti verso altre aree e gli "
@@ -599,10 +621,12 @@ class OutboundMobilityShareIndicator(_FlowIndicator):
 
 
 class IntraAmbitoShareIndicator(_FlowIndicator):
+    category = "Flussi"
+    order = 50
     """Share of the UD flow of an area that stays inside its own ambito."""
 
     metric = "quota_intra_ambito"
-    name = "Flussi - Quota intra-ambito"
+    name = "Quota intra-ambito"
     description = (
         "La quota intra-ambito misura la <strong>quota dei flussi di un'area (in ingresso e in uscita) "
         "scambiati con aree dello stesso ambito turistico</strong>; il resto è mobilità inter-ambito. "
@@ -613,6 +637,8 @@ class IntraAmbitoShareIndicator(_FlowIndicator):
 
 
 class DiscretizedPageRankIndicator(_FlowIndicator):
+    category = "Flussi"
+    order = 100
     """
     PageRank of the network of the flows between areas, discretized in ``n_classes`` quantile classes.
 
@@ -624,9 +650,9 @@ class DiscretizedPageRankIndicator(_FlowIndicator):
     """
 
     metric = "pagerank"
-    name = "Flussi - PageRank discretizzato"
+    name = "Centralità nella rete"
     description = (
-        "Il PageRank misura la <strong>centralità di un'area nella rete dei flussi</strong> fra aree: è alto "
+        "Questo indice misura la <strong>centralità di un'area nella rete dei flussi</strong> fra aree: è alto "
         "per le tappe che ricevono flusso da aree a loro volta rilevanti. Per la lettura su mappa il valore è "
         "<strong>discretizzato in classi di quantili</strong> (1 = centralità più bassa, "
         "{n} = più alta; 0 = dato non disponibile): le classi indicano la posizione relativa fra i comuni."
@@ -647,15 +673,17 @@ class DiscretizedPageRankIndicator(_FlowIndicator):
         super().__init__(source_file, combinator=self._discretize)
 
     def _discretize(self, df: pd.DataFrame, **_extra) -> pd.Series:
-        """Quantile class (1..n_classes) of the combined PageRank among the comuni of ``df``; NaN where missing."""
+        """Quantile class (1..n_classes) of the combined PageRank among the comuni of ``df``; 0 (documented class
+        "dato non disponibile") where missing: explicit, the base Indicator keeps nulls.
+        """
         value = df["pagerank_combined"]
         classes = pd.Series(np.nan, index=df.index, dtype=float)
         valid = value.notna()
         if valid.sum() < 2:
-            return classes
+            return classes.fillna(0)
         share_below = value[valid].rank(method="average", pct=True)
         classes[valid] = np.ceil(share_below * self.n_classes).clip(1, self.n_classes)
-        return classes
+        return classes.fillna(0)
 
 
 # ---------------------------------------------------------------------------
@@ -668,10 +696,11 @@ class DiscretizedPageRankIndicator(_FlowIndicator):
 
 
 class SourceMarketsConcentrationIndicator(Indicator):
+    category = "Provenienza"
+    order = 100
     """Normalized HHI of the source markets of the tourists: 0 = many markets evenly, 1 = a single market."""
 
     name = "Provenienza - Indice di concentrazione mercati provenienza"
-    type = INDICATORS_TYPES[0]
     description = (
         "L'indice di concentrazione dei mercati di provenienza misura quanto le <strong>presenze di turisti "
         "provengono da pochi paesi</strong>. È l'<strong>indice di Herfindahl-Hirschman (HHI) normalizzato</strong> "
@@ -684,6 +713,7 @@ class SourceMarketsConcentrationIndicator(Indicator):
     index_value_unit_description = (
         "Indice HHI normalizzato (0 = mercati diversificati, 1 = un solo mercato)"
     )
+    year_only = True
 
     def __init__(self, source_file):
         super().__init__(
@@ -696,13 +726,100 @@ class SourceMarketsConcentrationIndicator(Indicator):
         return df["hhi_provenienza"]
 
 
+class MainMarketDependenceIndicator(Indicator):
+    category = "Provenienza"
+    order = 100
+    """Share of the yearly tourist arrivals that come from the main source market: volume_mercato_1 / volume_totale."""
+
+    name = "Indice di dipendenza dal principale mercato di origine"
+    MAIN_MARKETS_COLUMN = "main_markets"
+    MAIN_MARKET_MARKETS_DESCRIPTION = "Italia, altri paesi europei, paesi extra-europei"
+    description = (
+        "L'indice di dipendenza dal principale mercato di origine misura la <strong>quota degli arrivi di turisti "
+        "che proviene dal mercato di origine più importante</strong> di un comune (rapporto fra gli arrivi dal mercato "
+        "principale e gli arrivi totali). Valori alti indicano una forte dipendenza da un solo mercato; il mercato "
+        "principale può essere diverso da un comune all'altro. I mercati sono: "
+        + MAIN_MARKET_MARKETS_DESCRIPTION
+        + ". Sono contati gli <strong>arrivi</strong> e non le presenze, così un soggiorno lungo non pesa più "
+        "di uno breve. L'indice è annuale, riguarda solo i turisti ed è calcolato sui dati Vodafone; è lasciato vuoto "
+        "per i comuni con arrivi troppo bassi. I conteggi molto piccoli non sono forniti da Vodafone: l'indice descrive "
+        "i mercati osservati."
+    )
+    index_value_unit_description = (
+        "Quota degli arrivi dal mercato principale (0-1; 1 = un solo mercato)"
+    )
+    year_only = True
+
+    def __init__(self, source_file):
+        super().__init__(
+            phenomena=[
+                ProvenienzaVolumePhenomenon(
+                    source_file,
+                    "volume_mercato_1",
+                    min_total=MAIN_MARKET_MIN_ARRIVALS,
+                ),
+                ProvenienzaVolumePhenomenon(
+                    source_file, "volume_totale", min_total=MAIN_MARKET_MIN_ARRIVALS
+                ),
+            ],
+            combinator=self._dependence,
+        )
+
+    def _compute_indicator(
+        self,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        **extra,
+    ) -> pd.DataFrame | None:
+        result = super()._compute_indicator(start_date, end_date, **extra)
+        if result is None:
+            return None
+
+        source = self.phenomena[0]._read_source()
+        source_years = source["DATA"].astype(str).str[:4].astype(int)
+        market_names = source.loc[
+            source_years == pd.to_datetime(end_date).year,
+            ["ID_COMUNE", "nome_mercato_1", "nome_mercato_2", "nome_mercato_3"],
+        ].copy()
+        market_names["ID_COMUNE"] = market_names["ID_COMUNE"].astype(str)
+        if market_names["ID_COMUNE"].duplicated().any():
+            raise ValueError(
+                "phen_provenienza must have only one row per comune and year"
+            )
+
+        def describe_markets(row: pd.Series) -> str | None:
+            names = [
+                str(value).strip()
+                for value in row.iloc[1:]
+                if pd.notna(value) and str(value).strip()
+            ]
+            return ", ".join(names) if names else None
+
+        market_names[self.MAIN_MARKETS_COLUMN] = market_names.apply(
+            describe_markets, axis=1
+        )
+        market_names_by_comune = market_names.set_index("ID_COMUNE")[
+            self.MAIN_MARKETS_COLUMN
+        ]
+        result[self.MAIN_MARKETS_COLUMN] = (
+            result["ID_COMUNE"].astype(str).map(market_names_by_comune)
+        )
+        return result
+
+    @staticmethod
+    def _dependence(df: pd.DataFrame, **_extra) -> pd.Series:
+        """main / total. The comune-years below MAIN_MARKET_MIN_ARRIVALS are already dropped by the phenomena."""
+        return df["volume_mercato_1"] / df["volume_totale"].replace(0, np.nan)
+
+
 # ---------------------------------------------------------------------------
 # Consumption indicators (impact of tourism on electricity / gas consumption)
 # ---------------------------------------------------------------------------
 # They read `phen_consumption`: one row per comune and DAY with the electricity (`ee_*`) and gas (`gas_*`)
 # consumption of the services sector (`*_services`, the one driven by tourism) and of all sectors (`*_total`).
 # The indicator is the share of the services consumption over the total one, computed on the averages of the
-# requested window. Null values are treated as zeros.
+# requested window. Where the total consumption is missing or zero (e.g. a comune without gas network) the index has no
+# value (null); services consumption missing while the total is known counts as zero.
 
 
 class _ConsumptionImpactIndicator(Indicator):
@@ -710,7 +827,6 @@ class _ConsumptionImpactIndicator(Indicator):
 
     services_column: str = ""
     total_column: str = ""
-    type = INDICATORS_TYPES[1]
     index_value_unit_description = (
         "Rapporto fra consumi del settore servizi e consumi totali"
     )
@@ -725,12 +841,16 @@ class _ConsumptionImpactIndicator(Indicator):
         )
 
     def _services_share(self, df: pd.DataFrame, **_extra) -> pd.Series:
+        # no total consumption (e.g. a comune without gas network) or a zero one: no value (null), not 0.
+        # Services missing while the total is known: the comune has no consumption in those categories (0).
         services = df[self.services_column].fillna(0)
-        total = df[self.total_column].fillna(0)
+        total = df[self.total_column]
         return services.div(total.where(total != 0))
 
 
 class TourismElectricityConsumptionImpactIndicator(_ConsumptionImpactIndicator):
+    category = "Consumi"
+    order = 150
     """Electricity consumption of the services sector over the total electricity consumption."""
 
     name = "Impatto turismo sui consumi elettrici"
@@ -738,13 +858,16 @@ class TourismElectricityConsumptionImpactIndicator(_ConsumptionImpactIndicator):
         "L'indice misura l'impatto del turismo sui consumi elettrici come <strong>rapporto</strong> fra i "
         "<strong>consumi elettrici del settore servizi</strong> e i <strong>consumi elettrici totali</strong> "
         "dell'area. Valori alti indicano un'area in cui i consumi sono dominati dalle attività legate ai servizi "
-        "e quindi al turismo. I valori mancanti sono considerati pari a zero."
+        "e quindi al turismo. I comuni senza consumi totali non hanno valore; se mancano solo i consumi del settore servizi "
+        "sono considerati pari a zero."
     )
     services_column = "ee_services"
     total_column = "ee_total"
 
 
 class TourismGasConsumptionImpactIndicator(_ConsumptionImpactIndicator):
+    category = "Consumi"
+    order = 150
     """Gas consumption of the services sector over the total gas consumption."""
 
     name = "Impatto turismo sui consumi di gas"
@@ -752,13 +875,150 @@ class TourismGasConsumptionImpactIndicator(_ConsumptionImpactIndicator):
         "L'indice misura l'impatto del turismo sui consumi di gas come <strong>rapporto</strong> fra i "
         "<strong>consumi di gas del settore servizi</strong> e i <strong>consumi di gas totali</strong> "
         "dell'area. Valori alti indicano un'area in cui i consumi sono dominati dalle attività legate ai servizi "
-        "e quindi al turismo. I valori mancanti sono considerati pari a zero."
+        "e quindi al turismo. I comuni senza consumi totali non hanno valore; se mancano solo i consumi del settore servizi "
+        "sono considerati pari a zero."
     )
     services_column = "gas_services"
     total_column = "gas_total"
 
 
+# ---------------------------------------------------------------------------
+# Share of the electricity consumption attributable to tourism
+# ---------------------------------------------------------------------------
+# It reads `phen_ee_tourism_share`: one row per comune and YEAR with the share of the services-sector electricity
+# consumption that goes with the tourist presences (`quota_ee_turismo`), computed in the data preparation
+# (`utils/consumption_share.py`: monthly regression of the 12 months of the year, controlling for the temperature)
+# from `phen_consumption`, `phen_presenze` and `phen_meteo`. Yearly like the other yearly indicators: a requested
+# window returns the value of its year(s) and the seasonality filter does not change it. The comuni that cannot
+# be estimated in a year (a month without data) are absent from the file, so they have no value, not a zero.
+
+
+class TourismElectricityShareIndicator(Indicator):
+    category = "Consumi"
+    order = 150
+    """Share (0-1) of the services-sector electricity consumption that goes with the tourist presences."""
+
+    name = "Quota consumi elettrici attribuibili al turismo"
+    description = (
+        "L'indice misura la <strong>quota dei consumi elettrici del settore servizi attribuibile al "
+        "turismo</strong>: la parte del consumo medio giornaliero che varia insieme alle presenze di turisti. "
+        "La quota è stimata, per ogni comune e per ogni anno, con una <strong>regressione sui 12 mesi</strong> "
+        "dell'anno che tiene conto della temperatura (gradi giorno di riscaldamento): i comuni con dati mancanti "
+        "in qualche mese non hanno valore. L'indice è un'associazione statistica, non una misura diretta: il campo "
+        "<em>affidabilità</em> (alta, media, bassa) indica quanto i dati del solo comune sostengono un effetto "
+        "positivo delle presenze; per i comuni vicini, che condividono le presenze di una stessa area Vodafone, le stime non "
+        "sono indipendenti. Il filtro stagionale non modifica l'indice. I consumi sono mensili e distribuiti "
+        "uniformemente sui giorni."
+    )
+    index_value_unit_description = (
+        "Quota dei consumi elettrici attribuibile al turismo (0-1)"
+    )
+    year_only = True
+    availableForVariation = False
+
+    SHARE_COLUMN = "quota_ee_turismo"
+    TEXT_COLUMN = "affidabilita"  # alta / media / bassa
+    COMPANION_COLUMNS = ("presenze_medie", "consumo_medio", TEXT_COLUMN)
+
+    def __init__(self, source_file):
+        super().__init__(
+            phenomena=[
+                ElectricityTourismSharePhenomenon(
+                    source_file, col, text=(col == self.TEXT_COLUMN)
+                )
+                for col in (self.SHARE_COLUMN, *self.COMPANION_COLUMNS)
+            ],
+            combinator=self._share,
+        )
+
+    @staticmethod
+    def _share(df: pd.DataFrame, **_extra) -> pd.Series:
+        return df["quota_ee_turismo"]
+
+
+class _NotImplementedIndexIndicator(Indicator):
+    """Metadata-only placeholder for an index whose methodology is not implemented yet."""
+
+    category = "Indicatori in sviluppo"
+    availableForVariation = False
+    _years_range = {
+        "min_year": 2022,
+        "max_year": 2025,
+    }
+
+    def __init__(self):
+        super().__init__(phenomena=[], combinator=self._not_implemented)
+
+    @staticmethod
+    def _not_implemented(df: pd.DataFrame, **_extra) -> pd.Series:
+        # #TODO Implement the index methodology and required source data.
+        raise NotImplementedError(
+            "This indicator is a placeholder; its calculation has not been implemented yet."
+        )
+
+
+class SeasonalityOfPresencesIndicator(_NotImplementedIndexIndicator):
+    # #TODO Define and document the seasonality index methodology.
+    name = "Indice di stagionalità delle presenze"
+    description = "TODO"
+    index_value_unit_description = "TODO"
+    category = "Pressione turistica"
+    order = 10
+    year_only = True
+
+
+class AverageTouristTravelTimeIndicator(_NotImplementedIndexIndicator):
+    # #TODO Estimate travel time using tourist origin nationality at the available data granularity.
+    name = "Distanza media turisti"
+    description = (
+        "Stima del tempo medio impiegato dai turisti per raggiungere la località, "
+        "basata sulla nazionalità di provenienza, data la granularità dei dati disponibili."
+    )
+    index_value_unit_description = "Tempo medio stimato di viaggio"
+    category = "Provenienza"
+    order = 100
+
+
+class ProximityDemandDependenceIndicator(_NotImplementedIndexIndicator):
+    # #TODO Calculate the share of tourists originating within a two-hour travel distance.
+    name = "Indice di dipendenza dalla domanda di prossimità"
+    description = (
+        "Misura la quota di turisti che proviene da destinazioni raggiungibili entro "
+        "due ore di distanza. La metodologia di stima della distanza è da definire."
+    )
+    index_value_unit_description = "Quota di turisti provenienti entro 2 ore (0-1)"
+    category = "Provenienza"
+    order = 100
+    year_only = True
+
+
+class TouristCrowdingIndicator(_NotImplementedIndexIndicator):
+    # #TODO Define and normalize the component metrics and aggregation method.
+    name = "Affollamento turistico"
+    description = (
+        "Indice composito che combina diverse metriche per offrire una panoramica "
+        "complessiva del livello di affollamento turistico di una località."
+    )
+    index_value_unit_description = "Indice composito (scala da definire)"
+    category = "Pressione turistica"
+    order = 10
+
+
+class TerritorialSustainabilityIndicator(_NotImplementedIndexIndicator):
+    # #TODO Define component metrics, normalization, weighting, and aggregation.
+    name = "Indice di sostenibilità territoriale"
+    description = (
+        "Macro-indicatore composito che integra diverse metriche per fornire una "
+        "valutazione sintetica della sostenibilità territoriale in relazione al turismo."
+    )
+    index_value_unit_description = "Indice composito (scala da definire)"
+    category = "Pressione turistica"
+    order = 100
+
+
 class VariationRateIndicator(Indicator):
+    category = "Internal"
+    order = 900
     """
     Generic "Tasso di variazione" (rate of variation) index.
 
@@ -898,6 +1158,8 @@ class VariationRateIndicator(Indicator):
 
 
 class PeriodPercentageImpactIndicator(Indicator):
+    category = "Internal"
+    order = 910
     """
     Percentage weight that a seasonal sub-period has on the total value of
     another indicator over the full requested period.
@@ -1018,7 +1280,7 @@ class PeriodPercentageImpactIndicator(Indicator):
                 how="outer",
             )
         )
-        merged["INDICE_sottoperiodo"] = merged["INDICE_sottoperiodo"].fillna(0)
+        # a comune with no value in the sub-period (no data) has no incidence: null, not 0%
 
         merged["INDICE"] = (
             merged["INDICE_sottoperiodo"] / merged["INDICE_periodo"].replace(0, np.nan)
