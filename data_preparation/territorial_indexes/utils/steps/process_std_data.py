@@ -33,7 +33,6 @@ from utils.cleaning import (
 )
 from utils.config import (
     BASE_WINDOW,
-    REFERENCE_CITY_ITALY,
     DATA_START,
     HDD_BASE_TEMP,
     MAPPING_DIR,
@@ -46,10 +45,11 @@ from utils.config import (
     PRESENZE_TAGS,
     PROCESSED_DIR,
     RAW_DIR,
+    REFERENCE_CITY_ITALY,
     REFERENCES,
     STD_SUFFIX,
-    TYPE_FORMAT,
     TRAVEL_TIMES_MATRIX_FILE,
+    TYPE_FORMAT,
     setup_logging,
 )
 from utils.datasets import (  # noqa: F401  (re-exported for convenience)
@@ -79,6 +79,7 @@ from utils.datasets import (  # noqa: F401  (re-exported for convenience)
     EE_TOTALE_VALUE_COLS,
     GAS_TOTALE_VALUE_COLS,
     STRUTTURE_VALUE_COLS,
+    TEMPO_MEDIO_VALUE_COLS,
     VODAFONE_VALUE_COLS,
 )
 from utils.steps.standardize_raw_data import ENERGY_MONTHS
@@ -95,8 +96,6 @@ from utils.main_market import comune_main_market, split_areas_to_comuni
 from utils.provenienza import comune_hhi
 from utils.stay_distribution import distribute_by_stay
 from utils.io import read_df, read_json, read_table, save_computed_dfs
-
-from trentino_travel_times import ensure_travel_time_matrix
 
 logger = logging.getLogger(__name__)
 
@@ -368,7 +367,8 @@ def _read_travel_time_routes(path, countries, reference_city_italy):
     """Read only the reference-city and required country rows from the route matrix."""
     if not Path(path).exists():
         raise FileNotFoundError(
-            f"Travel-time matrix not found: {path}. Run gen_phenomenon_dataframes.py to generate it automatically."
+            f"Travel-time matrix not found: {path}. It is downloaded with the references (step 0): generate it with "
+            "data_download/trentino_travel_times.py and upload it to the data lake (`references.travel_times`)."
         )
     columns = [
         "istat_origine",
@@ -393,7 +393,8 @@ def _read_travel_time_routes(path, countries, reference_city_italy):
 
 
 def _mean_tourist_travel_time(df, area_comune, strutture, travel_times, reference_city_italy):
-    """Yearly arrival-weighted route time from each origin market to each comune."""
+    """Yearly arrival-weighted route time from each origin market to each comune, with the two sums it comes from:
+    `arrivi` (arrivals with a country and a route) and `minuti_totali` (arrivals x route minutes)."""
     if "userCountry" not in df.columns:
         raise ValueError("[tempo_medio_turisti] Vodafone arrivals have no userCountry column")
     countries = df["userCountry"].fillna("").astype(str).str.strip().str.upper()
@@ -408,7 +409,7 @@ def _mean_tourist_travel_time(df, area_comune, strutture, travel_times, referenc
         }
     ).groupby(["year", "areaId", "market"], as_index=False)["value"].sum()
     if by_area.empty:
-        return pd.DataFrame(columns=["DATA", "ID_COMUNE", "tempo_medio_turisti"])
+        return pd.DataFrame(columns=["DATA", "ID_COMUNE", *TEMPO_MEDIO_VALUE_COLS])
 
     comune_arrivals = split_areas_to_comuni(by_area, area_comune, strutture)
     matrix = travel_times
@@ -449,13 +450,13 @@ def _mean_tourist_travel_time(df, area_comune, strutture, travel_times, referenc
             sorted(missing["userCountry"].unique()),
         )
     matched = matched.dropna(subset=["tempo_di_percorrenza"])
-    matched["_weighted_time"] = matched["value"] * matched["tempo_di_percorrenza"]
+    matched["minuti_totali"] = matched["value"] * matched["tempo_di_percorrenza"]
     out = matched.groupby(["year", "ID_COMUNE"], as_index=False).agg(
-        _weighted_time=("_weighted_time", "sum"), arrivals=("value", "sum")
+        minuti_totali=("minuti_totali", "sum"), arrivi=("value", "sum")
     )
-    out["tempo_medio_turisti"] = out["_weighted_time"] / out["arrivals"]
+    out["tempo_medio_turisti"] = out["minuti_totali"] / out["arrivi"]
     out["DATA"] = out["year"]
-    return out[["DATA", "ID_COMUNE", "tempo_medio_turisti"]].sort_values(
+    return out[["DATA", "ID_COMUNE", *TEMPO_MEDIO_VALUE_COLS]].sort_values(
         ["DATA", "ID_COMUNE"]
     ).reset_index(drop=True)
 
@@ -871,7 +872,6 @@ def process_data(
     settings.yaml), so nothing before 2022-01-01 and nothing after 2024-12-31 reaches the processed data."""
     normalized_dir = Path(normalized_dir)
     logger.info("Time window of the base build: %s", window)
-    ensure_travel_time_matrix()
 
     logger.info("Reading standardized data from %s", normalized_dir)
     std = {

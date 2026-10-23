@@ -30,6 +30,7 @@ references:
   mapping_vodafone: mapping_ids/mapping_comuni_into_vodafone_Trento.json
   mapping_apt: mapping_ids/map_comuni_into_apt.json
   geojson: TRENTINO-comuni_Vodafone_2023.geojson
+  travel_times: matrice_tempi_verso_trentino.csv   # generated once by data_download/trentino_travel_times.py
 
 # File format of ALL the files (csv | parquet). Keep it the same in base build and update:
 # the uploaded files are named <phenomenon>.<format>, so a different format would not replace them.
@@ -156,9 +157,9 @@ derived_phenomena:
 meteo:
   hdd_base_temp: 18.0
 
-# Average journey time to each municipality
+# Average journey time to each municipality (the matrix is `references.travel_times`). reference_city_italy is also the
+# only Italian origin routed by data_download/trentino_travel_times.py (not set: all the Italian comuni; pipeline: Milano)
 travel_times:
-  matrix_file: ../Output/travel_times/matrice_tempi_verso_trentino.csv
   reference_city_italy: Firenze
 
 

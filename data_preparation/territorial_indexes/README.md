@@ -54,7 +54,7 @@ directories as arguments). The main entries:
 | `paths.*` | sub-folders: `mapping`, `raw`, `normalized`, `processed`, `final` |
 | `type_format` | `parquet` (default) or `csv`, for **every** file; keep it the same in the base build and in the update |
 | `period` | time window: `start` (nothing before it is kept), `base_end`, `update_start`, `update_end` |
-| `references` | data-lake keys of the json mappings and of the geojson of the Vodafone areas |
+| `references` | data-lake keys of the json mappings, of the geojson of the Vodafone areas and of the travel-time matrix |
 | `files` | the RAW files of the base build (data-lake keys): popolazione, strutture, Vodafone presences / arrivals / co-visits, the ISPAT presences (`files.presenze`: folder, file-name pattern, measures, tags) and the energy files (`files.energy`: root, folders, category files, totals) |
 | `datasets` | names of the standardized (`std`), processed and update files of every dataset |
 | `naming` | suffixes of the intermediate files (`_std`, `_update`) |
@@ -100,10 +100,12 @@ json mappings are in `Output/mapping`). Every step reads the output of the previ
    `phen_presenze` is an inner join of Vodafone, alb and extralb; `phen_consumption` an outer join of the four energy
    measures; the other phenomena are the processed dataset as it is.
 
-Before processing arrivals, the pipeline prepares `Output/travel_times/matrice_tempi_verso_trentino.csv` automatically.
-The matrix and routing caches are stored under `Output/travel_times/`; a complete existing matrix is reused, while
-previously unseen Vodafone country origins are added using cached routing blocks where possible. The standalone router
-is `trentino_travel_times.py` in this folder.
+The travel-time matrix used by `phen_tempo_medio_turisti` (`matrice_tempi_verso_trentino.csv`) is NOT computed by the
+pipeline: it is a reference (`references.travel_times`), downloaded into `Output/mapping/` in step 0. It is generated
+once, by hand, with `../data_download/trentino_travel_times.py` (output and routing caches in `Output/travel_times/`) and
+uploaded to the data lake. Its Italian origin is `travel_times.reference_city_italy` (all the Italian comuni if not set).
+Run it again, and upload the new file, when that city changes or the Vodafone arrivals bring new source countries: a
+complete matrix is reused, and new countries are added using the cached routing blocks where possible.
 
 The dataset → phenomenon mapping is in the `phenomena` section of `config/settings.yaml`.
 
@@ -211,7 +213,7 @@ may need a new adapter.
 | `phen_consumption` | comune × day | `ee_services`, `ee_total`, `gas_services`, `gas_total` |
 | `phen_flussi_od` | comune × year | `quota_ingresso`, `quota_uscita`, `quota_intra_ambito`, `pagerank` × (`tourist`, `visitor`, `combined`), `giorni_coperti` |
 | `phen_provenienza` | comune × year | `hhi_provenienza`, `giorni_coperti`, `volume_totale`, top-country `volume_mercato_N` / `nome_mercato_N` pairs (`N` configurable in `config/settings.yaml`) |
-| `phen_tempo_medio_turisti` | comune × year | `tempo_medio_turisti` (minutes; weighted by arrivals; Italian reference city configurable in `config/settings.yaml`) |
+| `phen_tempo_medio_turisti` | comune × year | `tempo_medio_turisti` (minutes; weighted by arrivals; Italian reference city configurable in `config/settings.yaml`), `arrivi`, `minuti_totali` (`tempo_medio_turisti = minuti_totali / arrivi`) |
 | `phen_meteo` | comune × day | `t_min`, `t_max`, `t_mean`, `hdd`, `rain_mm` |
 | `phen_ee_tourism_share` | comune × year | `quota_ee_turismo`, `presenze_medie`, `consumo_medio`, `affidabilita` (`alta` / `media` / `bassa`) |
 

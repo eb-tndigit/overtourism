@@ -21,7 +21,7 @@ _PATH_KEYS = (
     "final",
 )
 _PLATFORM_KEYS = ("project", "s3_bucket", "s3_prefix", "dhcore_env", "credentials_file")
-_REFERENCE_KEYS = ("mapping_comuni", "mapping_vodafone", "mapping_apt", "geojson")
+_REFERENCE_KEYS = ("mapping_comuni", "mapping_vodafone", "mapping_apt", "geojson", "travel_times")
 _PERIOD_KEYS = ("start", "base_end", "update_start", "update_end")
 _DATASET_FILE_KEYS = ("std", "processed", "update")
 _NAMING_KEYS = ("std_suffix", "update_part_suffix")
@@ -40,7 +40,7 @@ _FILES_KEYS = (
 _PRESENZE_FILES_KEYS = ("folder", "pattern", "measures", "tags")
 _METEO_FILES_KEYS = ("folder", "pattern")
 _ENERGY_FILES_KEYS = ("root", "folders", "category_files", "category_glob", "totals")
-# references that are json mappings (the other one, the geojson, is not read by `load_mappings`)
+# references that are json mappings (the others are not read by `load_mappings`)
 _MAPPING_REFERENCE_KEYS = ("mapping_comuni", "mapping_vodafone", "mapping_apt")
 
 
@@ -160,11 +160,8 @@ if (
 DATASET_FILES = _S["datasets"]
 PHENOMENA_FILES = _S["phenomena"]
 TRAVEL_TIMES = _S.get("travel_times") or {}
-TRAVEL_TIMES_MATRIX_FILE = _resolve(
-    PACKAGE_DIR,
-    TRAVEL_TIMES.get("matrix_file", "../Output/travel_times/matrice_tempi_verso_trentino.csv"),
-)
-REFERENCE_CITY_ITALY = str(TRAVEL_TIMES.get("reference_city_italy", "Milano")).strip()  # default: Milano 
+TRAVEL_TIMES_MATRIX_FILE = MAPPING_DIR / Path(REFERENCES["travel_times"]).name
+REFERENCE_CITY_ITALY = str(TRAVEL_TIMES.get("reference_city_italy") or "Milano").strip()  # default: Milano 
 if not REFERENCE_CITY_ITALY:
     raise ValueError(f"{SETTINGS_FILE}: travel_times.reference_city_italy must not be empty")
 DERIVED_PHENOMENA_FILES = _S["derived_phenomena"]

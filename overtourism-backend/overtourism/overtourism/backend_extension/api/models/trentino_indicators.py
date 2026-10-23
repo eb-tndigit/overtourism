@@ -113,7 +113,6 @@ _REGISTRY: dict[str, Callable[[], Indicator]] = {
         EE_TOURISM_SHARE_SOURCE
     ),
     "indice-stagionalita-presenze": lambda: SeasonalityOfPresencesIndicator(),
-    "distanza-media-turisti": lambda: AverageTouristTravelTimeIndicator(),
     "dipendenza-domanda-prossimita": lambda: ProximityDemandDependenceIndicator(),
     "affollamento-turistico": lambda: TouristCrowdingIndicator(),
     "sostenibilita-territoriale": lambda: TerritorialSustainabilityIndicator(),
@@ -913,18 +912,6 @@ class SeasonalityOfPresencesIndicator(_NotImplementedIndexIndicator):
     category = "Pressione turistica"
     order = 10
     year_only = True
-
-
-class AverageTouristTravelTimeIndicator(_NotImplementedIndexIndicator):
-    # #TODO Estimate travel time using tourist origin nationality at the available data granularity.
-    name = "Distanza media turisti"
-    description = (
-        "Stima del tempo medio impiegato dai turisti per raggiungere la località, "
-        "basata sulla nazionalità di provenienza, data la granularità dei dati disponibili."
-    )
-    index_value_unit_description = "Tempo medio stimato di viaggio"
-    category = "Provenienza"
-    order = 100
 
 
 class ProximityDemandDependenceIndicator(_NotImplementedIndexIndicator):

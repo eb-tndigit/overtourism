@@ -2,9 +2,9 @@ import pandas as pd
 import pytest
 
 from utils.config import BASE_WINDOW
-from utils.datasets import ARRIVI_VALUE_COLS, phenomena_to_recompute
+from utils.datasets import ARRIVI_VALUE_COLS, TEMPO_MEDIO_VALUE_COLS, phenomena_to_recompute
 from utils.provenienza import comune_hhi, normalized_hhi
-from utils.steps.create_phenomena_df import compute_provenienza
+from utils.steps.create_phenomena_df import BUILDERS, compute_provenienza
 from utils.steps.process_std_data import process_provenienza, process_provenienza_arrivi
 
 
@@ -18,6 +18,21 @@ def test_normalized_hhi_extremes_and_example():
     assert _hhi([100]) == 1.0  # a single market
     assert _hhi([70, 30]) == pytest.approx((0.58 - 0.5) / 0.5)
     assert 0 < _hhi([90, 5, 5]) < 1
+
+
+def _routes(minutes):
+    """Route matrix towards comune 022007: ITA from the reference city Firenze, the other countries from their capital."""
+    return pd.DataFrame(
+        [
+            {
+                "istat_origine": "048017" if country == "ITA" else "*",
+                "provenienza": "Firenze" if country == "ITA" else country,
+                "istat_destinazione": "022007",
+                "tempo_di_percorrenza": value,
+            }
+            for country, value in minutes.items()
+        ]
+    )
 
 
 def _rows(area, year, values, days=("-01-10", "-01-11")):
@@ -99,18 +114,30 @@ def test_arrivals_count_countryless_rows_and_report_top_country_shares():
         ]
     ]
     out = process_provenienza_arrivi(
-        pd.DataFrame(rows), pd.DataFrame({"areaId": ["7"], "ID_COMUNE": ["022007"]})
+        pd.DataFrame(rows),
+        pd.DataFrame({"areaId": ["7"], "ID_COMUNE": ["022007"]}),
+        travel_times=_routes({"ITA": 200, "DEU": 600, "FRA": 700}),
+        reference_city_italy="Firenze",
     )
 
     row = out.iloc[0]
     assert row["volume_totale"] == 100
     assert [row[f"nome_mercato_{rank}"] for rank in range(1, 4)] == [
-        "Italy",
-        "Germany",
-        "France",
+        "Italia",
+        "Germania",
+        "Francia",
     ]
     assert [row[f"volume_mercato_{rank}"] for rank in range(1, 4)] == [50, 30, 10]
-    assert list(out.columns) == ["DATA", "ID_COMUNE", *ARRIVI_VALUE_COLS]
+    assert list(out.columns) == ["DATA", "ID_COMUNE", *ARRIVI_VALUE_COLS, *TEMPO_MEDIO_VALUE_COLS]
+    # the countryless arrivals have no route: they are not in the weights of the mean
+    assert row["arrivi"] == 90
+    assert row["minuti_totali"] == 50 * 200 + 30 * 600 + 10 * 700
+    assert row["tempo_medio_turisti"] == pytest.approx(row["minuti_totali"] / row["arrivi"])
+    assert list(BUILDERS["phen_tempo_medio_turisti"]({"vodafone_arrivi": out}).columns) == [
+        "DATA",
+        "ID_COMUNE",
+        *TEMPO_MEDIO_VALUE_COLS,
+    ]
     phenomenon = compute_provenienza(
         pd.DataFrame(
             {
@@ -145,12 +172,16 @@ def test_arrivals_without_country_column_still_count_in_total():
         ]
     )
     out = process_provenienza_arrivi(
-        df, pd.DataFrame({"areaId": ["7"], "ID_COMUNE": ["022007"]})
+        df,
+        pd.DataFrame({"areaId": ["7"], "ID_COMUNE": ["022007"]}),
+        travel_times=_routes({"ITA": 200}),
+        reference_city_italy="Firenze",
     )
 
     assert out["volume_totale"].tolist() == [17]
     assert out[[f"nome_mercato_{rank}" for rank in range(1, 4)]].isna().all().all()
     assert out[[f"volume_mercato_{rank}" for rank in range(1, 4)]].isna().all().all()
+    assert out[TEMPO_MEDIO_VALUE_COLS].isna().all().all()
 
 
 def test_phenomenon_needs_only_vodafone_provenienza():

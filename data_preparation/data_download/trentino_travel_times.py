@@ -1,3 +1,22 @@
+"""Travel-time matrix towards the Trentino comuni: matrice_tempi_verso_trentino.csv.
+
+One row per (origin, Trentino comune) pair, with road distance (km) and travel time (minutes). The origins are the
+Italian city `travel_times.reference_city_italy` of territorial_indexes/config/settings.yaml (not set = all the Italian
+comuni), routed with OSRM, and the source countries of the Vodafone arrivals (capital -> by car, or by plane + car).
+
+The script is run ONCE, by hand, and the matrix is uploaded to the data lake under the key `references.travel_times`
+of territorial_indexes/config/settings.yaml: the territorial-indexes pipeline downloads it with the other references
+and never computes it. Run it again (and upload the new file) when reference_city_italy changes or the Vodafone
+arrivals bring new source countries: a complete matrix is reused, and the routing caches avoid repeating the OSRM
+requests.
+
+Input : Output/data/raw_data/vodafone_arrivals.csv (step 0 of the territorial-indexes pipeline) + the ISTAT shapefile
+Output: Output/travel_times/matrice_tempi_verso_trentino.csv (+ the Overpass / Wikidata / OSRM caches, same folder)
+
+Usage:
+    python data_download/trentino_travel_times.py
+"""
+
 import hashlib
 import json
 import logging
@@ -9,6 +28,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import requests
+import yaml
 from haversine import Unit, haversine_vector
 
 # =============================================================================
@@ -20,12 +40,25 @@ BASE_DIR = Path(__file__).resolve().parent if "__file__" in globals() else Path.
 OUTPUT_DIR = BASE_DIR.parent / "Output"
 TRAVEL_TIMES_DIR = OUTPUT_DIR / "travel_times"
 WORKSPACE_DIR = BASE_DIR.parents[1]
+SETTINGS_FILE = BASE_DIR.parent / "territorial_indexes" / "config" / "settings.yaml"
+
+
+def read_reference_city() -> Optional[str]:
+    """travel_times.reference_city_italy of the pipeline settings, None if not set."""
+    settings = yaml.safe_load(SETTINGS_FILE.read_text(encoding="utf-8")) or {}
+    city = str((settings.get("travel_times") or {}).get("reference_city_italy") or "").strip()
+    return city or None
+
 
 CONFIG = {
     "shapefile_path": WORKSPACE_DIR / "overtourism-backend/overtourism/overtourism/database/index_data/Com01012026_g/Com01012026_g_WGS84.shp",
     "province_code": "022",  # ISTAT prefix of Trentino (3 digits)
 
-    # None = all of Italy. To test/limit: list of province prefixes,
+    # Italian origin of the routes: only this comune -> Trentino municipalities, the same city the pipeline uses.
+    # None = all the Italian municipalities (thousands of OSRM requests).
+    "origin_city": read_reference_city(),
+
+    # Only with origin_city = None. None = all of Italy. To test/limit: list of province prefixes,
     # e.g. ["021", "025", "024", "023", "017", "014"] (BZ, BL, VI, VR, BS, SO)
     "extra_provinces": None,
 
@@ -87,8 +120,11 @@ def init_session(user_agent: str) -> requests.Session:
 
 def cache_path(key: str) -> Path:
     p = CONFIG[key]
-    extra = CONFIG["extra_provinces"]
-    sfx = "italia" if extra is None else "_".join(sorted(extra))
+    city, extra = CONFIG["origin_city"], CONFIG["extra_provinces"]
+    if city is not None:
+        sfx = city.casefold().replace(" ", "_")
+    else:
+        sfx = "italia" if extra is None else "_".join(sorted(extra))
     return p.with_name(f"{p.stem}_{sfx}{p.suffix}")
 
 def read_cache_csv(path: Path, **kwargs) -> pd.DataFrame:
@@ -96,14 +132,20 @@ def read_cache_csv(path: Path, **kwargs) -> pd.DataFrame:
     return pd.read_csv(path, keep_default_na=False, na_values=[""], **kwargs)
 
 def load_municipalities() -> gpd.GeoDataFrame:
-    """Reads the shapefile, flags the Trentino municipalities and (optionally) filters the extra provinces.
-    Trentino municipalities are put at the TOP of the list: the block computation relies on it."""
+    """Reads the shapefile, flags the Trentino municipalities and (optionally) keeps only the origin city or the extra
+    provinces. Trentino municipalities are put at the TOP of the list: the block computation relies on it."""
     municipalities = gpd.read_file(CONFIG["shapefile_path"], encoding="utf-8").to_crs(epsg=4326)
     municipalities = municipalities[["PRO_COM_T", "COMUNE", "geometry"]].copy()
 
     prefix = municipalities["PRO_COM_T"].str[:3]
     municipalities["is_trentino"] = prefix == CONFIG["province_code"]
-    if CONFIG["extra_provinces"] is not None:
+    city = CONFIG["origin_city"]
+    if city is not None:
+        is_city = municipalities["COMUNE"].str.casefold() == city.casefold()
+        if is_city.sum() != 1:
+            raise ValueError(f"origin_city {city!r} matches {is_city.sum()} municipalities of the shapefile, not one")
+        municipalities = municipalities[municipalities["is_trentino"] | is_city]
+    elif CONFIG["extra_provinces"] is not None:
         municipalities = municipalities[municipalities["is_trentino"] | prefix.isin(CONFIG["extra_provinces"])]
 
     return municipalities.sort_values(["is_trentino", "COMUNE"], ascending=[False, True], ignore_index=True)
@@ -312,22 +354,33 @@ def _chunks(idx: np.ndarray, step: int) -> list:
     return [] if len(idx) == 0 else np.array_split(idx, int(np.ceil(len(idx) / step)))
 
 
-def compute_osrm_matrix(session, points_df: pd.DataFrame):
-    """Computes only the pairs with a destination in Trentino: origins = all municipalities (N x nT)."""
+def origin_index(points_df: pd.DataFrame) -> np.ndarray:
+    """Rows of points_df that are Italian origins: only origin_city, or all the municipalities if it is None."""
+    city = CONFIG["origin_city"]
+    if city is None:
+        return np.arange(len(points_df))
+    idx = np.flatnonzero(points_df["COMUNE"].str.casefold() == city.casefold())
+    if len(idx) != 1:
+        raise ValueError(f"origin_city {city!r} matches {len(idx)} municipalities of the points, not one")
+    return idx
+
+
+def compute_osrm_matrix(session, points_df: pd.DataFrame, origins: np.ndarray):
+    """Computes only the pairs with a destination in Trentino: rows = the `origins` of points_df (nO x nT)."""
     coords = list(zip(points_df["lon"], points_df["lat"]))
     is_tn = points_df["is_trentino"].to_numpy()
     N, nT = len(coords), int(is_tn.sum())
     assert is_tn[:nT].all() and not is_tn[nT:].any(), "Trentino municipalities must come first"
 
     step = CONFIG["osrm_max_coord_per_req"] // 2
-    idx_T, idx_all = np.arange(nT), np.arange(N)
+    idx_T = np.arange(nT)
 
     tag = hashlib.md5(points_df[["lon", "lat"]].round(6).to_csv(index=False).encode()).hexdigest()[:8]
     cache_dir = CONFIG["cache_osrm_dir"] / f"{tag}_{step}"
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    jobs = [(o, d) for o in _chunks(idx_all, step) for d in _chunks(idx_T, step)]
-    logging.info(f"{len(jobs)} OSRM requests (all municipalities x destinations in Trentino)")
+    jobs = [(o, d) for o in _chunks(origins, step) for d in _chunks(idx_T, step)]
+    logging.info(f"{len(jobs)} OSRM requests ({len(origins)} Italian origins x destinations in Trentino)")
 
     durations, distances = np.full((N, nT), np.nan), np.full((N, nT), np.nan)
     snap = np.full(N, np.nan)
@@ -340,19 +393,20 @@ def compute_osrm_matrix(session, points_df: pd.DataFrame):
         if k % 25 == 0 or k == len(jobs):
             logging.info(f"  {k}/{len(jobs)} blocks ({(time.time() - t0) / 60:.1f} min)")
 
-    return durations, distances, snap
+    return durations[origins], distances[origins], snap[origins]
 
-def italy_matrix(session, points_df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
-    """km and minutes from every Italian municipality (rows, in points order) to every Trentino municipality (columns)."""
-    durations, distances, snap = compute_osrm_matrix(session, points_df)
+def italy_matrix(session, points_df: pd.DataFrame, origins: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """km and minutes from every Italian origin (rows, in points order) to every Trentino municipality (columns)."""
+    durations, distances, snap = compute_osrm_matrix(session, points_df, origins)
     nT = durations.shape[1]
 
     # --- diagnostics ---
-    sub = durations[:nT, :]  # Trentino x Trentino block
-    asym = np.abs(sub - sub.T) / 60
-    logging.info(f"Round-trip asymmetry (TN-TN): median {np.nanmedian(asym):.1f} min, max {np.nanmax(asym):.1f} min")
+    if CONFIG["origin_city"] is None:  # the Trentino municipalities are origins too
+        sub = durations[:nT, :]  # Trentino x Trentino block
+        asym = np.abs(sub - sub.T) / 60
+        logging.info(f"Round-trip asymmetry (TN-TN): median {np.nanmedian(asym):.1f} min, max {np.nanmax(asym):.1f} min")
     logging.info(f"Snapping to the road network: median {np.nanmedian(snap):.0f} m, "
-                 f"max {np.nanmax(snap):.0f} m ({points_df['COMUNE'].iloc[np.nanargmax(snap)]})")
+                 f"max {np.nanmax(snap):.0f} m ({points_df['COMUNE'].iloc[origins[np.nanargmax(snap)]]})")
 
     return np.round(distances / 1000, 2), np.round(durations / 60, 1)
 
@@ -502,13 +556,15 @@ def foreign_matrix(session, points_df: pd.DataFrame) -> Tuple[np.ndarray, np.nda
 # =============================================================================
 # 5. FINAL MATRIX
 # =============================================================================
-def save_final_matrix(points_df: pd.DataFrame, iso3: np.ndarray, km: np.ndarray, minutes: np.ndarray) -> pd.DataFrame:
-    """One row per (origin, Trentino municipality) pair. km and minutes hold the Italian municipalities first,
+def save_final_matrix(points_df: pd.DataFrame, origins: np.ndarray, iso3: np.ndarray, km: np.ndarray,
+                      minutes: np.ndarray) -> pd.DataFrame:
+    """One row per (origin, Trentino municipality) pair. km and minutes hold the Italian `origins` first,
     in points order, then the foreign countries. provenienza = municipality name or ISO3 country code;
     a country has no ISTAT code, so istat_origine = "*"."""
     tn = points_df[points_df["is_trentino"]]
-    istat = np.concatenate([points_df["PRO_COM_T"].to_numpy(), np.full(len(iso3), "*")])
-    origin = np.concatenate([points_df["COMUNE"].to_numpy(), iso3])
+    italian = points_df.iloc[origins]
+    istat = np.concatenate([italian["PRO_COM_T"].to_numpy(), np.full(len(iso3), "*")])
+    origin = np.concatenate([italian["COMUNE"].to_numpy(), iso3])
     o, d = np.divmod(np.arange(km.size), km.shape[1])  # row and column of every cell, in ravel() order
 
     matrix = pd.DataFrame({
@@ -537,20 +593,22 @@ def main():
     CONFIG["cache_osrm_dir"].mkdir(parents=True, exist_ok=True)
     session = init_session(CONFIG["user_agent"])
     points_df = get_or_compute_points(session)
-    km_it, min_it = italy_matrix(session, points_df)
+    origins = origin_index(points_df)
+    km_it, min_it = italy_matrix(session, points_df, origins)
     iso3, km_abroad, min_abroad = foreign_matrix(session, points_df)
-    matrix = save_final_matrix(points_df, iso3, np.vstack([km_it, km_abroad]), np.vstack([min_it, min_abroad]))
+    matrix = save_final_matrix(points_df, origins, iso3, np.vstack([km_it, km_abroad]), np.vstack([min_it, min_abroad]))
 
     return matrix, points_df
 
 
 def ensure_travel_time_matrix() -> pd.DataFrame:
-    """Return the cached matrix, building it only when it is missing or lacks a source country."""
+    """Return the cached matrix, building it only when it is missing, lacks a source country or was built for
+    other Italian origins (origin_city changed)."""
     matrix_path = CONFIG["output_matrix_path"]
     arrivals_path = CONFIG["vodafone_arrivals_path"]
     if not arrivals_path.is_file():
         raise FileNotFoundError(
-            f"Vodafone arrivals not found: {arrivals_path}. Run the download step first."
+            f"Vodafone arrivals not found: {arrivals_path}. Run the download step of the territorial indexes first."
         )
 
     required_countries = set(load_foreign_countries())
@@ -560,18 +618,23 @@ def ensure_travel_time_matrix() -> pd.DataFrame:
             usecols=["istat_origine", "provenienza"],
             dtype=str,
         )
-        cached_countries = set(
-            existing.loc[existing["istat_origine"] == "*", "provenienza"].str.upper()
-        )
+        is_country = existing["istat_origine"] == "*"
+        cached_countries = set(existing.loc[is_country, "provenienza"].str.upper())
+        italian_origins = set(existing.loc[~is_country, "provenienza"].str.casefold())
+        city = CONFIG["origin_city"]
+        same_origins = italian_origins == {city.casefold()} if city is not None else len(italian_origins) > 1
         missing_countries = required_countries - cached_countries
-        if not missing_countries:
+        if same_origins and not missing_countries:
             logging.info("Travel-time matrix already cached: %s", matrix_path)
             return read_cache_csv(matrix_path)
-        logging.info(
-            "Travel-time matrix misses %d country origins; extending it from cached routes where possible: %s",
-            len(missing_countries),
-            sorted(missing_countries),
-        )
+        if not same_origins:
+            logging.info("Travel-time matrix built for other Italian origins: rebuilding it for origin_city=%s", city)
+        if missing_countries:
+            logging.info(
+                "Travel-time matrix misses %d country origins; extending it from cached routes where possible: %s",
+                len(missing_countries),
+                sorted(missing_countries),
+            )
 
     return main()[0]
 

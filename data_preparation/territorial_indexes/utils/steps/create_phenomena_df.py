@@ -48,6 +48,7 @@ from utils.datasets import (
     EE_TOURISM_SHARE_VALUE_COLS,
     PHENOMENA,
     PROVENIENZA_VALUE_COLS,
+    TEMPO_MEDIO_VALUE_COLS,
     phenomena_to_recompute,
 )
 from utils.io import ensure_dir, read_df, save_computed_dfs
@@ -175,9 +176,9 @@ BUILDERS = {
     "phen_flussi_od": lambda pr: pr["vodafone_covisits"],
     # yearly concentration (normalized HHI) of the source markets + top source countries (arrivals), per comune
     "phen_provenienza": lambda pr: compute_provenienza(pr["vodafone_provenienza"], pr["vodafone_arrivi"]),
-    # yearly mean travel time, weighted by tourist arrivals per origin country
+    # yearly mean travel time, weighted by tourist arrivals per origin country (+ the arrivals and minutes it comes from)
     "phen_tempo_medio_turisti": lambda pr: pr["vodafone_arrivi"][
-        ["DATA", "ID_COMUNE", "tempo_medio_turisti"]
+        ["DATA", "ID_COMUNE", *TEMPO_MEDIO_VALUE_COLS]
     ],
     # daily temperature / heating degree days per comune (nearest Meteotrentino station)
     "phen_meteo": lambda pr: pr["meteo"],
