@@ -660,6 +660,8 @@ class MeanTouristTravelTimeIndicator(Indicator):
     )
     index_value_unit_description = "Minuti di viaggio stimati"
     year_only = True
+    category = "Provenienza"
+    order = 100
 
     def __init__(self, source_file):
         super().__init__(
