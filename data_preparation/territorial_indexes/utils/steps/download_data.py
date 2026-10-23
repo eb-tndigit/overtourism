@@ -24,6 +24,8 @@ from utils.config import (
     ENERGY_ROOT,
     ENERGY_TOTAL_FILES,
     LOCAL_SOURCE_DIR,
+    METEO_FILE_PATTERN,
+    METEO_FOLDER,
     MAPPING_DIR,
     POPOLAZIONE_RAW_FILE,
     PRESENZE_FILE_PATTERN,
@@ -39,7 +41,7 @@ from utils.config import (
     VODAFONE_OLD_RAW_FILE,
     setup_logging,
 )
-from utils.datasets import PRESENZE_BASE_YEARS
+from utils.datasets import METEO_BASE_YEARS, PRESENZE_BASE_YEARS
 from utils.io import ensure_dir, raw_path, save_computed_dfs
 
 logger = logging.getLogger(__name__)
@@ -60,6 +62,8 @@ S3_DATA = [
         for tag in PRESENZE_TAGS.values()
         for measure in PRESENZE_MEASURES
     ),
+    # weather of the base years (one file per year); later years come with the updates
+    *(f"{METEO_FOLDER}/{METEO_FILE_PATTERN.format(year=year)}" for year in METEO_BASE_YEARS),
     *ENERGY_TOTAL_FILES.values(),  # consumption of all the usage categories
     *(
         f"{ENERGY_ROOT}/{folder}/{filename}"

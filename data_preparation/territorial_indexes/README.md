@@ -1,7 +1,8 @@
 # Territorial indexes: data preparation pipeline
 
 Builds the phenomenon dataframes behind the territorial indexes:
-`phen_popolazione`, `phen_strutture`, `phen_presenze`, `phen_consumption`, `phen_flussi_od`, `phen_provenienza`.
+`phen_popolazione`, `phen_strutture`, `phen_presenze`, `phen_consumption`, `phen_flussi_od`, `phen_provenienza`,
+`phen_meteo`, `phen_ee_tourism_share`.
 There are two entry points: a **base build** (2022-2024, `gen_phenomenon_dataframes.py`) and a **yearly update**
 (`update_phenomenon_dataframes.py`, currently 2025). The base build can also run the 2025 update.
 
@@ -204,6 +205,13 @@ may need a new adapter.
 | `phen_consumption` | comune × day | `ee_services`, `ee_total`, `gas_services`, `gas_total` |
 | `phen_flussi_od` | comune × year | `quota_ingresso`, `quota_uscita`, `quota_intra_ambito`, `pagerank` × (`tourist`, `visitor`, `combined`), `giorni_coperti` |
 | `phen_provenienza` | comune × year | `hhi_provenienza`, `giorni_coperti`, `volume_totale`, top-country `volume_mercato_N` / `nome_mercato_N` pairs (`N` configurable in `config/settings.yaml`) |
+| `phen_meteo` | comune × day | `t_min`, `t_max`, `t_mean`, `hdd`, `rain_mm` |
+| `phen_ee_tourism_share` | comune × year | `quota_ee_turismo`, `presenze_medie`, `consumo_medio`, `affidabilita` (`alta` / `media` / `bassa`) |
+
+`phen_meteo` comes from the weather files `meteo/meteo_trentino_comuni_<year>.csv` (data lake, saved in `raw_data/meteo/`, one per year: the base build
+downloads the years of its window, the updates list the later ones in their yaml). `phen_ee_tourism_share` is **derived**
+from `phen_consumption`, `phen_presenze` and `phen_meteo` (`derived_phenomena` in `config/settings.yaml`), right after
+them and in the same run; it is computed only if all three are computed in that run.
 
 Empty values in `phen_flussi_od` and `phen_provenienza` are expected in some cases (small areas, missing flows); see
 METHODOLOGY.md. The step 2 log reports the share of empty values per column of `phen_flussi_od`.

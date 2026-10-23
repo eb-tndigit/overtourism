@@ -63,8 +63,8 @@ DATASET_STANDARDIZERS = {
         df, geojson, value_name=ARRIVI_VALUE_COL
     ),
 }
-# kinds used as downloaded (no normalization): ISPAT arrivals / presences
-RAW_KINDS = {"presenze_raw"}
+# kinds used as downloaded (no normalization): ISPAT arrivals / presences, weather
+RAW_KINDS = {"presenze_raw", "meteo_raw"}
 assert set(STANDARDIZERS) | RAW_KINDS == set(KIND_DATASETS)
 
 

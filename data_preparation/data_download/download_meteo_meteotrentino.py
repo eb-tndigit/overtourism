@@ -15,12 +15,13 @@ from pathlib import Path
 
 import pandas as pd
 import requests
+from .download_common import OUTPUT_DIR
 
 BASE = "https://dati.meteotrentino.it/service.asmx/datiStoriciCaratteristiciSerie{measure}UnArea"
 STATION = sys.argv[1] if len(sys.argv) > 1 else "T0074"
 YEARS = range(2023, dt.date.today().year + 1)
-SAVE_DIR = Path("Download")
-SAVE_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR = Path("Download")
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def fetch(measure, year):
@@ -41,11 +42,17 @@ for year in YEARS:
     print(year, "ok")
     time.sleep(1)
 
-temp = pd.concat(temps).rename(columns={"Min": "tmin", "Max": "tmax", "QualityMax": "quality"})
+temp = pd.concat(temps).rename(
+    columns={"Min": "tmin", "Max": "tmax", "QualityMax": "quality"}
+)
 rain = pd.concat(rains).rename(columns={"Valore": "rain_mm"})
 # dates are ISO yyyy-mm-dd (the rain series is listed by day, then month)
-out = temp[["giorno", "tmin", "tmax", "quality"]].merge(rain[["giorno", "rain_mm"]], on="giorno", how="outer")
-out = out.rename(columns={"giorno": "date"}).sort_values("date")[["date", "tmin", "tmax", "rain_mm", "quality"]]
-path = SAVE_DIR / f"meteo_stazione_{STATION}.csv"
+out = temp[["giorno", "tmin", "tmax", "quality"]].merge(
+    rain[["giorno", "rain_mm"]], on="giorno", how="outer"
+)
+out = out.rename(columns={"giorno": "date"}).sort_values("date")[
+    ["date", "tmin", "tmax", "rain_mm", "quality"]
+]
+path = OUTPUT_DIR / f"meteo_stazione_{STATION}.csv"
 out.to_csv(path, index=False)
 print(f"{path}: {len(out)} days, {out['date'].min()} .. {out['date'].max()}")

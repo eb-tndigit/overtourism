@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from utils.config import (
     BASE_WINDOW,
     DATASET_FILES,
+    DERIVED_PHENOMENA_FILES,
     PHENOMENA_FILES,
     TOP_N_PROVENIENZA_COUNTRIES,
 )
@@ -40,6 +41,9 @@ GAS_PRELIEVI_VALUE_COLS = ["gas_services"]
 # "totale" files: withdrawals of ALL the usage categories (not only the services ones above)
 EE_TOTALE_VALUE_COLS = ["ee_total"]
 GAS_TOTALE_VALUE_COLS = ["gas_total"]
+# Weather (`phen_meteo`, comune x day): final columns after DATA, ID_COMUNE. The base temperature of the heating degree
+# days is `meteo.hdd_base_temp` of settings.yaml.
+METEO_VALUE_COLS = ["t_min", "t_max", "t_mean", "hdd", "rain_mm"]
 # Final column order of `phen_consumption` (after DATA, ID_COMUNE)
 CONSUMPTION_VALUE_COLS = ["ee_services", "ee_total", "gas_services", "gas_total"]
 # The raw files of the energy totals are in settings.yaml (`files.energy.totals`)
@@ -93,6 +97,10 @@ COVISITS_VALUE_COLS = [
     for profile in (*COVISITS_PROFILES, COVISITS_COMBINED)
 ] + ["giorni_coperti"]
 
+# Share of the electricity consumption attributable to tourism (`phen_ee_tourism_share`, comune x YEAR), see
+# utils/consumption_share.py. `affidabilita` is text: alta / media / bassa.
+EE_TOURISM_SHARE_VALUE_COLS = ["quota_ee_turismo", "presenze_medie", "consumo_medio", "affidabilita"]
+
 # ISPAT presences (alb / extralb): arrivals + presences per month, read from the raw files (no normalization).
 # File names (folder, pattern, measures, tags): settings.yaml, `files.presenze`. The base build downloads the years of its
 # window (period.start .. period.base_end), the updates the others.
@@ -102,6 +110,8 @@ PRESENZE_BASE_YEARS = tuple(
 # True: a stay that starts at the end of a month goes on in the next one (uses the previous month's arrivals and stay);
 # False: every month is distributed using only its own arrivals and stay
 PRESENZE_SPILL_OVER = True
+# Weather files: one per year; the base build reads the years of its window
+METEO_BASE_YEARS = PRESENZE_BASE_YEARS
 
 # reference files that a dataset may need to be standardized / processed
 REF_MAPPING_COMUNI = "mapping_comuni"
@@ -165,6 +175,8 @@ DATASETS = {
             COVISITS_VALUE_COLS,
             [REF_MAPPING_VODAFONE, REF_GEOJSON],
         ),
+        # daily temperature of the comuni: used as downloaded (no normalization), processed from raw_data
+        _spec("meteo", METEO_VALUE_COLS, [REF_MAPPING_COMUNI]),
         _spec(
             "presenze_alb",
             PRESENZE_ALB_VALUE_COLS,
@@ -182,6 +194,8 @@ ALL_DATASETS = tuple(DATASETS)
 # final phenomenon -> datasets that must ALL be updated for it to be recomputed
 PHENOMENA = {name: frozenset(deps) for name, deps in PHENOMENA_FILES.items()}
 PRESENZE_DATASETS = PHENOMENA["phen_presenze"]
+# derived phenomenon -> phenomena that must ALL be computed in the same run for it to be computed
+DERIVED_PHENOMENA = {name: tuple(deps) for name, deps in DERIVED_PHENOMENA_FILES.items()}
 
 
 def phenomena_to_recompute(selected) -> list:

@@ -184,50 +184,68 @@ def _validate_map_values(min_value: Any, max_value: Any, *, context: str) -> Non
 
 @indexes_router.get("/get-index-list", response_model=dict[str, Any])
 def get_indicators_list():
-    """
-    Get list of all available indices.
-
-    Returns:
-        Dictionary with the list of indicators, ready to populate the
-        frontend's indicator dropdown (value, label, availableForVariation,
-        extraFields).
-    """
+    """Get list of all available indices."""
     logger.info("[get-index-list] Fetching list of indices")
+
     try:
         indicators = []
         additional_labels = []
-        for key in _REGISTRY:
-            indicator = get_indicator(key)
+
+        registered_indicators = [(key, get_indicator(key)) for key in _REGISTRY]
+
+        # Sort by the indicator's declared order.
+        registered_indicators.sort(key=lambda item: getattr(item[1], "order", 9999))
+
+        for key, indicator in registered_indicators:
             if not indicator.internal_only:
-                indicators.append(
-                    {
-                        "value": key,
-                        "label": indicator.name or key,
-                        "index_description": indicator.description,
-                        "index_value_unit_description": indicator.index_value_unit_description,
-                        "availableForVariation": indicator.availableForVariation,
-                        "extraFields": indicator.extraFields,
-                        "years_range": {
-                            "min_year": indicator.years_range["min_year"],
-                            "max_year": indicator.years_range["max_year"],
-                        },
-                    }
-                )
+                try:
+                    years_range = getattr(indicator, "years_range", {}) or {}
+
+                    indicators.append(
+                        {
+                            "value": key,
+                            "label": (
+                                f"{getattr(indicator, 'category', 'Altro')} - "
+                                f"{indicator.name}"
+                            ),
+                            "index_description": indicator.description,
+                            "index_value_unit_description": (
+                                indicator.index_value_unit_description
+                            ),
+                            "availableForVariation": (indicator.availableForVariation),
+                            "extraFields": indicator.extraFields,
+                            "years_range": {
+                                "min_year": years_range.get("min_year"),
+                                "max_year": years_range.get("max_year"),
+                            },
+                        }
+                    )
+                except:
+                    logger.error(f"Unable to retrieved datas for index {indicator}")
+                    continue
             else:
                 additional_labels.append(
                     {
                         "value": key,
                         "label": indicator.name or key,
                         "index_description": indicator.description,
-                        "index_value_unit_description": indicator.index_value_unit_description,
+                        "index_value_unit_description": (
+                            indicator.index_value_unit_description
+                        ),
                     }
                 )
-        return {"indicators": indicators, "additional_labels": additional_labels}
-    except Exception as e:
-        logger.info(f"[get-index-list] Error fetching indicators: {e}")
+
+        return {
+            "indicators": indicators,
+            "additional_labels": additional_labels,
+        }
+
+    except Exception:
+        logger.exception("[get-index-list] Error fetching indicators")
         raise HTTPException(
-            status_code=500, detail="Error fetching indicators list"
-        ) from e
+            status_code=500,
+            detail="Error fetching indicators list",
+        )
 
 
 @indexes_router.get("/get-spatial-areas", response_model=dict[str, Any])

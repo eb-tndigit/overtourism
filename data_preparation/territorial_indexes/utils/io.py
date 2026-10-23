@@ -8,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from utils.cleaning import normalize_id_comune
-from utils.config import ENERGY_ROOT, TYPE_FORMATS
+from utils.config import ENERGY_ROOT, METEO_FOLDER, TYPE_FORMATS
 
 logger = logging.getLogger(__name__)
 
@@ -21,11 +21,13 @@ def ensure_dir(path) -> Path:
 
 
 def raw_path(key, raw_dir) -> Path:
-    """Where a data-lake object `key` lives in raw_data: flat (its base name), except the energy files, which
-    keep their folder (`<energy root>/ee_prelievi/49_3.csv` -> raw_data/ee_prelievi/49_3.csv): electricity and gas
-    have identically named category files. The energy root folder is `files.energy.root` of settings.yaml."""
+    """Where a data-lake object `key` lives in raw_data: flat (its base name), except
+      - the energy files, which keep their folder (`<energy root>/ee_prelievi/49_3.csv` -> raw_data/ee_prelievi/49_3.csv):
+        electricity and gas have identically named category files. The energy root is `files.energy.root` of settings.yaml;
+      - the weather files, which go to their own folder (`<meteo folder>/meteo_trentino_comuni_2024.csv` ->
+        raw_data/meteo/meteo_trentino_comuni_2024.csv). The folder is `files.meteo.folder` of settings.yaml."""
     key = Path(key)
-    sub = key.parent.name if key.parts[0] == ENERGY_ROOT else ""
+    sub = key.parent.name if key.parts[0] in (ENERGY_ROOT, METEO_FOLDER) else ""
     return Path(raw_dir) / sub / key.name
 
 
