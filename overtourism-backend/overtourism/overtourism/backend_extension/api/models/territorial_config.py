@@ -23,12 +23,24 @@ class MacroArea:
 class TerritorialConfig:
     """
     Request-scoped territorial configuration.
+
+    Aggregation of columns at macro_area / provincia level
+    -------------------------------------------------------
+    - ``value_col`` ("INDICE")  -> ``macro_area_agg`` ("mean" | "sum")
+    - any column listed in ``column_aggs`` -> the function given there
+      (any pandas aggregation name: "sum", "mean", "max", "min", "first", ...)
+    - any other numeric column (e.g. presences, number of structures)
+      -> "sum", i.e. the area total
+    - any other non-numeric column -> dropped (a label taken from a single
+      comune would be misleading for the whole area); opt in via
+      ``column_aggs={"col": "first"}``.
     """
 
     areas: list[MacroArea] = field(default_factory=list)
     spatial_granularity: Granularity = "comune"
     allowed_comuni: set[str] | None = None
     macro_area_agg: Aggregation = "mean"
+    column_aggs: dict[str, str] = field(default_factory=dict)
 
     # ------------------------------------------------------------------
     # Factory
@@ -42,13 +54,14 @@ class TerritorialConfig:
         spatial_granularity: str = "comune",
         allowed_comuni: set[str] | None = None,
         macro_area_agg: str = "mean",
+        column_aggs: dict[str, str] | None = None,
     ) -> TerritorialConfig:
         """Validated constructor used by all endpoints."""
 
         if spatial_granularity not in ("comune", "macro_area", "provincia"):
             raise ValueError(
                 f"Unknown spatial_granularity={spatial_granularity!r}. "
-                "Expected 'comune' or 'macro_area' or 'province'."
+                "Expected 'comune' or 'macro_area' or 'provincia'."
             )
 
         if macro_area_agg not in ("mean", "sum"):
@@ -61,6 +74,7 @@ class TerritorialConfig:
             spatial_granularity=spatial_granularity,
             allowed_comuni=allowed_comuni,
             macro_area_agg=macro_area_agg,
+            column_aggs=dict(column_aggs or {}),
         )
 
     # ------------------------------------------------------------------
@@ -79,44 +93,87 @@ class TerritorialConfig:
 
         return df[df[id_col].astype(str).isin(self.allowed_comuni)].copy()
 
+    def _aggregate_group(
+        self,
+        subset: pd.DataFrame,
+        value_col: str,
+        id_col: str,
+    ) -> dict:
+        """
+        Collapse a group of comune rows into one dict of {column: value},
+        applying the column rules described in the class docstring.
+        """
+        out: dict = {}
+        for col in subset.columns:
+            if col == id_col:
+                continue
+
+            if col == value_col:
+                fn = self.macro_area_agg
+            elif col in self.column_aggs:
+                fn = self.column_aggs[col]
+            elif pd.api.types.is_numeric_dtype(subset[col]):
+                fn = "sum"
+            else:
+                continue  # non-numeric, no explicit rule: not meaningful for an area
+
+            series = subset[col]
+            # sum() of an all-NaN column is 0 in pandas; keep it null instead
+            # so "no data" is not shown as "zero".
+            if not series.notna().any():
+                out[col] = float("nan")
+            else:
+                valid = series.dropna()
+                if fn == "first":
+                    out[col] = valid.iloc[0]
+                elif fn == "last":
+                    out[col] = valid.iloc[-1]
+                else:
+                    out[col] = series.agg(fn)
+        return out
+
+    def _finalize(
+        self,
+        rows: list[dict],
+        source: pd.DataFrame,
+        value_col: str,
+        id_col: str,
+    ) -> pd.DataFrame:
+        """Build the result frame, keeping the source column order."""
+        out = pd.DataFrame(rows)
+        if value_col not in out.columns:
+            out[value_col] = float("nan")
+        ordered = [id_col] + [
+            c for c in source.columns if c != id_col and c in out.columns
+        ]
+        return out[ordered]
+
     def aggregate_to_macro_areas(
         self,
         df: pd.DataFrame,
         value_col: str = "INDICE",
         id_col: str = "ID_COMUNE",
     ) -> pd.DataFrame:
-        """Aggregate a comune dataframe into macro areas."""
+        """Aggregate a comune dataframe into macro areas (all columns kept)."""
 
-        present = set(df[id_col].astype(str))
+        ids = df[id_col].astype(str)
+        present = set(ids)
         rows = []
 
         for area in self.areas:
             members = [c for c in area.comuni if c in present]
 
             if not members:
-                rows.append(
-                    {
-                        id_col: area.name,
-                        value_col: float("nan"),
-                    }
-                )
+                # Other columns end up as NaN once the frame is assembled.
+                rows.append({id_col: area.name, value_col: float("nan")})
                 continue
 
-            subset = df[df[id_col].astype(str).isin(members)][value_col]
-
-            if self.macro_area_agg == "mean":
-                value = float(subset.mean())
-            else:
-                value = float(subset.sum())
-
+            subset = df[ids.isin(members)]
             rows.append(
-                {
-                    id_col: area.name,
-                    value_col: value,
-                }
+                {id_col: area.name, **self._aggregate_group(subset, value_col, id_col)}
             )
 
-        return pd.DataFrame(rows)
+        return self._finalize(rows, df, value_col, id_col)
 
     def aggregate_to_province(
         self,
@@ -126,15 +183,13 @@ class TerritorialConfig:
     ) -> pd.DataFrame:
         """Aggregate all available comuni into the province-level unit."""
 
-        comuni = df[df[id_col].astype(str) != "-1"][value_col]
+        comuni = df[df[id_col].astype(str) != "-1"]
         if comuni.empty:
-            value = float("nan")
-        elif self.macro_area_agg == "mean":
-            value = float(comuni.mean())
+            rows = [{id_col: "-1", value_col: float("nan")}]
         else:
-            value = float(comuni.sum())
+            rows = [{id_col: "-1", **self._aggregate_group(comuni, value_col, id_col)}]
 
-        return pd.DataFrame([{id_col: "-1", value_col: value}])
+        return self._finalize(rows, df, value_col, id_col)
 
     def apply(
         self,

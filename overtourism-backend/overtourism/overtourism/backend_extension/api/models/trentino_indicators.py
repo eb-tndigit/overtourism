@@ -873,7 +873,7 @@ class _NotImplementedIndexIndicator(Indicator):
 
 class SeasonalityOfPresencesIndicator(_NotImplementedIndexIndicator):
     # #TODO Define and document the seasonality index methodology.
-    name = "Indice di stagionalità delle presenze"
+    name = "Indice di stagionalità delle presenze *"
     description = "TODO"
     index_value_unit_description = "TODO"
     category = "Pressione turistica"
@@ -883,7 +883,7 @@ class SeasonalityOfPresencesIndicator(_NotImplementedIndexIndicator):
 
 class AverageTouristTravelTimeIndicator(_NotImplementedIndexIndicator):
     # #TODO Estimate travel time using tourist origin nationality at the available data granularity.
-    name = "Distanza media turisti"
+    name = "Distanza media turisti *"
     description = (
         "Stima del tempo medio impiegato dai turisti per raggiungere la località, "
         "basata sulla nazionalità di provenienza, data la granularità dei dati disponibili."
@@ -895,7 +895,7 @@ class AverageTouristTravelTimeIndicator(_NotImplementedIndexIndicator):
 
 class ProximityDemandDependenceIndicator(_NotImplementedIndexIndicator):
     # #TODO Calculate the share of tourists originating within a two-hour travel distance.
-    name = "Indice di dipendenza dalla domanda di prossimità"
+    name = "Indice di dipendenza dalla domanda di prossimità *"
     description = (
         "Misura la quota di turisti che proviene da destinazioni raggiungibili entro "
         "due ore di distanza. La metodologia di stima della distanza è da definire."
@@ -908,7 +908,7 @@ class ProximityDemandDependenceIndicator(_NotImplementedIndexIndicator):
 
 class TouristCrowdingIndicator(_NotImplementedIndexIndicator):
     # #TODO Define and normalize the component metrics and aggregation method.
-    name = "Affollamento turistico"
+    name = "Affollamento turistico *"
     description = (
         "Indice composito che combina diverse metriche per offrire una panoramica "
         "complessiva del livello di affollamento turistico di una località."
@@ -920,7 +920,7 @@ class TouristCrowdingIndicator(_NotImplementedIndexIndicator):
 
 class TerritorialSustainabilityIndicator(_NotImplementedIndexIndicator):
     # #TODO Define component metrics, normalization, weighting, and aggregation.
-    name = "Indice di sostenibilità territoriale"
+    name = "Indice di sostenibilità territoriale  *"
     description = (
         "Macro-indicatore composito che integra diverse metriche per fornire una "
         "valutazione sintetica della sostenibilità territoriale in relazione al turismo."
