@@ -33,7 +33,7 @@ from utils.config import (
     setup_logging,
 )
 from utils.datasets import DATASETS
-from utils.io import ensure_dir, read_df, save_computed_dfs
+from utils.io import ensure_dir, raw_path, read_df, save_computed_dfs
 from utils.steps.process_std_data import (
     BEDS_ALB_COL,
     BEDS_XALB_COL,
@@ -45,6 +45,7 @@ from utils.steps.process_std_data import (
     process_beds,
     process_covisits,
     process_energy,
+    process_meteo,
     process_provenienza,
     process_provenienza_arrivi,
     process_popolazione,
@@ -90,10 +91,10 @@ DATASET_PROCESSORS = {
         df, maps["area_comune"], strutture, window
     ),
 }
-# not processed part by part, see below: the ISPAT presences (alb / extralb) are not normalized and are
+# not processed part by part, see below: the ISPAT presences (alb / extralb) and the weather are not normalized and are
 # processed from the raw files; the OD co-visits are yearly indicators, computed on all the days of a year
 # (base + every part of the update)
-assert set(PROCESSORS) | {"presenze_raw", "vodafone_covisits"} == set(KIND_DATASETS)
+assert set(PROCESSORS) | {"presenze_raw", "meteo_raw", "vodafone_covisits"} == set(KIND_DATASETS)
 
 PROCESS_ORDER = (
     "popolazione",
@@ -108,6 +109,7 @@ PROCESS_ORDER = (
     "gas_prelievi",
     "ee_totale",
     "gas_totale",
+    "meteo",
 )
 
 
@@ -235,6 +237,12 @@ def process_update_std_data(
             done[dataset] = _process_presenze(
                 dataset, config, maps, beds, raw_dir, window
             )
+            continue
+        if dataset == "meteo":
+            if dataset in config.datasets:  # the files listed in the update config (not normalized)
+                files = [raw_path(src.file, raw_dir) for src in config.sources[dataset]]
+                logger.info("[%s] processing the raw weather files %s", dataset, [f.name for f in files])
+                done[dataset] = process_meteo(files, window)
             continue
         if dataset == "vodafone_covisits":
             ds_parts = [p for p in parts if p.dataset == dataset]

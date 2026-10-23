@@ -34,7 +34,11 @@ from utils.cleaning import (
 from utils.config import (
     BASE_WINDOW,
     REFERENCE_CITY_ITALY,
+    DATA_START,
+    HDD_BASE_TEMP,
     MAPPING_DIR,
+    METEO_FILE_PATTERN,
+    METEO_FOLDER,
     MAPPING_FILES,
     NORMALIZED_DIR,
     PRESENZE_FILE_PATTERN,
@@ -63,6 +67,8 @@ from utils.datasets import (  # noqa: F401  (re-exported for convenience)
     COVISITS_PROFILES,
     COVISITS_VALUE_COLS,
     DATASETS,
+    METEO_BASE_YEARS,
+    METEO_VALUE_COLS,
     PRESENZE_BASE_YEARS,
     PRESENZE_SPILL_OVER,
     POPOLAZIONE_VALUE_COLS,
@@ -88,7 +94,7 @@ from utils.flows import build_area_comune, comune_flow_indicators
 from utils.main_market import comune_main_market, split_areas_to_comuni
 from utils.provenienza import comune_hhi
 from utils.stay_distribution import distribute_by_stay
-from utils.io import read_df, read_json, save_computed_dfs
+from utils.io import read_df, read_json, read_table, save_computed_dfs
 
 from trentino_travel_times import ensure_travel_time_matrix
 
@@ -651,6 +657,51 @@ def process_energy(df, mapping_comuni, value_col, source, window=BASE_WINDOW):
     return standard_ordering_cols(out)
 
 
+def meteo_files(raw_dir, years):
+    """Weather files of `years` (`files.meteo.pattern` of settings.yaml) present in raw_dir/<meteo folder>/."""
+    files = [Path(raw_dir) / METEO_FOLDER / METEO_FILE_PATTERN.format(year=y) for y in years]
+    return [f for f in files if f.exists()]
+
+
+def process_meteo(files, window=BASE_WINDOW, base_temp=HDD_BASE_TEMP):
+    """Weather files (date, comune_id, t_min, t_max, rain_mm + station info) -> comune x day temperature of the
+    nearest Meteotrentino station: DATA, ID_COMUNE, t_min, t_max, t_mean, hdd, rain_mm.
+
+        t_mean = (t_min + t_max) / 2
+        hdd    = max(0, base_temp - t_mean)   heating degree days of the day (degrees C)
+
+    A day without temperature has t_mean / hdd empty (never filled): whoever uses them averages the days that have a
+    value. Only the days of the window are kept."""
+    if not files:
+        raise FileNotFoundError("no weather file found: run the download step")
+    raw = pd.concat([read_table(f) for f in files], ignore_index=True)
+    missing = {"date", "comune_id", "t_min", "t_max"} - set(raw.columns)
+    if missing:
+        raise ValueError(f"weather files: missing columns {sorted(missing)}")
+    df = pd.DataFrame(
+        {
+            "ID_COMUNE": pad_id_comune(raw["comune_id"]),
+            "DATA": pd.to_datetime(raw["date"], errors="coerce"),
+            "t_min": pd.to_numeric(raw["t_min"], errors="coerce"),
+            "t_max": pd.to_numeric(raw["t_max"], errors="coerce"),
+            "rain_mm": pd.to_numeric(raw.get("rain_mm"), errors="coerce"),
+        }
+    )
+    df = clip(df.dropna(subset=["DATA"]), window, name="meteo")
+    dup = df.duplicated(["ID_COMUNE", "DATA"], keep=False)
+    if dup.any():  # e.g. several stations per comune, or two files covering the same day
+        logger.warning("[meteo] %d rows with a duplicated comune + day: averaged", int(dup.sum()))
+        df = df.groupby(["ID_COMUNE", "DATA"], as_index=False).mean(numeric_only=True)
+    df["t_mean"] = (df["t_min"] + df["t_max"]) / 2
+    df["hdd"] = (base_temp - df["t_mean"]).clip(lower=0)
+    n_missing = int(df["t_mean"].isna().sum())
+    if n_missing:
+        logger.warning("[meteo] %d/%d comune-days without temperature (hdd left empty)", n_missing, len(df))
+    df["DATA"] = df["DATA"].dt.strftime("%Y-%m-%d")
+    out = df[["DATA", "ID_COMUNE", *METEO_VALUE_COLS]]
+    return out.sort_values(["DATA", "ID_COMUNE"]).reset_index(drop=True)
+
+
 def read_strutture_std(normalized_dir, type_format=TYPE_FORMAT):
     """Every normalized strutture file (base `strutture_std` + the ones of the updates, e.g.
     `strutture_2024_update_std`), stacked: on a duplicated DATA + LOCATION the later file wins.
@@ -893,6 +944,7 @@ def process_data(
     gas_total_pr = process_energy(
         std["gas_totale"], mapping_comuni, GAS_TOTALE_VALUE_COLS[0], "gas_totale", window
     )
+    meteo_pr = process_meteo(meteo_files(raw_dir, years), window)
     area_comune = covisits_area_comune(mapping_dir, mapping_vodafone, mapping_comuni)
     covisits_pr = process_covisits(std["vodafone_covisits"], area_comune, window)
     provenienza_pr = process_provenienza(std["vodafone"], area_comune, window)
@@ -909,6 +961,7 @@ def process_data(
         DATASETS["gas_prelievi"].processed_name: gas_pr,
         DATASETS["ee_totale"].processed_name: ee_total_pr,
         DATASETS["gas_totale"].processed_name: gas_total_pr,
+        DATASETS["meteo"].processed_name: meteo_pr,
         DATASETS["vodafone_covisits"].processed_name: covisits_pr,
         DATASETS["vodafone_provenienza"].processed_name: provenienza_pr,
         DATASETS["vodafone_arrivi"].processed_name: arrivi_pr,

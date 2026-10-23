@@ -16,7 +16,9 @@ def download_index_data(overwrite: bool = False) -> None:
     """Download the index data from the digitalhub platform."""
     dataitems = [
         "phen_consumption.parquet",
+        "phen_ee_tourism_share.parquet",
         "phen_flussi_od.parquet",
+        "phen_meteo.parquet",
         "phen_popolazione.parquet",
         "phen_presenze.parquet",
         "phen_provenienza.parquet",

@@ -72,11 +72,14 @@ class Indicator:
     name: str = ""
     type: str = ""
     description: str = ""
+    category: str = ""
+    order: int | None = None
     index_value_unit_description = "Valore indice territoriale"
     availableForVariation: bool = True
     extraFields: list[str] = []
     internal_only = False
     year_only = False
+    _years_range: dict | None = None
 
     # How this indicator's own daily INDICE values collapse to one row per
     # comune when *it* is used as a phenomenon by a parent Indicator (see
@@ -104,7 +107,6 @@ class Indicator:
         # at runtime, so caching by (start_date, end_date, ...) is safe.
         self._indicator_cache: dict = {}
         self._variation_cache: dict = {}
-        self._years_range: dict | None = None
 
         # Resolved daily × comune panel — only populated (via resolve()) if
         # this Indicator is used as a phenomenon inside another Indicator.
@@ -196,6 +198,11 @@ class Indicator:
             return 0.0
         value = float(value)
         return 0.0 if abs(value) < _STD_EPS else value
+
+    @staticmethod
+    def _round_or_none(value, ndigits: int = 2):
+        """Rounded value for the chart series; None (null) when there is no value (label without data, NaN)."""
+        return None if value is None or pd.isna(value) else round(float(value), ndigits)
 
     # ------------------------------------------------------------------
     # Built-in combinators
@@ -401,8 +408,8 @@ class Indicator:
             end_date=end_date,
             **extra,
         )
-        result["INDICE"] = result["INDICE"].fillna(0)
-
+        # INDICE is NOT filled: a null means "no value" (missing data, division by zero) and is returned as such.
+        # A combinator that wants a value for a missing input must say so explicitly.
         return result
 
     # ------------------------------------------------------------------
@@ -459,16 +466,16 @@ class Indicator:
             series.append(
                 {
                     "label": comune,
-                    "data": [round(values.get(l, 0.0), 2) for l in labels],
-                    "std": [round(std_values.get(l, 0.0), 2) for l in labels],
+                    "data": [self._round_or_none(values.get(l)) for l in labels],
+                    "std": [self._round_or_none(std_values.get(l)) for l in labels],
                 }
             )
 
         series.append(
             {
                 "label": region_id,
-                "data": [round(region_series.get(l, 0.0), 2) for l in labels],
-                "std": [round(region_std_series.get(l, 0.0), 2) for l in labels],
+                "data": [self._round_or_none(region_series.get(l)) for l in labels],
+                "std": [self._round_or_none(region_std_series.get(l)) for l in labels],
             }
         )
 
@@ -546,8 +553,10 @@ class Indicator:
             end_date=end_date,
             **extra,
         )
+        # std of a comune with no value at all is null; a single value has no spread: 0 (see _safe_std)
+        n_values = merged_cd.groupby("ID_COMUNE")["INDICE"].count()
         std_by_comune = {
-            comune: self._safe_std(v)
+            comune: self._safe_std(v) if n_values[comune] > 0 else np.nan
             for comune, v in merged_cd.groupby("ID_COMUNE")["INDICE"].std().items()
         }
 
@@ -563,7 +572,7 @@ class Indicator:
         region_val = (
             region_indice.iloc[0] if hasattr(region_indice, "iloc") else region_indice
         )
-        region_value = self._safe_std(region_val)
+        region_value = self._safe_std(region_val) if pd.notna(region_val) else np.nan
 
         # ── region-wide daily std ─────────────────────────────────────────
         merged_d = self._merge_daily(daily_by_date, on=["DATA"])
@@ -574,7 +583,11 @@ class Indicator:
             end_date=end_date,
             **extra,
         )
-        region_std = self._safe_std(merged_d["INDICE"].std())
+        region_std = (
+            self._safe_std(merged_d["INDICE"].std())
+            if merged_d["INDICE"].notna().any()
+            else np.nan
+        )
 
         return comune_result, std_by_comune, region_value, region_std
 

@@ -3,8 +3,9 @@
 # This update covers 2025 ONLY: the base build (gen_phenomenon_dataframes.py) goes from 2022-01-01 to 2024-12-31.
 # Every dataset below is restricted to the period of the update (`period.update_*` of settings.yaml, or the optional
 # `period: {start: ..., end: ...}` here, never before `period.start`): rows of other periods in the files are ignored.
-# Updated: presenze (vodafone + alb + extralb), popolazione, strutture and flussi OD. Consumption (ee/gas services + totals)
+# Updated: presenze (vodafone + alb + extralb), popolazione, strutture, meteo and flussi OD. Consumption (ee/gas services + totals)
 # is DISABLED for now: phen_consumption needs the 4 energy datasets together (ee_prelievi, gas_prelievi, ee_totale, gas_totale). See METHODOLOGY.md (`phen_consumption`) for the assumptions about the energy files.
+# For the same reason the derived `phen_ee_tourism_share` (needs phen_consumption + phen_presenze + phen_meteo) is not appended either.
 
 datasets:
   popolazione:
@@ -99,6 +100,13 @@ datasets:
     enabled: false
     sources:
       - {file: Energia/gas_prelievi/totale_gas.csv, reader: energy_csv, adapter: energia_categorie}
+
+  meteo:
+    enabled: true
+    sources:                                  # weather of 2025, used as downloaded (no normalization): comune x day
+      - file: meteo/meteo_trentino_comuni_2025.csv
+        reader: csv
+        adapter: meteo_comuni
 
   vodafone_covisits:
     enabled: true

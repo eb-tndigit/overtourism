@@ -36,6 +36,7 @@ KIND_SCHEMAS = {
         "all. disposizione posti_letto",
     ],
     "vodafone": ["locId", "date", "value", "userProfile", "locType"],
+    "meteo_raw": ["date", "comune_id", "t_min", "t_max"],  # weather, used as downloaded (not normalized)
     "presenze_raw": ["mese"],  # ISPAT monthly arrivals / presences, used as downloaded (not normalized)
     # Vodafone OD co-visits (flows between areas)
     "vodafone_covisits": [
@@ -76,6 +77,7 @@ KIND_DATASETS = {
     "strutture": {"strutture"},
     "vodafone": {"vodafone", "vodafone_provenienza", "vodafone_arrivi"},
     "presenze_raw": {"presenze_alb", "presenze_extralb"},
+    "meteo_raw": {"meteo"},
     "vodafone_covisits": {"vodafone_covisits"},
     "energia": {"ee_prelievi", "gas_prelievi", "ee_totale", "gas_totale"},
 }

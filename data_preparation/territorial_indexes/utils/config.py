@@ -34,9 +34,11 @@ _FILES_KEYS = (
     "vodafone_arrivi",
     "vodafone_covisits",
     "presenze",
+    "meteo",
     "energy",
 )
 _PRESENZE_FILES_KEYS = ("folder", "pattern", "measures", "tags")
+_METEO_FILES_KEYS = ("folder", "pattern")
 _ENERGY_FILES_KEYS = ("root", "folders", "category_files", "category_glob", "totals")
 # references that are json mappings (the other one, the geojson, is not read by `load_mappings`)
 _MAPPING_REFERENCE_KEYS = ("mapping_comuni", "mapping_vodafone", "mapping_apt")
@@ -58,6 +60,7 @@ def load_settings(path=SETTINGS_FILE) -> dict:
                     "references",
                     "datasets",
                     "phenomena",
+                    "derived_phenomena",
                     "naming",
                     "files",
                 ),
@@ -79,7 +82,11 @@ def load_settings(path=SETTINGS_FILE) -> dict:
             if key not in dataset_cfg:
                 missing.append(f"datasets.{dataset_name}.{key}")
     files = settings.get("files") or {}
-    for section, keys in (("presenze", _PRESENZE_FILES_KEYS), ("energy", _ENERGY_FILES_KEYS)):
+    for section, keys in (
+        ("presenze", _PRESENZE_FILES_KEYS),
+        ("meteo", _METEO_FILES_KEYS),
+        ("energy", _ENERGY_FILES_KEYS),
+    ):
         body = files.get(section)
         if not isinstance(body, dict):
             continue  # already reported as missing above
@@ -92,6 +99,13 @@ def load_settings(path=SETTINGS_FILE) -> dict:
             raise TypeError(
                 f"{path}: phenomena.{phenomenon_name} must be a list of dataset names"
             )
+    for phenomenon_name, deps in (settings.get("derived_phenomena") or {}).items():
+        if not isinstance(deps, list):
+            raise TypeError(
+                f"{path}: derived_phenomena.{phenomenon_name} must be a list of phenomenon names"
+            )
+    if "hdd_base_temp" not in (settings.get("meteo") or {}):
+        missing.append("meteo.hdd_base_temp")
     if missing:
         raise KeyError(f"{path}: missing setting(s) {missing}")
     if settings["type_format"] not in TYPE_FORMATS:
@@ -153,6 +167,8 @@ TRAVEL_TIMES_MATRIX_FILE = _resolve(
 REFERENCE_CITY_ITALY = str(TRAVEL_TIMES.get("reference_city_italy", "Milano")).strip()  # default: Milano 
 if not REFERENCE_CITY_ITALY:
     raise ValueError(f"{SETTINGS_FILE}: travel_times.reference_city_italy must not be empty")
+DERIVED_PHENOMENA_FILES = _S["derived_phenomena"]
+HDD_BASE_TEMP = float(_S["meteo"]["hdd_base_temp"])
 
 # platform (DigitalHub) / data lake
 PROJECT = _S["platform"]["project"]
@@ -187,6 +203,9 @@ PRESENZE_FOLDER = _FILES["presenze"]["folder"]
 PRESENZE_FILE_PATTERN = _FILES["presenze"]["pattern"]
 PRESENZE_MEASURES = tuple(_FILES["presenze"]["measures"])
 PRESENZE_TAGS = dict(_FILES["presenze"]["tags"])  # dataset -> tag in the file names
+# weather: <METEO_FOLDER>/<METEO_FILE_PATTERN.format(year)>
+METEO_FOLDER = _FILES["meteo"]["folder"]
+METEO_FILE_PATTERN = _FILES["meteo"]["pattern"]
 # energy
 ENERGY_ROOT = _FILES["energy"]["root"]
 ENERGY_FOLDERS = dict(_FILES["energy"]["folders"])  # dataset -> sub-folder

@@ -2,6 +2,7 @@
 
 from utils.adapters import (  # noqa: F401
     energia,
+    meteo,
     popolazione,
     presenze,
     strutture,

@@ -211,6 +211,36 @@ unit conversion).
 * **Update**: the energy datasets are currently `enabled: false` in `update_2025.yaml`; since `phen_consumption`
   needs all four, it is not appended by the 2025 update until they are enabled together.
 
+## `phen_meteo` (comune × day)
+
+Columns: `t_min`, `t_max`, `t_mean`, `hdd`, `rain_mm`.
+
+* **Starting data**: `meteo/meteo_trentino_comuni_<year>.csv` (one file per year, `files.meteo` in settings.yaml): for every
+  comune and day the temperatures and rain of the nearest Meteotrentino station (`date`, `comune_id`, `t_min`, `t_max`,
+  `rain_mm` + station info). Downloaded to `raw_data/meteo/` and used as downloaded (not normalized), processed in step 2 from there.
+* **Computation**: `t_mean = (t_min + t_max) / 2`; `hdd = max(0, base_temp - t_mean)`, the heating degree days of the day,
+  with `base_temp = meteo.hdd_base_temp` (18 °C, a chosen value, not an estimate). A day without temperature has `t_mean` and
+  `hdd` empty (never filled): whoever uses them averages the days that have a value. A duplicated comune + day is averaged.
+* **Window**: like every phenomenon, only the days of the window of the run are kept (the weather files may go beyond it).
+
+## `phen_ee_tourism_share` (comune × year)
+
+Columns: `quota_ee_turismo` (0-1), `presenze_medie`, `consumo_medio`, `affidabilita`.
+
+* **Derived phenomenon**: computed from `phen_consumption` (`ee_services`), `phen_presenze` (`presenze_vodafone`,
+  `presenze_escursionisti_vodafone`) and `phen_meteo` (`hdd`), in the same run. Not computed if one of them is missing.
+* **Model** (`utils/consumption_share.py`): for every comune and every calendar year, on the 12 monthly means,
+  `y = a + b·x + c·hdd` (WLS, weight = days of the month; `y` consumption, `x` tourists, `hdd` heating degree days); share =
+  `b · mean(x) / mean(y)`. The slope `b` is shrunk towards the province-wide slope **of the same year** (partial pooling,
+  `TAU`), the excursionists have weight 0, the standard errors are Newey-West. See the module docstring for the reasons.
+* **Years**: all the 12 months of the year are needed (a month needs 7 days with consumption, presences and temperature). A
+  comune-year that cannot be estimated is **absent** (never a zero). The estimate does not use other years.
+* **`affidabilita`** (text: `alta` / `media` / `bassa`): judged on the comune's OWN evidence (plain WLS slope, no pull towards
+  the pooled one), one-sided: `alta` if the lower bound of the 95% interval of the slope is above zero, `media` if only the
+  80% lower bound is, `bassa` otherwise (the share is then mostly the prior). A share of 0.9 or more is always `bassa`.
+  The thresholds are `Z_ONE_SIDED_95` / `Z_ONE_SIDED_80` in `consumption_share.py`.
+* **Not published**: R², number of months, the slope.
+
 ## `phen_flussi_od` (comune × year)
 
 Columns: `quota_ingresso`, `quota_uscita`, `quota_intra_ambito`, `pagerank`, each with suffix `_tourist`, `_visitor`,

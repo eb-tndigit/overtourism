@@ -82,6 +82,10 @@ datasets:
     std: gas_totale_std
     processed: gas_totale_pr
     update: gas_totale_update_pr
+  meteo:                                   # daily temperature of the comuni (not normalized: processed from raw_data)
+    std: ""
+    processed: meteo_pr
+    update: meteo_update_pr
   vodafone_covisits:
     std: vodafone_covisits_std
     processed: vodafone_covisits_pr
@@ -115,6 +119,12 @@ files:
       presenze_alb: alb
       presenze_extralb: exalb
 
+  # Weather: one file per year, comune x day (date, comune_id, t_min, t_max, rain_mm + station info). Like the ISPAT
+  # presences, the base build downloads the years of its window, the updates the later ones (listed in their yaml).
+  meteo:
+    folder: meteo
+    pattern: "meteo_trentino_comuni_{year}.csv"
+
   # Energy withdrawals (electricity / gas)
   energy:
     root: Energia                    # root folder of the energy objects; below it the files keep their sub-folder in raw_data
@@ -134,12 +144,23 @@ phenomena:
   phen_consumption: [ee_prelievi, gas_prelievi, ee_totale, gas_totale]
   phen_flussi_od: [vodafone_covisits]
   phen_provenienza: [vodafone_provenienza, vodafone_arrivi]
+  phen_meteo: [meteo]
   phen_tempo_medio_turisti: [vodafone_arrivi]
+
+# Phenomena computed from OTHER phenomena (the inputs are phenomena, not datasets), right after them, in the same run.
+# One is computed only if ALL its inputs are computed in that run (base build: always; update: when all are updated).
+derived_phenomena:
+  phen_ee_tourism_share: [phen_consumption, phen_presenze, phen_meteo]
+
+# Weather: heating degree days of a day = max(0, base_temp - t_mean). A chosen value, not an estimate.
+meteo:
+  hdd_base_temp: 18.0
 
 # Average journey time to each municipality
 travel_times:
   matrix_file: ../Output/travel_times/matrice_tempi_verso_trentino.csv
   reference_city_italy: Firenze
+
 
 # Provenienza: source countries of the tourists (utils/main_market.py)
 provenienza:

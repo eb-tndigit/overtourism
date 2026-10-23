@@ -6,7 +6,8 @@ Base build of the phenomenon dataframes, from scratch (entry point). Runs ALL th
     1 standardize     raw_data                     -> Output/data/normalized/
     2 process         normalized (+ mappings)      -> Output/data/data_processed/
     3 phenomena       data_processed               -> Output/data/final_data/
-                      (phen_popolazione, phen_strutture, phen_presenze)
+                      (phen_popolazione, phen_strutture, phen_presenze, phen_consumption,
+                      phen_flussi_od, phen_provenienza, phen_meteo, + derived: phen_ee_tourism_share)
 
 Every step reads the output of the previous one. Directories, file format (`type_format`, parquet by
 default) and platform settings are in config/settings.yaml.

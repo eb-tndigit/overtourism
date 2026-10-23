@@ -4,7 +4,8 @@ STEP 3 - Final phenomenon dataframes.
 
 Input : Output/data/data_processed/   (already disaggregated to comune x day, see process_std_data.py)
 Output: Output/data/final_data/       (phen_popolazione, phen_strutture, phen_presenze,
-                                       phen_consumption, phen_flussi_od, phen_provenienza)
+                                       phen_consumption, phen_flussi_od, phen_provenienza, phen_meteo,
+                                       phen_ee_tourism_share)
         and, with local=False, the platform
 
 Two modes:
@@ -12,6 +13,11 @@ Two modes:
   - update (datasets=[...]):    reads `<dataset>_update_pr` of the updated datasets and APPENDS the
     phenomena to the existing ones in final_data. On a duplicated DATA + ID_COMUNE the update wins.
     A phenomenon is computed only if ALL its input datasets are in the update.
+
+Derived phenomena (`derived_phenomena` in settings.yaml) are computed from other PHENOMENA, right after them and in the
+same run (base build or update): `phen_ee_tourism_share` (yearly share of the electricity consumption attributable to
+tourism) needs `phen_consumption`, `phen_presenze` and `phen_meteo`. It is computed only if all of them are computed in
+that run, and it is yearly: it needs the 12 months of a year.
 
 Each phenomenon dataframe contains:
   - DATA: YYYY for yearly data (popolazione, strutture, phen_flussi_od, phen_provenienza), YYYY-MM-DD for daily data
@@ -22,6 +28,8 @@ plus the phenomenon's value columns.
 import logging
 from pathlib import Path
 
+import pandas as pd
+
 from utils.cleaning import concat_keep_last
 from utils.config import (
     BASE_WINDOW,
@@ -31,10 +39,13 @@ from utils.config import (
     TYPE_FORMAT,
     setup_logging,
 )
+from utils.consumption_share import fit_years
 from utils.datasets import (
     ARRIVI_VALUE_COLS,
     CONSUMPTION_VALUE_COLS,
     DATASETS,
+    DERIVED_PHENOMENA,
+    EE_TOURISM_SHARE_VALUE_COLS,
     PHENOMENA,
     PROVENIENZA_VALUE_COLS,
     phenomena_to_recompute,
@@ -123,6 +134,33 @@ def compute_provenienza(df_hhi, df_arrivi):
     return out[keys + PROVENIENZA_VALUE_COLS + ARRIVI_VALUE_COLS].sort_values(keys).reset_index(drop=True)
 
 
+def compute_ee_tourism_share(df_consumption, df_presenze, df_meteo):
+    """phen_ee_tourism_share (comune x YEAR): share of the services electricity consumption that goes with the tourist
+    presences, controlling for the temperature (model and assumptions: utils/consumption_share.py). The inputs are the
+    phenomena `phen_consumption` (ee_services), `phen_presenze` (Vodafone tourists / excursionists) and `phen_meteo`
+    (hdd). The comune-years that cannot be estimated (a month missing, no variation...) are absent, not zeros.
+    Columns: DATA (YYYY), ID_COMUNE, quota_ee_turismo, presenze_medie, consumo_medio, affidabilita (alta / media / bassa)."""
+    keys = ["DATA", "ID_COMUNE"]
+    daily = (
+        df_consumption[keys + ["ee_services"]]
+        .rename(columns={"ee_services": "y"})
+        .merge(
+            df_presenze[keys + ["presenze_vodafone", "presenze_escursionisti_vodafone"]].rename(
+                columns={
+                    "presenze_vodafone": "tourists",
+                    "presenze_escursionisti_vodafone": "excursionists",
+                }
+            ),
+            on=keys,
+            how="inner",
+        )
+        .merge(df_meteo[keys + ["hdd"]], on=keys, how="left")
+    )
+    daily["DATA"] = pd.to_datetime(daily["DATA"])
+    out = fit_years(daily)
+    return out[keys + EE_TOURISM_SHARE_VALUE_COLS].sort_values(keys).reset_index(drop=True)
+
+
 # phenomenon -> how it is built from the processed dataframes {dataset: df}
 BUILDERS = {
     "phen_popolazione": lambda pr: pr["popolazione"],
@@ -141,8 +179,18 @@ BUILDERS = {
     "phen_tempo_medio_turisti": lambda pr: pr["vodafone_arrivi"][
         ["DATA", "ID_COMUNE", "tempo_medio_turisti"]
     ],
+    # daily temperature / heating degree days per comune (nearest Meteotrentino station)
+    "phen_meteo": lambda pr: pr["meteo"],
 }
 assert set(BUILDERS) == set(PHENOMENA)
+
+# derived phenomenon -> how it is built from the phenomena {phenomenon: df} computed in the same run
+DERIVED_BUILDERS = {
+    "phen_ee_tourism_share": lambda ph: compute_ee_tourism_share(
+        ph["phen_consumption"], ph["phen_presenze"], ph["phen_meteo"]
+    ),
+}
+assert set(DERIVED_BUILDERS) == set(DERIVED_PHENOMENA)
 
 
 def append_to_existing(df_old, df_new, name):
@@ -222,10 +270,25 @@ def compute_phenomena(
             f"No phenomenon can be computed from the datasets {sorted(pr)}"
         )
 
-    dict_dfs = {}
-    for phen in to_build:
+    # what this run computed, before appending to the existing files (the derived phenomena use it)
+    computed = {phen: clip(BUILDERS[phen](pr), window, name=phen) for phen in to_build}
+    for phen, deps in DERIVED_PHENOMENA.items():
+        if not set(deps) <= set(computed):
+            logger.warning(
+                "%s not computed: it needs %s, this run has only %s", phen, sorted(deps), sorted(computed)
+            )
+            continue
         logger.info("## Computing %s", phen)
-        df = clip(BUILDERS[phen](pr), window, name=phen)
+        df = clip(DERIVED_BUILDERS[phen]({d: computed[d] for d in deps}), window, name=phen)
+        if df.empty:
+            logger.warning("%s: no comune-year can be estimated in %s (all 12 months are needed)", phen, window)
+            if update:
+                continue  # nothing to append
+        computed[phen] = df
+
+    dict_dfs = {}
+    for phen, df in computed.items():
+        logger.info("## Saving %s", phen)
         if update:
             try:
                 existing = read_df(out_dir, phen, type_format)
