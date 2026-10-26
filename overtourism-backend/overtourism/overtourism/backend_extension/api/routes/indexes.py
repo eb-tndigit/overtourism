@@ -286,13 +286,8 @@ def get_spatial_areas(request: Request):
 
 
 def _extra_params(request: Request, indicator) -> dict:
-    """
-    Return only the query params this specific indicator has declared it
-    needs, via its `extraFields` class attribute. "seasonality" is always
-    allowed since the base Indicator._compute_indicator() supports it
-    for every indicator, not just ones that list it explicitly.
-    """
-    allowed = set(getattr(indicator, "extraFields", ())) | {"seasonality"}
+    """Return only the query params declared by the indicator."""
+    allowed = set(getattr(indicator, "extraFields", ()))
     return {k: v for k, v in request.query_params.items() if k in allowed}
 
 

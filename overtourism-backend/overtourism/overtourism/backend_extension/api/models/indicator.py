@@ -5,10 +5,7 @@ from collections.abc import Callable
 import numpy as np
 import pandas as pd
 from overtourism.overtourism.backend_extension.api.models.phenomenon import Phenomenon
-from overtourism.overtourism.backend_extension.api.utils.index_utils import (
-    _italian_festivities,
-    get_chart_labels,
-)
+from overtourism.overtourism.backend_extension.api.utils.index_utils import get_chart_labels
 
 # ---------------------------------------------------------------------------
 # Indicator
@@ -34,28 +31,6 @@ class Indicator:
     `_compute_label_metrics()` treat a sub-Indicator exactly like any other
     Phenomenon, no adapter class required. See `resolve()` below for the
     one important caveat this implies for combinators.
-
-    Seasonality filtering
-    ----------------------
-    Any Indicator can be sliced to a sub-set of days by passing
-    ``seasonality=...`` to `get_indicator()` / `get_temporal_variation()`.
-    This is applied uniformly to every phenomenon's daily panel *before*
-    aggregation and *before* the combinator runs, so:
-      - it works for any combinator, not just ratio-style ones;
-      - `get_temporal_variation()`'s per-comune series, region series, and
-        both std series all see the exact same filtered days, since they're
-        all derived from the same masked daily panel inside
-        `_compute_label_metrics()`.
-
-    Supported values:
-      - None (default): no filtering, all days kept
-      - "summer-months": July + August
-      - "winter-months": December + January
-      - "shoulder-months": April, May, June, September, October
-      - "weekend": Saturday + Sunday
-      - "weekdays": Monday through Friday
-      - "festivities": Italian national public holidays (fixed-date
-        holidays plus Easter Sunday / Easter Monday, computed per year)
 
     Parameters
     ----------
@@ -86,13 +61,6 @@ class Indicator:
     # `aggregate()` below). 'mean' is the sensible default for an index —
     # summing a ratio across days rarely means anything.
     agg: str = "mean"
-
-    # Calendar-month buckets for seasonality filters.
-    _MONTHLY_SEASONALITY: dict[str, list[int]] = {
-        "summer-months": [7, 8],
-        "winter-months": [12, 1],
-        "shoulder-months": [4, 5, 6, 9, 10],
-    }
 
     def __init__(
         self,
@@ -218,45 +186,6 @@ class Indicator:
         return _fn
 
     # ------------------------------------------------------------------
-    # Seasonality filtering
-    # ------------------------------------------------------------------
-
-    def _apply_seasonality_filter(
-        self,
-        df: pd.DataFrame,
-        seasonality: str | None,
-        start_date=None,
-        end_date=None,
-    ) -> pd.DataFrame:
-        """
-        Restrict a daily panel (must have a "DATA" column) to the days
-        matching `seasonality`. `start_date`/`end_date` are accepted for
-        symmetry with the rest of the pipeline but aren't currently needed
-        by any filter, since `df` is already scoped to that window.
-
-        Returns `df` unchanged when `seasonality` is None.
-        """
-        if seasonality is None or df.empty:
-            return df
-
-        if seasonality in self._MONTHLY_SEASONALITY:
-            months = self._MONTHLY_SEASONALITY[seasonality]
-            return df[df["DATA"].dt.month.isin(months)]
-
-        if seasonality == "weekend":
-            return df[df["DATA"].dt.weekday >= 5]
-
-        if seasonality == "weekdays":
-            return df[df["DATA"].dt.weekday <= 4]
-
-        if seasonality == "festivities":
-            years = df["DATA"].dt.year.unique().tolist()
-            holidays = _italian_festivities(years)
-            return df[df["DATA"].isin(holidays)]
-
-        raise ValueError(f"Unknown seasonality={seasonality!r}")
-
-    # ------------------------------------------------------------------
     # Ensure all phenomena are resolved (call once at startup or on
     # first use; subsequent calls are no-ops inside resolve()).
     # ------------------------------------------------------------------
@@ -278,8 +207,7 @@ class Indicator:
 
         Only relevant when this Indicator is used as a phenomenon inside a
         parent Indicator; get_indicator()/get_temporal_variation() don't go
-        through this path (and note that seasonality filtering has no
-        effect here either, for the same reason described below). Calling
+        through this path. Calling
         this more than once is a no-op, mirroring Phenomenon.resolve().
 
         Caveat: this panel is computed *once*, over the full range each
@@ -379,17 +307,12 @@ class Indicator:
     ) -> pd.DataFrame | None:
         self._ensure_resolved()
 
-        seasonality = extra.pop("seasonality", None)
-
-        # ── 1. Filter, apply seasonality, and aggregate each phenomenon ──
+        # ── 1. Filter and aggregate each phenomenon ──
         aggregated: dict[str, pd.DataFrame] = {}
         filtered_data: dict[str, pd.DataFrame] = {}
 
         for phenom in self.phenomena:
             filtered = phenom._filter_by_date(start_date, end_date)
-            filtered = self._apply_seasonality_filter(
-                filtered, seasonality, start_date, end_date
-            )
             if filtered.empty:
                 return None
             filtered_data[phenom.name] = filtered
@@ -423,11 +346,10 @@ class Indicator:
         end_date,
         granularity: str,
         region_id: str = "-1",
-        seasonality: str | None = None,
         **extra,
     ) -> list[dict]:
         key = self._cache_key(
-            start_date, end_date, granularity, region_id, seasonality, **extra
+            start_date, end_date, granularity, region_id, **extra
         )
         if key in self._variation_cache:
             return self._variation_cache[key]
@@ -444,7 +366,7 @@ class Indicator:
 
         for label, (sub_start, sub_end) in zip(labels, ranges):
             metrics = self._compute_label_metrics(
-                sub_start, sub_end, seasonality=seasonality, **extra
+                sub_start, sub_end, **extra
             )
             if metrics is None:
                 continue
@@ -483,22 +405,17 @@ class Indicator:
         return series
 
     def _compute_label_metrics(
-        self, start_date, end_date, seasonality: str | None = None, **extra
+        self, start_date, end_date, **extra
     ) -> tuple | None:
         """
         Single-pass computation for one time-label window.
 
         Because all phenomena are already resolved to daily × comune panels,
-        _filter_by_date() here is just a boolean mask, and the seasonality
-        filter (if any) is applied to that same masked panel before anything
-        derives from it. All four outputs (per-comune INDICE, per-comune
-        daily std, region value, region std) are therefore built from one
-        consistently-filtered pass per phenomenon — the per-comune series
-        and the region series can never disagree about which days were
-        included.
+        _filter_by_date() here is just a boolean mask. All four outputs
+        (per-comune INDICE, per-comune daily std, region value, region std)
+        are built from one consistently-filtered pass per phenomenon.
 
-        Returns None if any phenomenon has no data in the window (after
-        both the date and seasonality filters), otherwise
+        Returns None if any phenomenon has no data in the window, otherwise
         (comune_result, std_by_comune, region_value, region_std).
         """
         filtered_data: dict[str, pd.DataFrame] = {}
@@ -509,9 +426,6 @@ class Indicator:
 
         for phenom in self.phenomena:
             filtered = phenom._filter_by_date(start_date, end_date)
-            filtered = self._apply_seasonality_filter(
-                filtered, seasonality, start_date, end_date
-            )
             if filtered.empty:
                 return None
             filtered_data[phenom.name] = filtered

@@ -53,7 +53,6 @@ MAIN_MARKET_MIN_ARRIVALS = 100
 
 
 _VARIATION_RATE_KEY = "tasso-variazione"
-_PERIOD_PERCENTAGE_IMPACT_KEY = "incidenza-periodo"
 
 _REGISTRY: dict[str, Callable[[], Indicator]] = {
     "ricettivita": lambda: AccommodationCapacityIndicator(
@@ -111,7 +110,6 @@ _REGISTRY: dict[str, Callable[[], Indicator]] = {
     "affollamento-turistico": lambda: TouristCrowdingIndicator(),
     "sostenibilita-territoriale": lambda: TerritorialSustainabilityIndicator(),
     _VARIATION_RATE_KEY: lambda: VariationRateIndicator(),
-    _PERIOD_PERCENTAGE_IMPACT_KEY: lambda: PeriodPercentageImpactIndicator(),
 }
 
 _INDICATOR_CACHE: dict[str, Indicator] = {}
@@ -464,8 +462,7 @@ class AnthropogenicLoadIndicator(Indicator):
 # profile, one for the VISITOR (excursionist) profile and one for their weighted union (`<metric>_combined`).
 # The union is computed in the data preparation on the user-days (a visitor-day counts `w` tourist-days,
 # w = 0.5 fixed, see COVISITS_PROFILE_WEIGHTS in data_preparation), so the indicators here only read it.
-# The values are yearly: a requested window returns the value of its year(s) (mean over the years of the window),
-# and the seasonality filter does not change them.
+# The values are yearly: a requested window returns the value of its year(s) (mean over the years of the window).
 
 _FLOW_PROFILE_SUFFIXES = ("combined", "tourist", "visitor")
 _FLOW_COMMON_DESCRIPTION = (
@@ -606,7 +603,7 @@ class DiscretizedPageRankIndicator(_FlowIndicator):
 # Reads `phen_provenienza`: one row per comune and YEAR with `hhi_provenienza`, the normalized
 # Herfindahl-Hirschman index of the tourist presences by country of origin (computed in the data preparation,
 # `territorial_indexes/utils/provenienza.py`). Yearly like the OD flow indicators: a requested window returns the
-# value of its year(s) and the seasonality filter does not change it.
+# value of its year(s).
 
 
 class SourceMarketsConcentrationIndicator(Indicator):
@@ -803,7 +800,7 @@ class TourismGasConsumptionImpactIndicator(_ConsumptionImpactIndicator):
 # consumption that goes with the tourist presences (`quota_ee_turismo`), computed in the data preparation
 # (`utils/consumption_share.py`: monthly regression of the 12 months of the year, controlling for the temperature)
 # from `phen_consumption`, `phen_presenze` and `phen_meteo`. Yearly like the other yearly indicators: a requested
-# window returns the value of its year(s) and the seasonality filter does not change it. The comuni that cannot
+# window returns the value of its year(s). The comuni that cannot
 # be estimated in a year (a month without data) are absent from the file, so they have no value, not a zero.
 
 
@@ -821,8 +818,7 @@ class TourismElectricityShareIndicator(Indicator):
         "in qualche mese non hanno valore. L'indice è un'associazione statistica, non una misura diretta: il campo "
         "<em>affidabilità</em> (alta, media, bassa) indica quanto i dati del solo comune sostengono un effetto "
         "positivo delle presenze; per i comuni vicini, che condividono le presenze di una stessa area Vodafone, le stime non "
-        "sono indipendenti. Il filtro stagionale non modifica l'indice. I consumi sono mensili e distribuiti "
-        "uniformemente sui giorni."
+        "sono indipendenti. I consumi sono mensili e distribuiti uniformemente sui giorni."
     )
     index_value_unit_description = (
         "Quota dei consumi elettrici attribuibile al turismo (0-1)"
@@ -945,8 +941,8 @@ class VariationRateIndicator(Indicator):
     Rather than hard-coding one variation subclass per wrapped indicator,
     the wrapped indicator is itself a parameter: it is selected at request
     time via the ``indicator`` extra field (its registry key, e.g.
-    ``"indice-turisticita"``) — exactly like ``seasonality`` is an extra
-    field on ``SeasonalityIndicator`` above. This keeps a single
+    ``"turisticita"``), together with the dates of the comparison period.
+    This keeps a single
     "tasso-variazione" entry in the registry that works for every
     combinable indicator.
 
@@ -1069,135 +1065,3 @@ class VariationRateIndicator(Indicator):
         ) * 100
 
         return merged[["ID_COMUNE", "INDICE", "Periodo base", "Periodo comparazione"]]
-
-
-class PeriodPercentageImpactIndicator(Indicator):
-    category = "Internal"
-    order = 910
-    """
-    Percentage weight that a seasonal sub-period has on the total value of
-    another indicator over the full requested period.
-
-    Hybrid of VariationRateIndicator (wrapped indicator selected at request
-    time via the "indicator" extra field) and SeasonalityIndicator (result
-    expresses a sub-period's share of a total period, via "seasonality").
-
-    result = 100 * INDICE(wrapped, full_period, seasonality=X)
-                 / INDICE(wrapped, full_period, no seasonality filter)
-    """
-
-    name = "Incidenza percentuale del periodo"
-    description = (
-        "L'incidenza percentuale del periodo misura il <strong>peso "
-        "percentuale</strong> che un <strong>sotto-periodo stagionale</strong> "
-        "(es. alta stagione, periodo di spalla, weekend) ha sul "
-        "<strong>totale del periodo selezionato</strong>, per un indicatore "
-        "a scelta."
-    )
-    availableForVariation = False
-    extraFields = ["indicator", "seasonality"]
-    internal_only = True
-    index_value_unit_description = (
-        "Percentuale di impatto del sottoperiodo rispetto al periodo totale"
-    )
-
-    def __init__(self):
-        # Same rationale as VariationRateIndicator: the wrapped indicator is
-        # only known at request time via the "indicator" extra field, so the
-        # base class's phenomena/combinator pipeline is bypassed entirely.
-        super().__init__(phenomena=[], combinator=self._unused_combinator)
-
-    @staticmethod
-    def _unused_combinator(df: pd.DataFrame, **_extra) -> pd.Series:  # pragma: no cover
-        raise RuntimeError(
-            "PeriodPercentageImpactIndicator.combinator should never be called directly"
-        )
-
-    @property
-    def years_range(self) -> dict[str, int]:
-        """Broadest year range across every combinable indicator, same
-        rationale as VariationRateIndicator.years_range."""
-        if self._years_range is None:
-            min_years, max_years = [], []
-            for key in _REGISTRY:
-                if key == _PERIOD_PERCENTAGE_IMPACT_KEY:
-                    continue
-                try:
-                    yr = get_indicator(key).years_range
-                except ValueError:
-                    continue
-                min_years.append(yr["min_year"])
-                max_years.append(yr["max_year"])
-
-            if not min_years:
-                raise ValueError(
-                    f"{self!r}: no combinable indicators available to compute "
-                    "a years_range for"
-                )
-
-            self._years_range = {
-                "min_year": min(min_years),
-                "max_year": max(max_years),
-            }
-        return self._years_range
-
-    def _compute_indicator(
-        self,
-        start_date: str | None = None,
-        end_date: str | None = None,
-        **extra,
-    ) -> pd.DataFrame | None:
-        indicator_key = extra.pop("indicator", None)
-        seasonality = extra.pop("seasonality", None)
-
-        if not indicator_key:
-            raise ValueError(
-                "'indicator' extra field is required for 'incidenza-periodo'"
-            )
-        if indicator_key == _PERIOD_PERCENTAGE_IMPACT_KEY:
-            raise ValueError("'incidenza-periodo' cannot wrap itself")
-        if indicator_key == _VARIATION_RATE_KEY:
-            # Not strictly wrong, but tasso-variazione already needs its own
-            # extra fields (start/end_date_comparison); reject early with a
-            # clear message rather than a confusing missing-field error.
-            raise ValueError("'incidenza-periodo' cannot wrap 'tasso-variazione'")
-        if not seasonality:
-            raise ValueError(
-                "'seasonality' extra field is required for 'incidenza-periodo'"
-            )
-
-        wrapped = get_indicator(indicator_key)
-
-        total_df = wrapped.get_indicator(
-            start_date=start_date,
-            end_date=end_date,
-            **extra,
-        )
-        seasonal_df = wrapped.get_indicator(
-            start_date=start_date,
-            end_date=end_date,
-            seasonality=seasonality,
-            **extra,
-        )
-
-        if total_df is None or seasonal_df is None:
-            return None
-
-        merged = (
-            total_df[["ID_COMUNE", "INDICE"]]
-            .rename(columns={"INDICE": "INDICE_periodo"})
-            .merge(
-                seasonal_df[["ID_COMUNE", "INDICE"]].rename(
-                    columns={"INDICE": "INDICE_sottoperiodo"}
-                ),
-                on="ID_COMUNE",
-                how="outer",
-            )
-        )
-        # a comune with no value in the sub-period (no data) has no incidence: null, not 0%
-
-        merged["INDICE"] = (
-            merged["INDICE_sottoperiodo"] / merged["INDICE_periodo"].replace(0, np.nan)
-        ) * 100
-
-        return merged[["ID_COMUNE", "INDICE", "INDICE_periodo", "INDICE_sottoperiodo"]]
