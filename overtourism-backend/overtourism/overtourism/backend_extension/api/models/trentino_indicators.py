@@ -303,8 +303,11 @@ class TouristAccommodationFacilitiesIndicator(_HospitalityFacilitiesShareIndicat
 class TouristPresenceGiniIndicator(Indicator):
     """Normalized Gini of the temporal distribution of daily tourist presences."""
 
-    name = "Concentrazione temporale delle presenze turistiche (Gini)"
-    type = INDICATORS_TYPES[1]
+    name = "Indice di stagionalità delle presenze"
+    category = "Pressione turistica"
+    order = 10
+    year_only = True
+
     _PRESENCE_COLUMN = "presenze_vodafone"
     _LOW_COVERAGE_VALUE = -1.0
     _MIN_COVERAGE = 0.8
