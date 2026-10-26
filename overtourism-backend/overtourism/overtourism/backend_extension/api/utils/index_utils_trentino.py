@@ -61,6 +61,24 @@ def get_macro_areas(codici_comuni_file: Path) -> list[any]:
 
 
 # ---------------------------------------------------------------------------
+# Comuni - seasonality cluster mapping
+# ---------------------------------------------------------------------------
+
+
+@lru_cache(maxsize=1)
+def get_comuni_clusters(clusters_file: Path) -> dict[str, int]:
+    """
+    Read a JSON file mapping comune IDs to their seasonality cluster (an integer).
+
+    Result is cached for the process lifetime.
+    """
+    with open(clusters_file, "r", encoding="utf-8") as fh:
+        data: dict[str, int] = json.load(fh)
+
+    return {str(comune).zfill(6): int(cluster) for comune, cluster in data.items()}
+
+
+# ---------------------------------------------------------------------------
 # Map geometry
 # ---------------------------------------------------------------------------
 

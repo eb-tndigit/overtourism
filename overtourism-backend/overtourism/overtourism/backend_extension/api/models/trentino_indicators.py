@@ -17,6 +17,9 @@ from overtourism.overtourism.backend_extension.api.models.trenitno_phenomena imp
     ProvenienzaVolumePhenomenon,
     SurfacePhenomenon,
 )
+from overtourism.overtourism.backend_extension.api.utils.index_utils_trentino import (
+    get_comuni_clusters,
+)
 from overtourism.overtourism.setup import index_data_path
 
 # ---------------------------------------------------------------------------
@@ -42,6 +45,9 @@ EE_TOURISM_SHARE_SOURCE = (
 )  # yearly share of the electricity consumption attributable to tourism per comune (computed in the data preparation)
 MACRO_AREAS_FILE = index_data_path / "map_comuni_into_apt.json"
 CODICI_COMUNI_FILE = index_data_path / "mapping_comuni_ISTAT.json"
+SEASONALITY_CLUSTERS_FILE = (
+    index_data_path / "mapping_comuni_cluster_stagionalita.json"
+)  # seasonality cluster of each comune, computed once in the data preparation (notebook gini_clustering)
 
 # ---------------------------------------------------------------------------
 # Registry
@@ -84,7 +90,9 @@ _REGISTRY: dict[str, Callable[[], Indicator]] = {
     "carico-antropico": lambda: AnthropogenicLoadIndicator(
         POPULATION_SOURCE, PRESENCES_SOURCE
     ),
-    "gini-stagionalita": lambda: TouristPresenceGiniIndicator(PRESENCES_SOURCE),
+    "gini-stagionalita": lambda: TouristPresenceGiniIndicator(
+        PRESENCES_SOURCE, SEASONALITY_CLUSTERS_FILE
+    ),
     "quota-mobilita-ingresso": lambda: InboundMobilityShareIndicator(FLOWS_OD_SOURCE),
     "quota-mobilita-uscita": lambda: OutboundMobilityShareIndicator(FLOWS_OD_SOURCE),
     "quota-intra-ambito": lambda: IntraAmbitoShareIndicator(FLOWS_OD_SOURCE),
@@ -106,7 +114,6 @@ _REGISTRY: dict[str, Callable[[], Indicator]] = {
     "quota-consumi-elettrici-attribuibili-turismo": lambda: TourismElectricityShareIndicator(
         EE_TOURISM_SHARE_SOURCE
     ),
-    "indice-stagionalita-presenze": lambda: SeasonalityOfPresencesIndicator(),
     "distanza-media-turisti": lambda: AverageTouristTravelTimeIndicator(),
     "dipendenza-domanda-prossimita": lambda: ProximityDemandDependenceIndicator(),
     "affollamento-turistico": lambda: TouristCrowdingIndicator(),
@@ -301,7 +308,13 @@ class TouristAccommodationFacilitiesIndicator(_HospitalityFacilitiesShareIndicat
     )
 
 class TouristPresenceGiniIndicator(Indicator):
-    """Normalized Gini of the temporal distribution of daily tourist presences."""
+    """
+    Normalized Gini of the temporal distribution of daily tourist presences.
+
+    Next to INDICE, ``CLUSTER_COLUMN`` holds the seasonality cluster of the comune (an integer), read from a
+    comune -> cluster mapping computed once in the data preparation on the whole period: it is the same for
+    any requested window.
+    """
 
     name = "Indice di stagionalità delle presenze"
     category = "Pressione turistica"
@@ -309,20 +322,26 @@ class TouristPresenceGiniIndicator(Indicator):
     year_only = True
 
     _PRESENCE_COLUMN = "presenze_vodafone"
-    _LOW_COVERAGE_VALUE = -1.0
+    _LOW_COVERAGE_VALUE = np.nan
     _MIN_COVERAGE = 0.8
+    CLUSTER_COLUMN = "cluster_stagionalita"
 
     description = (
         "L'indice di Gini misura quanto le presenze turistiche giornaliere in un comune "
         "sono concentrate nel periodo selezionato. "
         "Il valore 0 indica una distribuzione uniforme, il valore 1 la massima concentrazione. "
-        f"Il calcolo è disponibile solo con almeno l'{_MIN_COVERAGE*100}% di copertura temporale; "
-        f"i comuni sotto questa soglia hanno valore {_LOW_COVERAGE_VALUE} "
+        f"Il calcolo è disponibile solo con almeno l'{_MIN_COVERAGE:.0%} di copertura temporale; "
+        "i comuni sotto questa soglia non hanno valore. "
+        "Per ogni comune è indicato anche il <strong>cluster stagionale</strong>: 1 e 2 sono due profili "
+        "stagionali, 0 raccoglie i comuni il cui andamento annuale non si ripete da un anno all'altro. "
+        "Il cluster è calcolato una volta sulle presenze turistiche Vodafone 2023-2025 ed è lo stesso "
+        "per qualsiasi periodo selezionato."
     )
     index_value_unit_description = "Indice di Gini normalizzato (0 = uniforme, 1 = concentrato)"
     availableForVariation = False
 
-    def __init__(self, source_file):
+    def __init__(self, source_file, clusters_file):
+        self.clusters_file = clusters_file
         super().__init__(
             phenomena=[
                 PresencesPhenomenon(
@@ -333,6 +352,21 @@ class TouristPresenceGiniIndicator(Indicator):
             ],
             combinator=self._compute_gini,
         )
+
+    def _compute_indicator(
+        self,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        **extra,
+    ) -> pd.DataFrame | None:
+        result = super()._compute_indicator(start_date, end_date, **extra)
+        if result is None:
+            return None
+
+        # the cluster does not depend on the window; a comune missing from the mapping has no cluster (null)
+        clusters = get_comuni_clusters(self.clusters_file)
+        result[self.CLUSTER_COLUMN] = result["ID_COMUNE"].astype(str).map(clusters)
+        return result
 
     @staticmethod
     def _gini(values: np.ndarray) -> float:
@@ -958,16 +992,6 @@ class _NotImplementedIndexIndicator(Indicator):
         raise NotImplementedError(
             "This indicator is a placeholder; its calculation has not been implemented yet."
         )
-
-
-class SeasonalityOfPresencesIndicator(_NotImplementedIndexIndicator):
-    # #TODO Define and document the seasonality index methodology.
-    name = "Indice di stagionalità delle presenze"
-    description = "TODO"
-    index_value_unit_description = "TODO"
-    category = "Pressione turistica"
-    order = 10
-    year_only = True
 
 
 class AverageTouristTravelTimeIndicator(_NotImplementedIndexIndicator):
