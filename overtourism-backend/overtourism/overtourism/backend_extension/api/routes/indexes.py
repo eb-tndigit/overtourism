@@ -348,13 +348,28 @@ def get_index_data(
             context=f"{index} get_index_data",
         )
 
-        return {
+        response: dict[str, Any] = {
             "geo_data": {
                 "data": geo_data["geojson"],
                 "min_value": geo_data["min_value"],
                 "max_value": geo_data["max_value"],
             },
         }
+
+        # Optional overlay: indicators that also describe movements between areas (e.g. the redistribution
+        # indicator) expose get_flows(); the arrows follow the same window and permissions as the map. Other
+        # indicators are untouched. Meaningless for a single province-wide unit, so skipped there.
+        if tc.spatial_granularity != "provincia" and hasattr(indicator, "get_flows"):
+            flows = indicator.get_flows(
+                start_date,
+                end_date,
+                allowed_comuni=tc.allowed_comuni,
+                **extra,
+            )
+            if flows is not None:
+                response["flows"] = flows
+
+        return response
 
     except HTTPException:
         raise

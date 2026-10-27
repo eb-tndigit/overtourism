@@ -15,6 +15,7 @@ from overtourism.overtourism.backend_extension.api.models.trenitno_phenomena imp
     PresencesPhenomenon,
     ProvenienzaPhenomenon,
     ProvenienzaVolumePhenomenon,
+    RedistributionPhenomenon,
     SurfacePhenomenon,
 )
 from overtourism.overtourism.setup import index_data_path
@@ -40,6 +41,15 @@ CONSUMPTION_SOURCE = (
 EE_TOURISM_SHARE_SOURCE = (
     index_data_path / "phen_ee_tourism_share.parquet"
 )  # yearly share of the electricity consumption attributable to tourism per comune (computed in the data preparation)
+REDISTRIBUTION_SOURCE = (
+    index_data_path / "phen_ridistribuzione.parquet"
+)  # daily redistribution results per comune (computed offline: data_preparation/gen_redistribution_dataframes.py)
+REDISTRIBUTION_FLOWS_SOURCE = (
+    index_data_path / "phen_ridistribuzione_flussi.parquet"
+)  # daily optimal flows between the Vodafone nodes (the arrows of the map)
+REDISTRIBUTION_NODES_SOURCE = (
+    index_data_path / "ridistribuzione_nodi.parquet"
+)  # the nodes: WGS84 position, label and comuni
 MACRO_AREAS_FILE = index_data_path / "map_comuni_into_apt.json"
 CODICI_COMUNI_FILE = index_data_path / "mapping_comuni_ISTAT.json"
 
@@ -86,6 +96,9 @@ _REGISTRY: dict[str, Callable[[], Indicator]] = {
     "quota-mobilita-ingresso": lambda: InboundMobilityShareIndicator(FLOWS_OD_SOURCE),
     "quota-mobilita-uscita": lambda: OutboundMobilityShareIndicator(FLOWS_OD_SOURCE),
     "quota-intra-ambito": lambda: IntraAmbitoShareIndicator(FLOWS_OD_SOURCE),
+    "squilibrio-ridistribuzione": lambda: RedistributionBalanceIndicator(
+        REDISTRIBUTION_SOURCE, REDISTRIBUTION_FLOWS_SOURCE, REDISTRIBUTION_NODES_SOURCE
+    ),
     "pagerank-discretizzato": lambda: DiscretizedPageRankIndicator(
         FLOWS_OD_SOURCE, PAGERANK_N_CLASSES
     ),
@@ -595,6 +608,219 @@ class DiscretizedPageRankIndicator(_FlowIndicator):
         share_below = value[valid].rank(method="average", pct=True)
         classes[valid] = np.ceil(share_below * self.n_classes).clip(1, self.n_classes)
         return classes.fillna(0)
+
+
+# ---------------------------------------------------------------------------
+# Redistribution of the flows (imbalance index + optimal moves between areas)
+# ---------------------------------------------------------------------------
+# Reads `phen_ridistribuzione`: one row per comune and DAY, computed offline (data_preparation/
+# gen_redistribution_dataframes.py) by solving, for each day, a min-cost redistribution of the visitors above the
+# balanced saturation towards the areas with room. The solver never runs in the backend: a requested window is a
+# mask on the daily panel + the mean of the daily values, exactly like the other daily phenomena. Besides the
+# map (INDICE) the indicator exposes the arrows (`get_flows`, read from `phen_ridistribuzione_flussi`).
+
+_REDISTRIBUTION_SEGMENTS = {
+    "combinato": "combined",
+    "turisti": "tourist",
+    "escursionisti": "visitor",
+}
+_REDISTRIBUTION_DEFAULT_SEGMENT = "combinato"
+_REDISTRIBUTION_COMPANIONS = (
+    "persone_gap",
+    "persone_spostate_nette",
+    "eccesso_non_assorbibile",
+)
+
+
+class RedistributionBalanceIndicator(Indicator):
+    category = "Flussi"
+    order = 100
+    """
+    INDICE = mean over the days of the window of the daily imbalance: (balanced saturation - saturation of the area)
+    in percentage points. Positive = under-represented (room for more visitors), negative = overloaded.
+
+    ``segmento`` (extra field): ``combinato`` (default: tourists + 0.5 * excursionists), ``turisti``, ``escursionisti``.
+    The columns next to INDICE (persons to attract / move / not absorbable) follow the same segment. They are
+    persons per day (window mean), split over the comuni of a multi-comune area by beds (tourists) and residents
+    (excursionists). INDICE is a value of the AREA: all the comuni of a multi-comune area share it.
+
+    Not available as time series (``availableForVariation = False``): the province value of an index averaged
+    over comuni would not be the province imbalance (that is zero by construction).
+    """
+
+    name = "Squilibrio di carico e ridistribuzione dei flussi"
+    description = (
+        "L'indice confronta il <strong>carico di ogni area</strong> (turisti ed escursionisti rilevati da Vodafone) "
+        "con il suo <strong>tetto di carico</strong>, stimato dallo storico delle aree comparabili, e lo mette a "
+        "confronto con una <strong>distribuzione bilanciata</strong>, in cui tutte le aree hanno la stessa "
+        "saturazione (carico / tetto). Valori <strong>positivi</strong> indicano un'area <strong>sotto-rappresentata</strong>, "
+        "con margine per accogliere più visitatori; valori <strong>negativi</strong> un'area <strong>sovraccarica</strong>. "
+        "È espresso in punti di saturazione ed è la <strong>media giornaliera del periodo selezionato</strong>. "
+        "Le <strong>frecce</strong> sulla mappa mostrano gli spostamenti a costo minimo con cui l'eccesso potrebbe essere "
+        "riassorbito entro circa 40 km (il costo cresce con la distanza e con la diversità di tipo fra le aree): "
+        "la parte che non trova posto entro il raggio resta «non assorbibile». "
+        "Non è un costo in euro. Il tetto è una stima incerta (intervallo al 90%: ×1,5 per i turisti, ×1,9 per gli "
+        "escursionisti) e «bilanciato = stessa saturazione» è una scelta normativa. Per le aree Vodafone che "
+        "comprendono più comuni il valore è quello dell'area."
+    )
+    index_value_unit_description = (
+        "Punti di saturazione (positivo = sotto-rappresentato, negativo = sovraccarico)"
+    )
+    availableForVariation = False
+    year_only = True
+
+    FLOWS_TOP_N = 50  # arrows returned with the map (the biggest ones)
+
+    def __init__(self, source_file, flows_file, nodes_file):
+        self.flows_file = flows_file
+        self.nodes_file = nodes_file
+        self._flows_data: tuple[pd.DataFrame, pd.DataFrame] | None = (
+            None  # (arcs, nodes), loaded on first use
+        )
+        super().__init__(
+            phenomena=[
+                RedistributionPhenomenon(source_file, f"{metric}_{suffix}")
+                for metric in ("squilibrio_pp", *_REDISTRIBUTION_COMPANIONS)
+                for suffix in _REDISTRIBUTION_SEGMENTS.values()
+            ],
+            combinator=self._balance,
+        )
+
+    @staticmethod
+    def _suffix(segmento: str | None) -> str:
+        key = segmento or _REDISTRIBUTION_DEFAULT_SEGMENT
+        if key not in _REDISTRIBUTION_SEGMENTS:
+            raise ValueError(
+                f"Unknown segmento={key!r}. Expected one of {sorted(_REDISTRIBUTION_SEGMENTS)}."
+            )
+        return _REDISTRIBUTION_SEGMENTS[key]
+
+    def _balance(
+        self, df: pd.DataFrame, *, segmento: str | None = None, **_extra
+    ) -> pd.Series:
+        return df[f"squilibrio_pp_{self._suffix(segmento)}"]
+
+    def _compute_indicator(
+        self,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        segmento: str | None = None,
+        **extra,
+    ) -> pd.DataFrame | None:
+        suffix = self._suffix(segmento)
+        result = super()._compute_indicator(
+            start_date, end_date, segmento=segmento, **extra
+        )
+        if result is None:
+            return None
+        # keep only the columns of the requested segment, under segment-free names
+        out = result[["ID_COMUNE"]].copy()
+        for metric in _REDISTRIBUTION_COMPANIONS:
+            out[metric] = result[f"{metric}_{suffix}"]
+        out["INDICE"] = result["INDICE"]
+        return out
+
+    # ------------------------------------------------------------------
+    # Arrows: optimal flows between the nodes, averaged over the window
+    # ------------------------------------------------------------------
+
+    def _load_flows(self) -> tuple[pd.DataFrame, pd.DataFrame]:
+        if self._flows_data is None:
+            arcs = pd.read_parquet(self.flows_file)
+            arcs["DATA"] = pd.to_datetime(arcs["DATA"])
+            nodes = pd.read_parquet(self.nodes_file).set_index("node")
+            self._flows_data = (
+                arcs,
+                nodes,
+            )  # one assignment: never half-loaded for another thread
+        return self._flows_data
+
+    def get_flows(
+        self,
+        start_date: str | None,
+        end_date: str | None,
+        *,
+        allowed_comuni: set[str] | None = None,
+        segmento: str | None = None,
+        top_n: int | None = None,
+        **_ignored,
+    ) -> dict | None:
+        """
+        The biggest flows of the window as GeoJSON LineStrings (node centroid -> node centroid, WGS84), value =
+        mean persons per day moved along the arc (a day without that flow counts as zero). For a one-day window
+        it is that day's optimal flow. Only arcs between nodes that contain at least one allowed comune are
+        returned (an arrow must not reveal a comune the caller cannot see).
+
+        Returns None when the window has no data.
+        """
+        suffix = self._suffix(segmento)
+        self._ensure_resolved()
+        n_days = (
+            self.phenomena[0]._filter_by_date(start_date, end_date)["DATA"].nunique()
+        )
+        if n_days == 0:
+            return None
+
+        arcs, nodes = self._load_flows()
+        start, end = pd.to_datetime(start_date), pd.to_datetime(end_date)
+        window = arcs[(arcs["DATA"] >= start) & (arcs["DATA"] <= end)]
+        flow = window[
+            f"flow_{suffix}"
+        ]  # the weight of the visitors in `combined` is applied offline, once
+        mean_flow = (
+            window.assign(flow=flow)
+            .groupby(["node_from", "node_to"], as_index=False)["flow"]
+            .sum()
+            .assign(flow=lambda d: d["flow"] / n_days)
+        )
+
+        if allowed_comuni is not None:
+            visible = {
+                node
+                for node, comuni in nodes["comuni"].items()
+                if allowed_comuni.intersection(map(str, comuni))
+            }
+            mean_flow = mean_flow[
+                mean_flow["node_from"].isin(visible)
+                & mean_flow["node_to"].isin(visible)
+            ]
+
+        mean_flow = mean_flow[mean_flow["flow"] > 0].nlargest(
+            top_n or self.FLOWS_TOP_N, "flow"
+        )
+
+        features = []
+        for rank, row in enumerate(mean_flow.itertuples(index=False), start=1):
+            a, b = nodes.loc[row.node_from], nodes.loc[row.node_to]
+            features.append(
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "LineString",  # from -> to: the arrow head is at the destination
+                        "coordinates": [
+                            [round(float(a["lon"]), 5), round(float(a["lat"]), 5)],
+                            [round(float(b["lon"]), 5), round(float(b["lat"]), 5)],
+                        ],
+                    },
+                    "properties": {
+                        "rank": rank,
+                        "value": round(float(row.flow), 1),
+                        "from": row.node_from,
+                        "to": row.node_to,
+                        "from_label": a["label"],
+                        "to_label": b["label"],
+                    },
+                }
+            )
+        unit = "presenze al giorno (media del periodo)"
+        if suffix == "combined":
+            unit = "presenze equivalenti al giorno (media del periodo)"
+        return {
+            "data": {"type": "FeatureCollection", "features": features},
+            "max_value": float(mean_flow["flow"].max()) if len(mean_flow) else 0.0,
+            "unit": unit,
+            "n_days": int(n_days),
+        }
 
 
 # ---------------------------------------------------------------------------
