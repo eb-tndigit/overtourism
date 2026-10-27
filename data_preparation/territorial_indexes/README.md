@@ -5,6 +5,9 @@ Builds the phenomenon dataframes behind the territorial indexes:
 `phen_tempo_medio_turisti`.
 `phen_meteo`, `phen_ee_tourism_share`.
 There are two entry points: a **base build** (2022-2024, `gen_phenomenon_dataframes.py`) and a **yearly update**
+`phen_meteo`, `phen_ee_tourism_share`, and the redistribution indicator (`phen_ridistribuzione`,
+`phen_ridistribuzione_flussi`, `ridistribuzione_nodi`, see below).
+There are two entry points for the phenomena: a **base build** (2022-2024, `gen_phenomenon_dataframes.py`) and a **yearly update**
 (`update_phenomenon_dataframes.py`, currently 2025). The base build can also run the 2025 update.
 
 This README explains how to run the code and the steps that lead to the final files. **How each phenomenon is computed
@@ -15,6 +18,7 @@ This README explains how to run the code and the steps that lead to the final fi
 ## Requirements
 
 * Python 3 with `pandas`, `numpy`, `pyyaml`, `unidecode`, `pyarrow` (parquet) and, for the tests, `pytest`.
+* The redistribution indicator also needs `scipy`, `scikit-learn`, `statsmodels`, `geopandas` and `pyproj`.
 * `boto3`, `geopandas` and `digitalhub` are imported only when needed (download from the data lake / platform upload).
   The S3 credentials are read from the section `platform.dhcore_env` of the file `platform.credentials_file` (default `.dhcore.ini`) in the home folder.
 * To work without the data lake, put the files in a local folder and set `update.local_source_dir` in `config/settings.yaml`
@@ -27,6 +31,7 @@ territorial_indexes/
 ├── README.md, METHODOLOGY.md
 ├── gen_phenomenon_dataframes.py     # entry point: base build, all steps (--with-update / --update-only: also the 2025 update)
 ├── update_phenomenon_dataframes.py  # entry point: yearly update
+├── gen_redistribution_dataframes.py # entry point: redistribution indicator (run after the phenomena)
 ├── config/
 │   ├── settings.yaml                # directories, format, period, platform, ALL the file names
 │   └── updates/                     # one yaml per yearly update
@@ -36,11 +41,13 @@ territorial_indexes/
     ├── cleaning.py, io.py, readers.py, remote.py  helpers, read/write, file readers, S3 / DigitalHub
     ├── disaggregation.py, stay_distribution.py    area -> comune split, monthly -> daily presences
     ├── flows.py, provenienza.py                   flow indicators, concentration of the source markets
+    ├── redistribution/                            nodes, load ceilings, min-cost redistribution solver, daily panels
     ├── markets.py, main_market.py                 country names and top source countries (from arrivals)
     ├── adapters/                                  layout of each yearly source -> standard layout
     ├── update/                                    readers and config parsing of the update
     └── steps/                                     download_data, standardize_raw_data, process_std_data,
-                                                   create_phenomena_df (+ the update versions of standardize / process)
+                                                   create_phenomena_df (+ the update versions of standardize / process),
+                                                   create_redistribution_df
 ```
 
 ## Configuration
@@ -203,6 +210,29 @@ wrong adapter parameters) are reported before anything is downloaded.
 The layouts of future yearly files cannot be known in advance (data have been retrieved on request), so new files
 may need a new adapter.
 
+## Running the redistribution indicator
+
+The indicator "Squilibrio di carico e ridistribuzione dei flussi" (backend: `squilibrio-ridistribuzione`) compares the
+daily load of every area with its load ceiling and computes the min-cost moves that would bring every area to the same
+saturation. The solver runs **once, here**: the backend only slices the daily panels by date. How it is computed is in
+[METHODOLOGY.md](METHODOLOGY.md#phen_ridistribuzione-comune--day).
+
+```bash
+python -m gen_redistribution_dataframes                  # download the 2 extra inputs, then compute (about 2 minutes)
+python -m gen_redistribution_dataframes --skip-download  # inputs already in Output/mapping
+python -m gen_redistribution_dataframes --upload         # also log the final tables to the platform
+```
+
+Run it **after** `gen_phenomenon_dataframes.py` (and after the yearly update): it reads `phen_presenze`, `phen_strutture` and
+`phen_popolazione` from `final_data` and recomputes the ceilings and the daily solution for every year in them.
+Besides the Vodafone areas geojson and the mappings (already used by the phenomena) it needs two extra mapping inputs, listed in
+`config/settings.yaml` (section `redistribution`, together with every model parameter): the ISTAT comuni shapefile
+(`PRO_COM_T`, `COMUNE`, `Shape_Area` in m²) and the ISTAT tourist typology (`PROCOM`, `COMUNE`, `COD_CAT`). The comuni born from
+a merger that are missing from the typology file are listed in `redistribution.merged_comuni`.
+Intermediate results (nodes, demand, ceilings, model-selection and coefficient tables) are saved in
+`data_processed/redistribution/`; the three final tables are **always parquet**, whatever `type_format` is, because the
+backend reads them as parquet.
+
 ## Outputs
 
 | File in `Output/data/final_data/` | Granularity | Columns (after `DATA`, `ID_COMUNE`) |
@@ -216,6 +246,9 @@ may need a new adapter.
 | `phen_tempo_medio_turisti` | comune × year | `tempo_medio_turisti` (minutes; weighted by arrivals; Italian reference city configurable in `config/settings.yaml`), `arrivi`, `minuti_totali` (`tempo_medio_turisti = minuti_totali / arrivi`) |
 | `phen_meteo` | comune × day | `t_min`, `t_max`, `t_mean`, `hdd`, `rain_mm` |
 | `phen_ee_tourism_share` | comune × year | `quota_ee_turismo`, `presenze_medie`, `consumo_medio`, `affidabilita` (`alta` / `media` / `bassa`) |
+| `phen_ridistribuzione` | comune × day | `squilibrio_pp`, `persone_gap`, `persone_spostate_nette`, `eccesso_non_assorbibile` × (`tourist`, `visitor`, `combined`) (produced by `gen_redistribution_dataframes.py`) |
+| `phen_ridistribuzione_flussi` | node pair × day | `node_from`, `node_to`, `flow_tourist`, `flow_visitor`, `flow_combined` (the arrows; no `ID_COMUNE`) |
+| `ridistribuzione_nodi` | node | `node`, `lon`, `lat` (WGS84), `label`, `comuni` (list of `ID_COMUNE`) |
 
 `phen_meteo` comes from the weather files `meteo/meteo_trentino_comuni_<year>.csv` (data lake, saved in `raw_data/meteo/`, one per year: the base build
 downloads the years of its window, the updates list the later ones in their yaml). `phen_ee_tourism_share` is **derived**

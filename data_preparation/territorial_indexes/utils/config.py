@@ -211,6 +211,41 @@ ENERGY_CATEGORY_GLOB = _FILES["energy"]["category_glob"]
 ENERGY_TOTAL_FILES = dict(_FILES["energy"]["totals"])  # dataset -> data-lake key
 
 
+# ---- redistribution indicator (settings.yaml `redistribution`): optional for the other pipelines, validated on use
+_REDISTRIBUTION_REQUIRED = {
+    "": ("inputs", "files", "merged_comuni", "output", "intermediate_dir", "model", "ceiling", "transport_cost"),
+    "inputs": ("presenze", "strutture", "popolazione"),
+    "files": ("comuni_shapefile", "tipologia_comuni"),
+    "output": ("panel", "flows", "nodes"),
+    "model": ("typology_year", "min_arc_flow", "utm_epsg"),
+    "ceiling": ("tau", "cv_folds", "cv_seeds", "tolerance", "bootstrap", "bootstrap_seed", "ci_low", "ci_high"),
+    "transport_cost": ("alpha", "d_ref_km", "d_max_km", "d_min_km", "affinity"),
+}
+
+
+def redistribution_settings() -> dict:
+    """The `redistribution` section of settings.yaml, checked. Raises if a key is missing or a value is not valid."""
+    cfg = _S.get("redistribution")
+    if not isinstance(cfg, dict):
+        raise KeyError(f"{SETTINGS_FILE}: missing the `redistribution` section")
+    missing = [
+        f"redistribution.{section}.{key}" if section else f"redistribution.{key}"
+        for section, keys in _REDISTRIBUTION_REQUIRED.items()
+        for key in keys
+        if key not in (cfg.get(section, {}) if section else cfg)
+    ]
+    if missing:
+        raise KeyError(f"{SETTINGS_FILE}: missing setting(s) {missing}")
+    for seg in ("T", "E"):
+        if set(cfg["transport_cost"]["affinity"].get(seg, {})) != {"cluster", "cat"}:
+            raise ValueError(f"{SETTINGS_FILE}: redistribution.transport_cost.affinity.{seg} needs cluster and cat")
+    if not 0 < cfg["ceiling"]["tau"] < 1:
+        raise ValueError(f"{SETTINGS_FILE}: redistribution.ceiling.tau must be in (0, 1)")
+    if not cfg["ceiling"]["ci_low"] < cfg["ceiling"]["ci_high"]:
+        raise ValueError(f"{SETTINGS_FILE}: redistribution.ceiling.ci_low must be < ci_high")
+    return cfg
+
+
 def setup_logging(level=logging.INFO):
     """Call from entry points only (libraries must not configure logging)."""
     logging.basicConfig(

@@ -148,9 +148,7 @@ class AccommodationCapacityIndicator(Indicator):
 ```
 
 For anything more custom, write your own method and pass it as the
-combinator (see `SeasonalityIndicator.reference_period_over_total` in
-`trentino_indicators.py` for an example that reaches into `filtered_data`
-to compute a sub-period-over-total ratio).
+combinator.
 
 ### 3.2 Query surface
 
@@ -213,10 +211,7 @@ to be valid for every future date-range slice a parent `Indicator` might
 request. So a combinator that will be used on a sub-indicator must be a
 pure function of the row's phenomenon values alone (like the built-in
 `divide()`); it must not branch on `start_date`/`end_date`/`filtered_data`/
-`**extra`, or the composed values will be silently wrong. `SeasonalityIndicator`
-in `trentino_indicators.py`, for example, is *not* currently safe to
-compose this way, since its combinator reaches into `filtered_data` to
-compare a sub-period against the full requested window.
+`**extra`, or the composed values will be silently wrong.
 
 Each sub-`Indicator` used as a phenomenon also picks up a class attribute,
 `agg` (default `"mean"`), controlling how its own daily `INDICE` values
