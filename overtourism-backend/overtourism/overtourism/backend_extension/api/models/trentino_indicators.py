@@ -880,8 +880,8 @@ class MeanTouristTravelTimeIndicator(Indicator):
         "assume la capitale. È un indicatore annuale e non rappresenta la città di partenza "
         "effettiva dei singoli turisti."
     )
-    index_value_unit_description = "Minuti di viaggio stimati"
-    year_only = True
+    index_value_unit_description = "Tempo medio stimato di viaggio"
+    # year_only = True
     category = "Provenienza"
     order = 100
 
