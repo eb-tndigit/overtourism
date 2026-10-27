@@ -28,7 +28,8 @@ class TerritorialConfig:
     -------------------------------------------------------
     - ``value_col`` ("INDICE")  -> ``macro_area_agg`` ("mean" | "sum")
     - any column listed in ``column_aggs`` -> the function given there
-      (any pandas aggregation name: "sum", "mean", "max", "min", "first", ...)
+      (any pandas aggregation name: "sum", "mean", "max", "min", "first", ...,
+      or "mode": the most frequent value, the smallest one on a tie)
     - any other numeric column (e.g. presences, number of structures)
       -> "sum", i.e. the area total
     - any other non-numeric column -> dropped (a label taken from a single
@@ -128,6 +129,8 @@ class TerritorialConfig:
                     out[col] = valid.iloc[0]
                 elif fn == "last":
                     out[col] = valid.iloc[-1]
+                elif fn == "mode":
+                    out[col] = valid.mode().iloc[0]  # mode() is sorted: a tie takes the smallest value
                 else:
                     out[col] = series.agg(fn)
         return out

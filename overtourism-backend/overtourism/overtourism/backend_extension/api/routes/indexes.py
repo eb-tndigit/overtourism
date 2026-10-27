@@ -81,6 +81,7 @@ def _build_tc(
     *,
     allowed_comuni: set[str] | None = _DEFAULT_ALLOWED_COMUNI,
     macro_area_agg: str = "mean",
+    column_aggs: dict[str, str] | None = None,
 ) -> TerritorialConfig:
     """
     Build a TerritorialConfig for a request.
@@ -97,6 +98,9 @@ def _build_tc(
     macro_area_agg
         "mean" for ratio/index indicators, "sum" for count indicators.
         Hardcoded per endpoint (or overridable in the future).
+    column_aggs
+        Aggregation of specific columns next to INDICE (the indicator's
+        ``column_aggs``, e.g. "mode" for a category).
     """
     spatial_granularity = request.query_params.get("spatial_granularity", "comune")
     try:
@@ -105,6 +109,7 @@ def _build_tc(
             spatial_granularity=spatial_granularity,
             allowed_comuni=allowed_comuni,
             macro_area_agg=macro_area_agg,
+            column_aggs=column_aggs,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -299,8 +304,8 @@ def get_index_data(
     end_date: str | None = Query(None),
 ):
     try:
-        tc = _build_tc(request)
         indicator = get_indicator(index)
+        tc = _build_tc(request, column_aggs=indicator.column_aggs)
         extra = _extra_params(
             request, indicator
         )  # <-- whitelist driven by this indicator

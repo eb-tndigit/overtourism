@@ -322,9 +322,10 @@ class TouristPresenceGiniIndicator(Indicator):
     """
     Normalized Gini of the temporal distribution of daily tourist presences.
 
-    Next to INDICE, ``CLUSTER_COLUMN`` holds the seasonality cluster of the comune (an integer), read from a
-    comune -> cluster mapping computed once in the data preparation on the whole period: it is the same for
-    any requested window.
+    Next to INDICE, ``CLUSTER_COLUMN`` holds the seasonality cluster of the comune (an integer code) and
+    ``CLUSTER_TYPE_COLUMN`` its name (e.g. "sci"), read from a comune -> cluster mapping computed once in the data
+    preparation on the whole period (data_download/seasonality_clusters.py): they are the same for any requested
+    window.
     """
 
     name = "Indice di stagionalità delle presenze"
@@ -336,6 +337,10 @@ class TouristPresenceGiniIndicator(Indicator):
     _LOW_COVERAGE_VALUE = np.nan
     _MIN_COVERAGE = 0.8
     CLUSTER_COLUMN = "cluster_stagionalita"
+    CLUSTER_TYPE_COLUMN = "tipo_cluster"
+    # macro area / province: INDICE = mean Gini of the comuni, cluster = the most frequent one. The codes follow the
+    # alphabetical order of the names, so on a tie both columns take the same cluster (the smallest)
+    column_aggs = {CLUSTER_COLUMN: "mode", CLUSTER_TYPE_COLUMN: "mode"}
 
     description = (
         "L'indice di Gini misura quanto le presenze turistiche giornaliere in un comune "
@@ -343,10 +348,11 @@ class TouristPresenceGiniIndicator(Indicator):
         "Il valore 0 indica una distribuzione uniforme, il valore 1 la massima concentrazione. "
         f"Il calcolo è disponibile solo con almeno l'{_MIN_COVERAGE:.0%} di copertura temporale; "
         "i comuni sotto questa soglia non hanno valore. "
-        "Per ogni comune è indicato anche il <strong>cluster stagionale</strong>: 1 e 2 sono due profili "
-        "stagionali, 0 raccoglie i comuni il cui andamento annuale non si ripete da un anno all'altro. "
-        "Il cluster è calcolato una volta sulle presenze turistiche Vodafone 2023-2025 ed è lo stesso "
-        "per qualsiasi periodo selezionato."
+        "Per ogni comune è indicato anche il <strong>cluster stagionale</strong> (codice e tipo), ottenuto "
+        "raggruppando i comuni per profilo mensile delle presenze turistiche Vodafone: annuale, sci, "
+        "estate + spalle, estate alpina. "
+        "Il cluster è calcolato una volta su tutto il periodo disponibile ed è lo stesso per qualsiasi "
+        "periodo selezionato."
     )
     index_value_unit_description = "Indice di Gini normalizzato (0 = uniforme, 1 = concentrato)"
     availableForVariation = False
@@ -376,7 +382,9 @@ class TouristPresenceGiniIndicator(Indicator):
 
         # the cluster does not depend on the window; a comune missing from the mapping has no cluster (null)
         clusters = get_comuni_clusters(self.clusters_file)
-        result[self.CLUSTER_COLUMN] = result["ID_COMUNE"].astype(str).map(clusters)
+        comuni = result["ID_COMUNE"].astype(str)
+        result[self.CLUSTER_COLUMN] = comuni.map({c: v["cluster"] for c, v in clusters.items()})
+        result[self.CLUSTER_TYPE_COLUMN] = comuni.map({c: v["tipo_cluster"] for c, v in clusters.items()})
         return result
 
     @staticmethod

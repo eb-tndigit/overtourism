@@ -62,6 +62,11 @@ class Indicator:
     # summing a ratio across days rarely means anything.
     agg: str = "mean"
 
+    # How the columns next to INDICE collapse to one row per macro area / province (see
+    # TerritorialConfig.column_aggs): {column: aggregation}, e.g. "mode" for a category. Columns not listed
+    # follow the TerritorialConfig defaults (numeric -> sum, text -> dropped).
+    column_aggs: dict[str, str] = {}
+
     def __init__(
         self,
         phenomena: list[Phenomenon | Indicator],
