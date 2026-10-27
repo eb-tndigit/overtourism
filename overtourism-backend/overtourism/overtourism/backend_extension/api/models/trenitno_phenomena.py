@@ -87,6 +87,11 @@ PHENOMENON_LABELS_IT: dict[str, str] = {
     # Seasonality cluster of the comune (TouristPresenceGiniIndicator, read from a comune -> cluster mapping).
     # The label has no "quota" / "PageRank": index_utils rounds it to an integer.
     "cluster_stagionalita": "cluster stagionale",
+    # Redistribution indicator (phen_ridistribuzione): persons, equivalent presences per day (window mean).
+    # No "quota" in these labels on purpose: they are counts, index_utils rounds them to integers.
+    "persone_gap": "presenze da attrarre (+) o da spostare (−)",
+    "persone_spostate_nette": "presenze spostate entro il raggio (ingresso − uscita)",
+    "eccesso_non_assorbibile": "presenze non assorbibili entro il raggio",
 }
 
 # ---------------------------------------------------------------------------
@@ -356,4 +361,26 @@ class ElectricityTourismSharePhenomenon(Phenomenon):
             source, col, agg="last" if text else "mean", municipality_id_col="ID_COMUNE"
         )
         self.numeric = not text
+        self.name = name or col
+
+
+class RedistributionPhenomenon(Phenomenon):
+    """
+    One column of ``phen_ridistribuzione``: a DAILY value per comune of the redistribution analysis (index of
+    imbalance in saturation points, or persons to attract / move / not absorbable), for the tourist profile, the
+    visitor (excursionist) profile or their weighted union (``_combined``).
+
+    The panel is computed offline (``data_preparation/gen_redistribution_dataframes.py``): the min-cost redistribution
+    is solved once per day, so here a window is just a mask + the mean of the daily values. Days without data of a
+    node are absent from the file (never zeros), so they do not enter the mean. ``name`` must be unique inside an
+    Indicator.
+    """
+
+    temporal_resolution = "daily"
+    temporal_strategy = "identity"
+    spatial_resolution = "comune"
+    spatial_strategy = "identity"
+
+    def __init__(self, source, col, name=None):
+        super().__init__(source, col, agg="mean", municipality_id_col="ID_COMUNE")
         self.name = name or col

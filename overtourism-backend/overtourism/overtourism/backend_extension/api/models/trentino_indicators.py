@@ -15,6 +15,7 @@ from overtourism.overtourism.backend_extension.api.models.trenitno_phenomena imp
     PresencesPhenomenon,
     ProvenienzaPhenomenon,
     ProvenienzaVolumePhenomenon,
+    RedistributionPhenomenon,
     SurfacePhenomenon,
 )
 from overtourism.overtourism.backend_extension.api.utils.index_utils_trentino import (
@@ -43,6 +44,15 @@ CONSUMPTION_SOURCE = (
 EE_TOURISM_SHARE_SOURCE = (
     index_data_path / "phen_ee_tourism_share.parquet"
 )  # yearly share of the electricity consumption attributable to tourism per comune (computed in the data preparation)
+REDISTRIBUTION_SOURCE = (
+    index_data_path / "phen_ridistribuzione.parquet"
+)  # daily redistribution results per comune (computed offline: data_preparation/gen_redistribution_dataframes.py)
+REDISTRIBUTION_FLOWS_SOURCE = (
+    index_data_path / "phen_ridistribuzione_flussi.parquet"
+)  # daily optimal flows between the Vodafone nodes (the arrows of the map)
+REDISTRIBUTION_NODES_SOURCE = (
+    index_data_path / "ridistribuzione_nodi.parquet"
+)  # the nodes: WGS84 position, label and comuni
 MACRO_AREAS_FILE = index_data_path / "map_comuni_into_apt.json"
 CODICI_COMUNI_FILE = index_data_path / "mapping_comuni_ISTAT.json"
 SEASONALITY_CLUSTERS_FILE = (
@@ -59,7 +69,6 @@ MAIN_MARKET_MIN_ARRIVALS = 100
 
 
 _VARIATION_RATE_KEY = "tasso-variazione"
-_PERIOD_PERCENTAGE_IMPACT_KEY = "incidenza-periodo"
 
 _REGISTRY: dict[str, Callable[[], Indicator]] = {
     "ricettivita": lambda: AccommodationCapacityIndicator(
@@ -96,6 +105,9 @@ _REGISTRY: dict[str, Callable[[], Indicator]] = {
     "quota-mobilita-ingresso": lambda: InboundMobilityShareIndicator(FLOWS_OD_SOURCE),
     "quota-mobilita-uscita": lambda: OutboundMobilityShareIndicator(FLOWS_OD_SOURCE),
     "quota-intra-ambito": lambda: IntraAmbitoShareIndicator(FLOWS_OD_SOURCE),
+    "squilibrio-ridistribuzione": lambda: RedistributionBalanceIndicator(
+        REDISTRIBUTION_SOURCE, REDISTRIBUTION_FLOWS_SOURCE, REDISTRIBUTION_NODES_SOURCE
+    ),
     "pagerank-discretizzato": lambda: DiscretizedPageRankIndicator(
         FLOWS_OD_SOURCE, PAGERANK_N_CLASSES
     ),
@@ -119,7 +131,6 @@ _REGISTRY: dict[str, Callable[[], Indicator]] = {
     "affollamento-turistico": lambda: TouristCrowdingIndicator(),
     "sostenibilita-territoriale": lambda: TerritorialSustainabilityIndicator(),
     _VARIATION_RATE_KEY: lambda: VariationRateIndicator(),
-    _PERIOD_PERCENTAGE_IMPACT_KEY: lambda: PeriodPercentageImpactIndicator(),
 }
 
 _INDICATOR_CACHE: dict[str, Indicator] = {}
@@ -587,8 +598,7 @@ class AnthropogenicLoadIndicator(Indicator):
 # profile, one for the VISITOR (excursionist) profile and one for their weighted union (`<metric>_combined`).
 # The union is computed in the data preparation on the user-days (a visitor-day counts `w` tourist-days,
 # w = 0.5 fixed, see COVISITS_PROFILE_WEIGHTS in data_preparation), so the indicators here only read it.
-# The values are yearly: a requested window returns the value of its year(s) (mean over the years of the window),
-# and the seasonality filter does not change them.
+# The values are yearly: a requested window returns the value of its year(s) (mean over the years of the window).
 
 _FLOW_PROFILE_SUFFIXES = ("combined", "tourist", "visitor")
 _FLOW_COMMON_DESCRIPTION = (
@@ -724,12 +734,225 @@ class DiscretizedPageRankIndicator(_FlowIndicator):
 
 
 # ---------------------------------------------------------------------------
+# Redistribution of the flows (imbalance index + optimal moves between areas)
+# ---------------------------------------------------------------------------
+# Reads `phen_ridistribuzione`: one row per comune and DAY, computed offline (data_preparation/
+# gen_redistribution_dataframes.py) by solving, for each day, a min-cost redistribution of the visitors above the
+# balanced saturation towards the areas with room. The solver never runs in the backend: a requested window is a
+# mask on the daily panel + the mean of the daily values, exactly like the other daily phenomena. Besides the
+# map (INDICE) the indicator exposes the arrows (`get_flows`, read from `phen_ridistribuzione_flussi`).
+
+_REDISTRIBUTION_SEGMENTS = {
+    "combinato": "combined",
+    "turisti": "tourist",
+    "escursionisti": "visitor",
+}
+_REDISTRIBUTION_DEFAULT_SEGMENT = "combinato"
+_REDISTRIBUTION_COMPANIONS = (
+    "persone_gap",
+    "persone_spostate_nette",
+    "eccesso_non_assorbibile",
+)
+
+
+class RedistributionBalanceIndicator(Indicator):
+    category = "Flussi"
+    order = 100
+    """
+    INDICE = mean over the days of the window of the daily imbalance: (balanced saturation - saturation of the area)
+    in percentage points. Positive = under-represented (room for more visitors), negative = overloaded.
+
+    ``segmento`` (extra field): ``combinato`` (default: tourists + 0.5 * excursionists), ``turisti``, ``escursionisti``.
+    The columns next to INDICE (persons to attract / move / not absorbable) follow the same segment. They are
+    persons per day (window mean), split over the comuni of a multi-comune area by beds (tourists) and residents
+    (excursionists). INDICE is a value of the AREA: all the comuni of a multi-comune area share it.
+
+    Not available as time series (``availableForVariation = False``): the province value of an index averaged
+    over comuni would not be the province imbalance (that is zero by construction).
+    """
+
+    name = "Squilibrio di carico e ridistribuzione dei flussi"
+    description = (
+        "L'indice confronta il <strong>carico di ogni area</strong> (turisti ed escursionisti rilevati da Vodafone) "
+        "con il suo <strong>tetto di carico</strong>, stimato dallo storico delle aree comparabili, e lo mette a "
+        "confronto con una <strong>distribuzione bilanciata</strong>, in cui tutte le aree hanno la stessa "
+        "saturazione (carico / tetto). Valori <strong>positivi</strong> indicano un'area <strong>sotto-rappresentata</strong>, "
+        "con margine per accogliere più visitatori; valori <strong>negativi</strong> un'area <strong>sovraccarica</strong>. "
+        "È espresso in punti di saturazione ed è la <strong>media giornaliera del periodo selezionato</strong>. "
+        "Le <strong>frecce</strong> sulla mappa mostrano gli spostamenti a costo minimo con cui l'eccesso potrebbe essere "
+        "riassorbito entro circa 40 km (il costo cresce con la distanza e con la diversità di tipo fra le aree): "
+        "la parte che non trova posto entro il raggio resta «non assorbibile». "
+        "Non è un costo in euro. Il tetto è una stima incerta (intervallo al 90%: ×1,5 per i turisti, ×1,9 per gli "
+        "escursionisti) e «bilanciato = stessa saturazione» è una scelta normativa. Per le aree Vodafone che "
+        "comprendono più comuni il valore è quello dell'area."
+    )
+    index_value_unit_description = (
+        "Punti di saturazione (positivo = sotto-rappresentato, negativo = sovraccarico)"
+    )
+    availableForVariation = False
+    year_only = True
+
+    FLOWS_TOP_N = 50  # arrows returned with the map (the biggest ones)
+
+    def __init__(self, source_file, flows_file, nodes_file):
+        self.flows_file = flows_file
+        self.nodes_file = nodes_file
+        self._flows_data: tuple[pd.DataFrame, pd.DataFrame] | None = (
+            None  # (arcs, nodes), loaded on first use
+        )
+        super().__init__(
+            phenomena=[
+                RedistributionPhenomenon(source_file, f"{metric}_{suffix}")
+                for metric in ("squilibrio_pp", *_REDISTRIBUTION_COMPANIONS)
+                for suffix in _REDISTRIBUTION_SEGMENTS.values()
+            ],
+            combinator=self._balance,
+        )
+
+    @staticmethod
+    def _suffix(segmento: str | None) -> str:
+        key = segmento or _REDISTRIBUTION_DEFAULT_SEGMENT
+        if key not in _REDISTRIBUTION_SEGMENTS:
+            raise ValueError(
+                f"Unknown segmento={key!r}. Expected one of {sorted(_REDISTRIBUTION_SEGMENTS)}."
+            )
+        return _REDISTRIBUTION_SEGMENTS[key]
+
+    def _balance(
+        self, df: pd.DataFrame, *, segmento: str | None = None, **_extra
+    ) -> pd.Series:
+        return df[f"squilibrio_pp_{self._suffix(segmento)}"]
+
+    def _compute_indicator(
+        self,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        segmento: str | None = None,
+        **extra,
+    ) -> pd.DataFrame | None:
+        suffix = self._suffix(segmento)
+        result = super()._compute_indicator(
+            start_date, end_date, segmento=segmento, **extra
+        )
+        if result is None:
+            return None
+        # keep only the columns of the requested segment, under segment-free names
+        out = result[["ID_COMUNE"]].copy()
+        for metric in _REDISTRIBUTION_COMPANIONS:
+            out[metric] = result[f"{metric}_{suffix}"]
+        out["INDICE"] = result["INDICE"]
+        return out
+
+    # ------------------------------------------------------------------
+    # Arrows: optimal flows between the nodes, averaged over the window
+    # ------------------------------------------------------------------
+
+    def _load_flows(self) -> tuple[pd.DataFrame, pd.DataFrame]:
+        if self._flows_data is None:
+            arcs = pd.read_parquet(self.flows_file)
+            arcs["DATA"] = pd.to_datetime(arcs["DATA"])
+            nodes = pd.read_parquet(self.nodes_file).set_index("node")
+            self._flows_data = (
+                arcs,
+                nodes,
+            )  # one assignment: never half-loaded for another thread
+        return self._flows_data
+
+    def get_flows(
+        self,
+        start_date: str | None,
+        end_date: str | None,
+        *,
+        allowed_comuni: set[str] | None = None,
+        segmento: str | None = None,
+        top_n: int | None = None,
+        **_ignored,
+    ) -> dict | None:
+        """
+        The biggest flows of the window as GeoJSON LineStrings (node centroid -> node centroid, WGS84), value =
+        mean persons per day moved along the arc (a day without that flow counts as zero). For a one-day window
+        it is that day's optimal flow. Only arcs between nodes that contain at least one allowed comune are
+        returned (an arrow must not reveal a comune the caller cannot see).
+
+        Returns None when the window has no data.
+        """
+        suffix = self._suffix(segmento)
+        self._ensure_resolved()
+        n_days = (
+            self.phenomena[0]._filter_by_date(start_date, end_date)["DATA"].nunique()
+        )
+        if n_days == 0:
+            return None
+
+        arcs, nodes = self._load_flows()
+        start, end = pd.to_datetime(start_date), pd.to_datetime(end_date)
+        window = arcs[(arcs["DATA"] >= start) & (arcs["DATA"] <= end)]
+        flow = window[
+            f"flow_{suffix}"
+        ]  # the weight of the visitors in `combined` is applied offline, once
+        mean_flow = (
+            window.assign(flow=flow)
+            .groupby(["node_from", "node_to"], as_index=False)["flow"]
+            .sum()
+            .assign(flow=lambda d: d["flow"] / n_days)
+        )
+
+        if allowed_comuni is not None:
+            visible = {
+                node
+                for node, comuni in nodes["comuni"].items()
+                if allowed_comuni.intersection(map(str, comuni))
+            }
+            mean_flow = mean_flow[
+                mean_flow["node_from"].isin(visible)
+                & mean_flow["node_to"].isin(visible)
+            ]
+
+        mean_flow = mean_flow[mean_flow["flow"] > 0].nlargest(
+            top_n or self.FLOWS_TOP_N, "flow"
+        )
+
+        features = []
+        for rank, row in enumerate(mean_flow.itertuples(index=False), start=1):
+            a, b = nodes.loc[row.node_from], nodes.loc[row.node_to]
+            features.append(
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "LineString",  # from -> to: the arrow head is at the destination
+                        "coordinates": [
+                            [round(float(a["lon"]), 5), round(float(a["lat"]), 5)],
+                            [round(float(b["lon"]), 5), round(float(b["lat"]), 5)],
+                        ],
+                    },
+                    "properties": {
+                        "rank": rank,
+                        "value": round(float(row.flow), 1),
+                        "from": row.node_from,
+                        "to": row.node_to,
+                        "from_label": a["label"],
+                        "to_label": b["label"],
+                    },
+                }
+            )
+        unit = "presenze al giorno (media del periodo)"
+        if suffix == "combined":
+            unit = "presenze equivalenti al giorno (media del periodo)"
+        return {
+            "data": {"type": "FeatureCollection", "features": features},
+            "max_value": float(mean_flow["flow"].max()) if len(mean_flow) else 0.0,
+            "unit": unit,
+            "n_days": int(n_days),
+        }
+
+
+# ---------------------------------------------------------------------------
 # Provenienza (source markets of the tourists)
 # ---------------------------------------------------------------------------
 # Reads `phen_provenienza`: one row per comune and YEAR with `hhi_provenienza`, the normalized
 # Herfindahl-Hirschman index of the tourist presences by country of origin (computed in the data preparation,
 # `territorial_indexes/utils/provenienza.py`). Yearly like the OD flow indicators: a requested window returns the
-# value of its year(s) and the seasonality filter does not change it.
+# value of its year(s).
 
 
 class SourceMarketsConcentrationIndicator(Indicator):
@@ -926,7 +1149,7 @@ class TourismGasConsumptionImpactIndicator(_ConsumptionImpactIndicator):
 # consumption that goes with the tourist presences (`quota_ee_turismo`), computed in the data preparation
 # (`utils/consumption_share.py`: monthly regression of the 12 months of the year, controlling for the temperature)
 # from `phen_consumption`, `phen_presenze` and `phen_meteo`. Yearly like the other yearly indicators: a requested
-# window returns the value of its year(s) and the seasonality filter does not change it. The comuni that cannot
+# window returns the value of its year(s). The comuni that cannot
 # be estimated in a year (a month without data) are absent from the file, so they have no value, not a zero.
 
 
@@ -944,8 +1167,7 @@ class TourismElectricityShareIndicator(Indicator):
         "in qualche mese non hanno valore. L'indice è un'associazione statistica, non una misura diretta: il campo "
         "<em>affidabilità</em> (alta, media, bassa) indica quanto i dati del solo comune sostengono un effetto "
         "positivo delle presenze; per i comuni vicini, che condividono le presenze di una stessa area Vodafone, le stime non "
-        "sono indipendenti. Il filtro stagionale non modifica l'indice. I consumi sono mensili e distribuiti "
-        "uniformemente sui giorni."
+        "sono indipendenti. I consumi sono mensili e distribuiti uniformemente sui giorni."
     )
     index_value_unit_description = (
         "Quota dei consumi elettrici attribuibile al turismo (0-1)"
@@ -996,7 +1218,7 @@ class _NotImplementedIndexIndicator(Indicator):
 
 class AverageTouristTravelTimeIndicator(_NotImplementedIndexIndicator):
     # #TODO Estimate travel time using tourist origin nationality at the available data granularity.
-    name = "Distanza media turisti"
+    name = "Distanza media turisti *"
     description = (
         "Stima del tempo medio impiegato dai turisti per raggiungere la località, "
         "basata sulla nazionalità di provenienza, data la granularità dei dati disponibili."
@@ -1008,7 +1230,7 @@ class AverageTouristTravelTimeIndicator(_NotImplementedIndexIndicator):
 
 class ProximityDemandDependenceIndicator(_NotImplementedIndexIndicator):
     # #TODO Calculate the share of tourists originating within a two-hour travel distance.
-    name = "Indice di dipendenza dalla domanda di prossimità"
+    name = "Indice di dipendenza dalla domanda di prossimità *"
     description = (
         "Misura la quota di turisti che proviene da destinazioni raggiungibili entro "
         "due ore di distanza. La metodologia di stima della distanza è da definire."
@@ -1021,7 +1243,7 @@ class ProximityDemandDependenceIndicator(_NotImplementedIndexIndicator):
 
 class TouristCrowdingIndicator(_NotImplementedIndexIndicator):
     # #TODO Define and normalize the component metrics and aggregation method.
-    name = "Affollamento turistico"
+    name = "Affollamento turistico *"
     description = (
         "Indice composito che combina diverse metriche per offrire una panoramica "
         "complessiva del livello di affollamento turistico di una località."
@@ -1033,7 +1255,7 @@ class TouristCrowdingIndicator(_NotImplementedIndexIndicator):
 
 class TerritorialSustainabilityIndicator(_NotImplementedIndexIndicator):
     # #TODO Define component metrics, normalization, weighting, and aggregation.
-    name = "Indice di sostenibilità territoriale"
+    name = "Indice di sostenibilità territoriale  *"
     description = (
         "Macro-indicatore composito che integra diverse metriche per fornire una "
         "valutazione sintetica della sostenibilità territoriale in relazione al turismo."
@@ -1058,8 +1280,8 @@ class VariationRateIndicator(Indicator):
     Rather than hard-coding one variation subclass per wrapped indicator,
     the wrapped indicator is itself a parameter: it is selected at request
     time via the ``indicator`` extra field (its registry key, e.g.
-    ``"indice-turisticita"``) — exactly like ``seasonality`` is an extra
-    field on ``SeasonalityIndicator`` above. This keeps a single
+    ``"turisticita"``), together with the dates of the comparison period.
+    This keeps a single
     "tasso-variazione" entry in the registry that works for every
     combinable indicator.
 
@@ -1182,135 +1404,3 @@ class VariationRateIndicator(Indicator):
         ) * 100
 
         return merged[["ID_COMUNE", "INDICE", "Periodo base", "Periodo comparazione"]]
-
-
-class PeriodPercentageImpactIndicator(Indicator):
-    category = "Internal"
-    order = 910
-    """
-    Percentage weight that a seasonal sub-period has on the total value of
-    another indicator over the full requested period.
-
-    Hybrid of VariationRateIndicator (wrapped indicator selected at request
-    time via the "indicator" extra field) and SeasonalityIndicator (result
-    expresses a sub-period's share of a total period, via "seasonality").
-
-    result = 100 * INDICE(wrapped, full_period, seasonality=X)
-                 / INDICE(wrapped, full_period, no seasonality filter)
-    """
-
-    name = "Incidenza percentuale del periodo"
-    description = (
-        "L'incidenza percentuale del periodo misura il <strong>peso "
-        "percentuale</strong> che un <strong>sotto-periodo stagionale</strong> "
-        "(es. alta stagione, periodo di spalla, weekend) ha sul "
-        "<strong>totale del periodo selezionato</strong>, per un indicatore "
-        "a scelta."
-    )
-    availableForVariation = False
-    extraFields = ["indicator", "seasonality"]
-    internal_only = True
-    index_value_unit_description = (
-        "Percentuale di impatto del sottoperiodo rispetto al periodo totale"
-    )
-
-    def __init__(self):
-        # Same rationale as VariationRateIndicator: the wrapped indicator is
-        # only known at request time via the "indicator" extra field, so the
-        # base class's phenomena/combinator pipeline is bypassed entirely.
-        super().__init__(phenomena=[], combinator=self._unused_combinator)
-
-    @staticmethod
-    def _unused_combinator(df: pd.DataFrame, **_extra) -> pd.Series:  # pragma: no cover
-        raise RuntimeError(
-            "PeriodPercentageImpactIndicator.combinator should never be called directly"
-        )
-
-    @property
-    def years_range(self) -> dict[str, int]:
-        """Broadest year range across every combinable indicator, same
-        rationale as VariationRateIndicator.years_range."""
-        if self._years_range is None:
-            min_years, max_years = [], []
-            for key in _REGISTRY:
-                if key == _PERIOD_PERCENTAGE_IMPACT_KEY:
-                    continue
-                try:
-                    yr = get_indicator(key).years_range
-                except ValueError:
-                    continue
-                min_years.append(yr["min_year"])
-                max_years.append(yr["max_year"])
-
-            if not min_years:
-                raise ValueError(
-                    f"{self!r}: no combinable indicators available to compute "
-                    "a years_range for"
-                )
-
-            self._years_range = {
-                "min_year": min(min_years),
-                "max_year": max(max_years),
-            }
-        return self._years_range
-
-    def _compute_indicator(
-        self,
-        start_date: str | None = None,
-        end_date: str | None = None,
-        **extra,
-    ) -> pd.DataFrame | None:
-        indicator_key = extra.pop("indicator", None)
-        seasonality = extra.pop("seasonality", None)
-
-        if not indicator_key:
-            raise ValueError(
-                "'indicator' extra field is required for 'incidenza-periodo'"
-            )
-        if indicator_key == _PERIOD_PERCENTAGE_IMPACT_KEY:
-            raise ValueError("'incidenza-periodo' cannot wrap itself")
-        if indicator_key == _VARIATION_RATE_KEY:
-            # Not strictly wrong, but tasso-variazione already needs its own
-            # extra fields (start/end_date_comparison); reject early with a
-            # clear message rather than a confusing missing-field error.
-            raise ValueError("'incidenza-periodo' cannot wrap 'tasso-variazione'")
-        if not seasonality:
-            raise ValueError(
-                "'seasonality' extra field is required for 'incidenza-periodo'"
-            )
-
-        wrapped = get_indicator(indicator_key)
-
-        total_df = wrapped.get_indicator(
-            start_date=start_date,
-            end_date=end_date,
-            **extra,
-        )
-        seasonal_df = wrapped.get_indicator(
-            start_date=start_date,
-            end_date=end_date,
-            seasonality=seasonality,
-            **extra,
-        )
-
-        if total_df is None or seasonal_df is None:
-            return None
-
-        merged = (
-            total_df[["ID_COMUNE", "INDICE"]]
-            .rename(columns={"INDICE": "INDICE_periodo"})
-            .merge(
-                seasonal_df[["ID_COMUNE", "INDICE"]].rename(
-                    columns={"INDICE": "INDICE_sottoperiodo"}
-                ),
-                on="ID_COMUNE",
-                how="outer",
-            )
-        )
-        # a comune with no value in the sub-period (no data) has no incidence: null, not 0%
-
-        merged["INDICE"] = (
-            merged["INDICE_sottoperiodo"] / merged["INDICE_periodo"].replace(0, np.nan)
-        ) * 100
-
-        return merged[["ID_COMUNE", "INDICE", "INDICE_periodo", "INDICE_sottoperiodo"]]

@@ -313,6 +313,48 @@ datasets (`vodafone_provenienza`, `vodafone_arrivi`) must be updated together.
   there is no coverage column for the arrivals (`giorni_coperti` is the one of the presences). In the update the file must contain
   all the days of the year.
 
+## `phen_ridistribuzione` (comune × day)
+
+Files: `phen_ridistribuzione` (comune × day), `phen_ridistribuzione_flussi` (node pair × day), `ridistribuzione_nodi`. Produced by
+`gen_redistribution_dataframes.py` from `phen_presenze`, `phen_strutture`, `phen_popolazione`, the Vodafone areas and two ISTAT
+files. Code in `utils/redistribution/`; every parameter is in `config/settings.yaml` (`redistribution`).
+
+**Question answered.** Which areas carry more load than the others *relative to what they can carry*, and how many visitors would
+have to move, and where, to bring every area to the same saturation, if they could only move within a given radius?
+
+1. **Nodes.** The Vodafone areas cannot be told apart when they share a comune, so the unit of the analysis is the *node*: a connected
+   component of the area ↔ comune links (areas that share a comune, comuni of a multi-comune area). The rule that maps areas to comuni
+   is the one of the presences (`build_area_comune`), restricted to the areas that have a polygon. The position of a node is the
+   centroid of the union of its areas. The daily load is the sum of `presenze_vodafone` (tourists, T) and
+   `presenze_escursionisti_vodafone` (excursionists, E) of its comuni.
+2. **Load ceiling.** For every node and year, the load it can carry before it is "full" is estimated from the observed peaks of the
+   comparable nodes: a quantile regression (`ceiling.tau`, 0.9) of the log of the yearly 95th percentile of the daily load on the log of
+   beds, residents and second homes (tourists) or residents and surface (excursionists), plus the seasonal profile of the node (4
+   clusters from the monthly shape of the tourists: annuale, sci, estate_alpina, estate_spalle). Among the candidate models the
+   simplest one within 1% of the best cross-validated pinball loss is chosen (CV by node); the uncertainty is a bootstrap by node (90%
+   interval, kept in `data_processed/redistribution/ceilings`). Points of attention: the ceiling is an **estimate with a wide
+   interval** (hi/lo about ×1.5 for tourists, ×1.9 for excursionists), and a quantile at 0.9 is a modelling choice, not a measured
+   capacity.
+3. **Balanced saturation.** Each day, ū = total load / total ceiling of the nodes with data. A node with load above ū × ceiling has an
+   *excess* (supply), one below has *room*. "Balanced = same saturation everywhere" is a **normative** choice, not an empirical law.
+4. **Min-cost moves.** The excess is moved towards the nodes with room by a linear programme (HiGHS) that minimises the total cost
+   (d / `d_ref_km`) ^ `alpha` × affinity of the arcs, with arcs only up to `d_max_km`; what does not find room within the radius stays
+   *not absorbable* (leaving a unit unabsorbed costs as much as a `d_max_km` move). `alpha` is the distance decay fitted on the
+   co-visits; the affinity multiplies the cost between nodes of different seasonal profile and different ISTAT typology (tourists:
+   profile only; excursionists: profile and typology), also estimated on the co-visits. The cost is **not in euros**: it ranks
+   alternatives. A node without data on a day is left out of that day's problem.
+5. **Values per comune.** `squilibrio_pp` = 100 × (ū − load / ceiling): percentage points of saturation, **positive = under-represented
+   (room for more visitors), negative = overloaded**. It is a value of the node: every comune of a multi-comune node gets the node's
+   value. The persons columns are split over the comuni of the node by beds (tourists) or residents (excursionists), so they sum back
+   to the node total: `persone_gap` (+ to attract, − to move away), `persone_spostate_nette` (in − out within the radius),
+   `eccesso_non_assorbibile`. The `combined` profile is tourists + `COVISITS_VISITOR_COEFFICIENT` (0.5) × excursionists, as for the
+   flow indicators (the combined index uses the weighted loads and ceilings).
+6. **Arcs.** `phen_ridistribuzione_flussi` holds, per day, the flow of every arc above `model.min_arc_flow` persons; `flow_combined`
+   already applies the visitor weight. A day without flow on an arc has no row (a window average counts it as zero).
+
+A comune-day exists only if its node has data that day: it is never a zero. The backend averages the daily values over the requested
+window (index and persons) and the daily flows (arrows).
+
 ## Presences or arrivals: which indicators are affected
 Presences are user-days: a person who stays 5 days is counted 5 times. This is right for the stock indicators (how many
 people are present on an average day) and wrong when the question is "how many people / from where". Checked one by one:
@@ -342,4 +384,8 @@ These parts were written without access to the real files; check them before tru
 * `vodafone_arrivals.csv`: that `userCountry` is ISO alpha-3 / alpha-2 / English names (otherwise the run stops with the list of
   the values found), the period it covers (all the days of every year), that `TOURIST` / `TN_MKT_AL_3` are present as in the
   presences, and that rows with an empty `userCountry` (if any) are totals that must be ignored;
+* the redistribution indicator: the DigitalHub artifact names of the ISTAT shapefile and typology in `redistribution.files`
+  (they follow the backend's `Com01012026_g/Com01012026_g_WGS84.shp` and the notebook's `tipologia_comuni.csv`), that
+  `Shape_Area` is in m² (the step stops if the province does not sum to about 6200 km²) and that the area numbering of the
+  nodes is stable: it depends on the ORDER of the areas in the geojson, so do not reorder that file between runs;
 * the full pipeline has been tested on synthetic data only (`python -m pytest tests`), not run end to end.

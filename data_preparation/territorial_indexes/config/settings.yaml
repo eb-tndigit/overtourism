@@ -159,6 +159,56 @@ meteo:
 provenienza:
   top_n_countries: 3  # quota/name pairs in phen_provenienza; shared by base build and updates
 
+# Redistribution indicator "Squilibrio di carico e ridistribuzione dei flussi" (gen_redistribution_dataframes.py).
+# Built from phen_presenze / phen_strutture / phen_popolazione (already in paths.final) + the Vodafone areas
+# (`references.geojson` and the mappings) + the two extra mapping inputs below. The model is documented in METHODOLOGY.md.
+redistribution:
+  inputs:                          # phenomena read from paths.final
+    presenze: phen_presenze
+    strutture: phen_strutture
+    popolazione: phen_popolazione
+  files:                           # DigitalHub artifact names; downloaded directly into paths.mapping
+    comuni_shapefile: Com01012026_g/Com01012026_g_WGS84   # ISTAT comuni (PRO_COM_T, COMUNE, Shape_Area in m2); base name, no extension
+    tipologia_comuni: tipologia_comuni.csv                # ISTAT tourist typology: PROCOM, COMUNE, COD_CAT
+  # Comuni born from a merger are absent from the typology file: new ID_COMUNE -> names of the comuni they were made of
+  # (their class is the most frequent one among them).
+  merged_comuni:
+    "022252": [Castelfondo, Fondo, Malosco]
+    "022253": [Brez, Cagnò, Cloz, Revò, Romallo]
+    "022254": [Carano, Daiano, Varena]
+  # Files written in paths.final. ALWAYS parquet, whatever `type_format` says: the backend reads them as parquet.
+  output:
+    panel: phen_ridistribuzione           # comune x day: imbalance index + persons (the map)
+    flows: phen_ridistribuzione_flussi    # arc x day: optimal flows between nodes (the arrows)
+    nodes: ridistribuzione_nodi           # node: WGS84 position, label, comuni
+  intermediate_dir: redistribution        # sub-folder of paths.processed: nodes, demand, ceilings, model tables
+  model:
+    typology_year: 2024                   # year of the beds that pick the dominant comune (and typology) of a node
+    min_arc_flow: 1.0                     # persons/day: smaller flows are numerical dust and are not stored
+    utm_epsg: 32632                       # CRS of the node centroids (km)
+  # Load ceiling: quantile regression of the yearly 95th percentile of the daily load (see utils/redistribution/ceiling.py)
+  ceiling:
+    tau: 0.9                              # quantile of the regression: the ceiling is a level exceeded by 10% of the comparable nodes
+    cv_folds: 10                          # model choice: K-fold cross-validation by node
+    cv_seeds: 3
+    tolerance: 0.01                       # simplest model within 1% of the best pinball loss
+    bootstrap: 200                        # draws of the bootstrap by node (uncertainty of the ceiling)
+    bootstrap_seed: 42
+    ci_low: 5
+    ci_high: 95
+  # Cost of moving one unit between two nodes: (d / d_ref_km) ** alpha * exp(a_cluster * [different seasonal profile]
+  # + a_cat * [different ISTAT typology]); a flow longer than d_max_km is never worth it (left 'not absorbable').
+  # alpha: distance decay of the co-visits (gravity fit); affinity: estimated on the co-visits, per segment
+  # (T = tourists, E = excursionists). The weight of an excursionist is datasets.COVISITS_VISITOR_COEFFICIENT.
+  transport_cost:
+    alpha: 2.3
+    d_ref_km: 10.0
+    d_max_km: 40.0
+    d_min_km: 3.0
+    affinity:
+      T: {cluster: 0.60, cat: 0.0}
+      E: {cluster: 0.66, cat: 0.71}
+
 # Data lake / platform
 platform:
   project: overtourism

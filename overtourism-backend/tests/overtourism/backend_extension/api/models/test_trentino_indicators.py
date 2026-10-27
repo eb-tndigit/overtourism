@@ -3,6 +3,7 @@ import pandas as pd
 import pytest
 
 from overtourism.overtourism.backend_extension.api.models.trentino_indicators import (
+    _REGISTRY,
     AvailableAccommodationBedsIndicator,
     AvailableAccommodationFacilitiesIndicator,
     MainMarketDependenceIndicator,
@@ -109,3 +110,11 @@ def test_main_market_indicator_includes_top_market_names(tmp_path):
     assert result is not None
     assert result.loc[0, "INDICE"] == pytest.approx(0.6)
     assert result.loc[0, "main_markets"] == "Italy, Germany, France"
+
+
+def test_period_percentage_impact_indicator_is_removed():
+    assert "incidenza-periodo" not in _REGISTRY
+    assert "indice-stagionalita-presenze" in _REGISTRY
+
+    with pytest.raises(KeyError, match="Unknown indicator 'incidenza-periodo'"):
+        get_indicator("incidenza-periodo")
