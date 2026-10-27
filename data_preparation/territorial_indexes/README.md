@@ -243,7 +243,7 @@ backend reads them as parquet.
 | `phen_consumption` | comune × day | `ee_services`, `ee_total`, `gas_services`, `gas_total` |
 | `phen_flussi_od` | comune × year | `quota_ingresso`, `quota_uscita`, `quota_intra_ambito`, `pagerank` × (`tourist`, `visitor`, `combined`), `giorni_coperti` |
 | `phen_provenienza` | comune × year | `hhi_provenienza`, `giorni_coperti`, `volume_totale`, top-country `volume_mercato_N` / `nome_mercato_N` pairs (`N` configurable in `config/settings.yaml`) |
-| `phen_tempo_medio_turisti` | comune × year | `tempo_medio_turisti` (minutes; weighted by arrivals; Italian reference city configurable in `config/settings.yaml`), `arrivi`, `minuti_totali` (`tempo_medio_turisti = minuti_totali / arrivi`) |
+| `phen_tempo_medio_turisti` | comune × year | `arrivi`, `minuti_totali` (the backend index is `minuti_totali / arrivi`, in minutes, weighted by arrivals; Italian reference city configurable in `config/settings.yaml`) |
 | `phen_meteo` | comune × day | `t_min`, `t_max`, `t_mean`, `hdd`, `rain_mm` |
 | `phen_ee_tourism_share` | comune × year | `quota_ee_turismo`, `presenze_medie`, `consumo_medio`, `affidabilita` (`alta` / `media` / `bassa`) |
 | `phen_ridistribuzione` | comune × day | `squilibrio_pp`, `persone_gap`, `persone_spostate_nette`, `eccesso_non_assorbibile` × (`tourist`, `visitor`, `combined`) (produced by `gen_redistribution_dataframes.py`) |

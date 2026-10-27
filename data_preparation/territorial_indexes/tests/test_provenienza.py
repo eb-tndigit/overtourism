@@ -132,7 +132,6 @@ def test_arrivals_count_countryless_rows_and_report_top_country_shares():
     # the countryless arrivals have no route: they are not in the weights of the mean
     assert row["arrivi"] == 90
     assert row["minuti_totali"] == 50 * 200 + 30 * 600 + 10 * 700
-    assert row["tempo_medio_turisti"] == pytest.approx(row["minuti_totali"] / row["arrivi"])
     assert list(BUILDERS["phen_tempo_medio_turisti"]({"vodafone_arrivi": out}).columns) == [
         "DATA",
         "ID_COMUNE",

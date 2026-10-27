@@ -393,8 +393,9 @@ def _read_travel_time_routes(path, countries, reference_city_italy):
 
 
 def _mean_tourist_travel_time(df, area_comune, strutture, travel_times, reference_city_italy):
-    """Yearly arrival-weighted route time from each origin market to each comune, with the two sums it comes from:
-    `arrivi` (arrivals with a country and a route) and `minuti_totali` (arrivals x route minutes)."""
+    """Yearly sums of the arrival-weighted route time from each origin market to each comune: `arrivi` (arrivals with a
+    country and a route) and `minuti_totali` (arrivals x route minutes). The mean (minuti_totali / arrivi) is the
+    backend indicator."""
     if "userCountry" not in df.columns:
         raise ValueError("[tempo_medio_turisti] Vodafone arrivals have no userCountry column")
     countries = df["userCountry"].fillna("").astype(str).str.strip().str.upper()
@@ -454,7 +455,6 @@ def _mean_tourist_travel_time(df, area_comune, strutture, travel_times, referenc
     out = matched.groupby(["year", "ID_COMUNE"], as_index=False).agg(
         minuti_totali=("minuti_totali", "sum"), arrivi=("value", "sum")
     )
-    out["tempo_medio_turisti"] = out["minuti_totali"] / out["arrivi"]
     out["DATA"] = out["year"]
     return out[["DATA", "ID_COMUNE", *TEMPO_MEDIO_VALUE_COLS]].sort_values(
         ["DATA", "ID_COMUNE"]

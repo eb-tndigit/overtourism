@@ -19,9 +19,9 @@ columns below. `DATA` is `YYYY` for yearly phenomena (`phen_popolazione`, `phen_
 
 ## `phen_tempo_medio_turisti` (comune × year)
 
-Columns: `tempo_medio_turisti` (minutes), `arrivi` (arrivals with an origin country and a route: the weights of the mean)
-and `minuti_totali` (Σ arrivals × travel time), so `tempo_medio_turisti = minuti_totali / arrivi`. The two sums allow the
-mean to be recomputed over several years or comuni (sum both, then divide). `arrivi` can be lower than
+Columns: `arrivi` (arrivals with an origin country and a route: the weights of the mean) and `minuti_totali`
+(Σ arrivals × travel time). The mean travel time, in minutes, is NOT in the phenomenon: the backend indicator computes it
+as `minuti_totali / arrivi`, so over several years or comuni it stays weighted by the arrivals (sum both, then divide). `arrivi` can be lower than
 `phen_provenienza.volume_totale`, which also counts the countryless arrivals. The phenomenon is computed from the same
 processed Vodafone arrivals as `phen_provenienza`, retaining origin-country volumes before the top-country aggregation
 discards them.

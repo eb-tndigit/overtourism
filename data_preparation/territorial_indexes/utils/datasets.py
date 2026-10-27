@@ -66,9 +66,9 @@ ARRIVI_VALUE_COLS = ["volume_totale"] + [
 ]
 ARRIVI_FULL_YEAR_DAYS = 360  # fewer days with data: the year is partial (warning)
 
-# Mean travel time of the tourists (phen_tempo_medio_turisti), from the same arrivals: tempo_medio_turisti = minuti_totali /
-# arrivi, the two sums are kept to recompute the mean over several years / comuni. `arrivi` excludes countryless arrivals.
-TEMPO_MEDIO_VALUE_COLS = ["tempo_medio_turisti", "arrivi", "minuti_totali"]
+# Mean travel time of the tourists (phen_tempo_medio_turisti), from the same arrivals: only the two sums, the mean
+# (minuti_totali / arrivi) is computed by the backend indicator. `arrivi` excludes countryless arrivals.
+TEMPO_MEDIO_VALUE_COLS = ["arrivi", "minuti_totali"]
 
 # Vodafone OD co-visits (flows between areas) -> yearly flow indicators per comune, see utils/flows.py.
 # One column per metric and profile (`<metric>_<profile in lower case>`), plus the days covered by the year

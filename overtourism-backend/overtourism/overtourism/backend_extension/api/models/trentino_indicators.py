@@ -11,7 +11,6 @@ from overtourism.overtourism.backend_extension.api.models.trenitno_phenomena imp
     ElectricityTourismSharePhenomenon,
     FacilitiesTotalPhenomenon,
     FlowIndicatorPhenomenon,
-    MeanTouristTravelTimePhenomenon,
     PopulationPhenomenon,
     PresencesPhenomenon,
     ProvenienzaPhenomenon,
@@ -887,13 +886,13 @@ class MeanTouristTravelTimeIndicator(Indicator):
 
     def __init__(self, source_file):
         super().__init__(
-            phenomena=[MeanTouristTravelTimePhenomenon(source_file)],
-            combinator=self._mean_time,
+            phenomena=[
+                FlowIndicatorPhenomenon(source_file, "minuti_totali"),
+                FlowIndicatorPhenomenon(source_file, "arrivi"),
+            ],
+            # minutes / arrivals: on several years or on the whole Trentino the mean stays weighted by the arrivals
+            combinator=self.divide("minuti_totali", "arrivi"),
         )
-
-    @staticmethod
-    def _mean_time(df: pd.DataFrame, **_extra) -> pd.Series:
-        return df["tempo_medio_turisti"]
 
 
 class MainMarketDependenceIndicator(Indicator):
