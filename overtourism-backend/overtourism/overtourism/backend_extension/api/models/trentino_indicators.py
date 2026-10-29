@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import partial
 
 import numpy as np
 import pandas as pd
@@ -63,6 +64,8 @@ CODICI_COMUNI_FILE = index_data_path / "mapping_comuni_ISTAT.json"
 # Number of classes of the discretized PageRank map (quantiles, 1 = lowest ... N = highest)
 PAGERANK_N_CLASSES = 5
 MAIN_MARKET_MIN_ARRIVALS = 100
+# Proximity demand: arrivals with a travel time within this threshold (minutes) are "proximity" arrivals
+PROXIMITY_THRESHOLD_MINUTES = 270
 
 
 _VARIATION_RATE_KEY = "tasso-variazione"
@@ -124,7 +127,9 @@ _REGISTRY: dict[str, Callable[[], Indicator]] = {
         EE_TOURISM_SHARE_SOURCE
     ),
     "indice-stagionalita-presenze": lambda: SeasonalityOfPresencesIndicator(),
-    "dipendenza-domanda-prossimita": lambda: ProximityDemandDependenceIndicator(),
+    "dipendenza-domanda-prossimita": lambda: ProximityDemandDependenceIndicator(
+        MEAN_TOURIST_TRAVEL_TIME_SOURCE, PROXIMITY_THRESHOLD_MINUTES
+    ),
     "affollamento-turistico": lambda: TouristCrowdingIndicator(),
     "sostenibilita-territoriale": lambda: TerritorialSustainabilityIndicator(),
     _VARIATION_RATE_KEY: lambda: VariationRateIndicator(),
@@ -875,36 +880,31 @@ def weighted_mean_travel_time(pairs: pd.DataFrame) -> float:
     return float(np.average(pairs["tempo_di_percorrenza"], weights=pairs["arrivi"]))
 
 
-class MeanTouristTravelTimeIndicator(Indicator):
-    """
-    Estimated journey time to a comune, weighted by tourist arrivals.
+def proximity_share(pairs: pd.DataFrame, threshold_minutes: float) -> float:
+    """Share of the arrivals whose travel time is within ``threshold_minutes``."""
+    total = pairs["arrivi"].sum()
+    if total <= 0:
+        return np.nan
+    return float(pairs.loc[pairs["tempo_di_percorrenza"] <= threshold_minutes, "arrivi"].sum() / total)
 
-    ``phen_tempo_medio_turisti`` has one row per year, comune and origin market (``provenienza``) with its
-    ``arrivi`` and ``tempo_di_percorrenza`` (minutes). The index is ``combinator_fn`` (pairs of a territory -> value;
-    default: the arrival-weighted mean) computed on all the pairs of the years touched by the requested window:
-    pass another statistic (e.g. a weighted median) in the registry to change it. The phenomena/combinator pipeline
-    of the base class is not used: it would collapse the pairs of a comune-day.
+
+class _TravelTimePairsIndicator(Indicator):
+    """
+    Yearly index computed on the arrivals / travel time pairs of ``phen_tempo_medio_turisti``.
+
+    The file has one row per year, comune and origin market (``provenienza``) with its ``arrivi`` and
+    ``tempo_di_percorrenza`` (minutes). The index is ``combinator_fn`` (pairs of a territory -> value) computed on all
+    the pairs of the years touched by the requested window. The phenomena/combinator pipeline of the base class is not
+    used: it would collapse the pairs of a comune-day.
     """
 
-    name = "Tempo medio di viaggio dei turisti"
-    description = (
-        "Indica <strong>quanti minuti impiegano in media i turisti per raggiungere un comune</strong>: valori "
-        "alti indicano turisti che arrivano da lontano. È una <strong>stima annuale</strong> sugli arrivi "
-        "Vodafone, che assume la partenza da una città di riferimento per gli italiani e dalla capitale per gli "
-        "stranieri."
-    )
-    index_value_unit_description = "Tempo medio stimato di viaggio (minuti)"
-    # year_only = True
     category = "Provenienza"
     order = 100
-    # macro area / province: comuni weighted by their arrivals (= the weighted mean on all the pairs of the area)
+    # macro area / province: comuni weighted by their arrivals (= the statistic on all the pairs of the area, for a
+    # weighted mean or a share)
     area_weight_col = "arrivi"
 
-    def __init__(
-        self,
-        source_file,
-        combinator_fn: Callable[[pd.DataFrame], float] = weighted_mean_travel_time,
-    ):
+    def __init__(self, source_file, combinator_fn: Callable[[pd.DataFrame], float]):
         super().__init__(phenomena=[], combinator=combinator_fn)
         # not in `phenomena` (resolving it would collapse the pairs): only reads the file, with the shared file cache
         self.pairs_source = FlowIndicatorPhenomenon(source_file, "arrivi")
@@ -954,6 +954,28 @@ class MeanTouristTravelTimeIndicator(Indicator):
         std_by_comune = dict.fromkeys(result.loc[result["INDICE"].notna(), "ID_COMUNE"], 0.0)
         region_value = self.combinator(self._window_pairs(start_date, end_date))
         return result, std_by_comune, region_value, 0.0
+
+
+class MeanTouristTravelTimeIndicator(_TravelTimePairsIndicator):
+    """Estimated journey time to a comune, weighted by tourist arrivals. ``combinator_fn`` is the statistic on the
+    pairs (default: the arrival-weighted mean): pass another one (e.g. a weighted median) in the registry to change it."""
+
+    name = "Tempo medio di viaggio dei turisti"
+    description = (
+        "Indica <strong>quanti minuti impiegano in media i turisti per raggiungere un comune</strong>: valori "
+        "alti indicano turisti che arrivano da lontano. È una <strong>stima annuale</strong> sugli arrivi "
+        "Vodafone, che assume la partenza da una città di riferimento per gli italiani e dalla capitale per gli "
+        "stranieri."
+    )
+    index_value_unit_description = "Tempo medio stimato di viaggio (minuti)"
+    # year_only = True
+
+    def __init__(
+        self,
+        source_file,
+        combinator_fn: Callable[[pd.DataFrame], float] = weighted_mean_travel_time,
+    ):
+        super().__init__(source_file, combinator_fn)
 
     @staticmethod
     def add_display_columns(result: pd.DataFrame) -> pd.DataFrame:
@@ -1205,17 +1227,22 @@ class SeasonalityOfPresencesIndicator(_NotImplementedIndexIndicator):
     year_only = True
 
 
-class ProximityDemandDependenceIndicator(_NotImplementedIndexIndicator):
-    # #TODO Calculate the share of tourists originating within a two-hour travel distance.
-    name = "Indice di dipendenza dalla domanda di prossimità *"
-    description = (
-        "Misura la quota di turisti che proviene da destinazioni raggiungibili entro "
-        "due ore di distanza. La metodologia di stima della distanza è da definire."
-    )
-    index_value_unit_description = "Quota di turisti provenienti entro 2 ore (0-1)"
-    category = "Provenienza"
-    order = 100
-    year_only = True
+class ProximityDemandDependenceIndicator(_TravelTimePairsIndicator):
+    """Share of the tourist arrivals of a comune whose estimated travel time is within ``threshold_minutes``:
+    arrivals within the threshold / all the arrivals with an origin and a route (``phen_tempo_medio_turisti``)."""
+
+    name = "Indice di dipendenza dalla domanda di prossimità"
+    index_value_unit_description = "Quota di arrivi di prossimità (0-1)"
+
+    def __init__(self, source_file, threshold_minutes: float):
+        super().__init__(source_file, partial(proximity_share, threshold_minutes=threshold_minutes))
+        hours, minutes = divmod(int(threshold_minutes), 60)
+        self.description = (
+            f"Indica <strong>quanta parte dei turisti arriva da vicino</strong>: la quota di arrivi con un tempo "
+            f"di viaggio entro <strong>{hours}:{minutes:02d} ore</strong>. È una <strong>stima annuale</strong> "
+            "sugli arrivi Vodafone, che assume la partenza da una città di riferimento per gli italiani e dalla "
+            "capitale per gli stranieri."
+        )
 
 
 class TouristCrowdingIndicator(_NotImplementedIndexIndicator):
