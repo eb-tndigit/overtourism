@@ -40,10 +40,13 @@ python -m model.fazzon.exploratory_analysis     # exploratory analysis and plots
   * `fazzon_presence_stats`: the presence statistics of the Fazzon model, per season and weather
     class (good / cool / rainy), with the season weights and the weather climatology.
   * `fazzon_modal_shift` (`modal_shift.py`, step 2b): the behaviour model of the 2026 rules —
-    2026 year effect, response of the visitors by private vehicle to the price (β; persons per
-    vehicle 2.5 at 5 euro to 3.5 at 20 euro), and the split of the visitors who no longer come
-    by private vehicle (shuttle / walk-up / elsewhere), each with a bootstrap 90 % interval;
-    `fazzon_modal_shift_daily`: the 2026 days used.
+    the cars expected in 2025 conditions on each 2026 day come from the 2025 relation between
+    Fazzon cars, morning traffic up valley at Pellizzano and weather (A37), with a year effect of
+    1 ± 10 % (A22; the measured one is reported as a check); response of the visitors by private
+    vehicle to the price (β; persons per vehicle 2.5 at 5 euro to 3.5 at 20 euro), and the split
+    of the visitors who no longer come by private vehicle (shuttle / walk-up / elsewhere), each
+    with a bootstrap 90 % interval; `fazzon_modal_shift_daily`: the 2026 days used, with both the
+    traffic-based and the season × weather expectation.
   * `fazzon_monitoring` (`monitoring.py`, step 2c): drift indicators, every year against the
     calibration year on the same calendar window (regime window, rest of the season): cars per day
     at the road stations, cars up valley at Pellizzano in the morning (valley demand), Fazzon cars

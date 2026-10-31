@@ -42,6 +42,11 @@ REDUCED_PRICE_DAYS = {pd.Timestamp("2026-08-21"): 5.0}
 # D2: events that make the car count not comparable ("5days": >2000 people, extra meadows
 # used as parking, cars not counted).
 EVENT_DAYS = pd.to_datetime(["2026-07-02", "2026-07-03"])
+# D21: days whose access rules are uncertain (31/08/2026: in the regulated period but after the
+# Lakebus, recorded and counted like the 5-euro days).
+UNCERTAIN_RULES_DAYS = pd.to_datetime(["2026-08-31"])
+# Days left out of the comparisons between years and periods (D2, D3, D21).
+EXCLUDED_DAYS = EVENT_DAYS.union(SHUTTLE_NOT_RUNNING).union(UNCERTAIN_RULES_DAYS)
 
 # Parking price per car (euro), on the days with Fazzon parking data.
 PRICE_2025 = 5.0  # 2025 rules (operator): 5 euro/day until the car park is full

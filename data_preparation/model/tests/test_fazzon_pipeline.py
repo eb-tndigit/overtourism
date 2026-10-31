@@ -196,35 +196,44 @@ def test_parking_price_per_day():
 def test_modal_shift_recovers_known_response():
     from model.fazzon.modal_shift import estimate_modal_shift
 
-    stats = pd.DataFrame({
-        "season": ["july", "august", "september"], "weather": ["good"] * 3,
-        "mean_car_visitors": [100 * REFERENCE_OCCUPANCY, 200 * REFERENCE_OCCUPANCY, 100 * REFERENCE_OCCUPANCY],
+    stats = pd.DataFrame({  # season x weather levels: only kept for comparison (A21)
+        "season": ["june", "july", "august", "september"], "weather": ["good"] * 4,
+        "mean_car_visitors": [100 * REFERENCE_OCCUPANCY] * 4,
     })
     beta = 0.1
     rows = []
-    for day in pd.date_range("2026-07-04", "2026-08-30"):  # rules: 20 euro, shuttle
-        cars5 = 100.0 if day.month == 7 else 200.0
-        cars = cars5 * np.exp(-beta * 15)
-        rows.append({"date": day, "month": day.month, "cars": cars, "cars_full": cars, "cars_half": np.nan,
-                     "parking_price": 20.0, "parking_price_afternoon": 10.0, "regulated_parking": True,
+    for i, day in enumerate(pd.date_range("2025-06-01", "2025-09-30")):  # calibration: cars = 0.1 x traffic
+        traffic = 1000.0 + 20 * (i % 50)
+        rows.append({"date": day, "year": 2025, "month": day.month, "traffic": traffic, "cars": 0.1 * traffic,
+                     "parking_price": 5.0, "regulated_parking": False, "shuttle": None})
+    for i, day in enumerate(pd.date_range("2026-07-04", "2026-08-30")):  # rules: 20 euro, shuttle
+        traffic = 1500.0 + 30 * (i % 20)
+        rows.append({"date": day, "year": 2026, "month": day.month, "traffic": traffic,
+                     "cars": 0.1 * traffic * np.exp(-beta * 15), "parking_price": 20.0, "regulated_parking": True,
                      "shuttle": "lakebus", "bus_up": 50.0, "bus_down": 60.0})
-    for day in pd.date_range("2026-09-01", "2026-09-10"):  # 5 euro, no rules: year effect 1.2
-        rows.append({"date": day, "month": 9, "cars": 120.0, "cars_full": 120.0, "cars_half": np.nan,
-                     "parking_price": 5.0, "parking_price_afternoon": 5.0, "regulated_parking": False,
-                     "shuttle": None, "bus_up": np.nan, "bus_down": np.nan})
-    daily = pd.DataFrame(rows).assign(year=2026, weather="good", event_day=False, moto_persons=0.0,
-                                      parking_price_assumed=False)
+    for i, day in enumerate(pd.date_range("2026-09-01", "2026-09-10")):  # 5 euro, no rules: 1.2 x the relation
+        traffic = 1000.0 + 40 * i
+        rows.append({"date": day, "year": 2026, "month": 9, "traffic": traffic, "cars": 0.12 * traffic,
+                     "parking_price": 5.0, "regulated_parking": False, "shuttle": None})
+    daily = pd.DataFrame(rows).rename(columns={"traffic": "strada_pellizzano_salita_mattina"})
+    daily = daily.assign(cars_full=daily["cars"], cars_half=np.nan, parking_price_afternoon=daily["parking_price"],
+                         weather="good", event_day=False, moto_persons=0.0, parking_price_assumed=False)
+    daily.loc[daily["shuttle"].isna(), ["bus_up", "bus_down"]] = np.nan
+    daily.loc[daily["regulated_parking"], "parking_price_afternoon"] = 10.0
     estimates, days = estimate_modal_shift(daily, stats)
     e = estimates.set_index(["parameter", "days"])["estimate"]
-    assert e[("year_effect", "")] == pytest.approx(1.2)
-    # vehicles at 5 euro in 2026 = 1.2 x 2025 level, so the car response is exp(-15 beta) / 1.2
-    assert e[("car_response", "")] == pytest.approx(np.exp(-beta * 15) / 1.2)
+    assert e[("demand_per_morning_car", "")] == pytest.approx(0.1) and e[("demand_intercept", "")] == pytest.approx(0, abs=1e-6)
+    assert e[("year_effect_observed", "")] == pytest.approx(1.2)  # reported, not used (A22)
+    assert e[("year_effect", "")] == 1.0
+    assert e[("car_response", "")] == pytest.approx(np.exp(-beta * 15))
     assert e[("price_paid", "")] == pytest.approx(20.0)
     # visitors: 3.5 persons per car at 20 euro vs 2.5 at 5 euro (A2)
-    assert e[("visitor_response", "")] == pytest.approx(np.exp(-beta * 15) / 1.2 * 3.5 / 2.5)
+    assert e[("visitor_response", "")] == pytest.approx(np.exp(-beta * 15) * 3.5 / 2.5)
     assert e[("share_walk_up", "with_walk_up")] > 0
     assert set(days["role"]) == {"regime", "year_effect"}
     assert e[("occupancy_high", "")] == 3.5 and e[("reference_price", "")] == 5.0
+    low, high = estimates.set_index("parameter").loc["year_effect", ["low", "high"]]
+    assert 0.9 <= low < 1.0 < high <= 1.1
 
 
 def test_occupancy_interpolates_between_low_and_high_price():
@@ -237,7 +246,7 @@ def test_monitoring_compares_every_year_with_the_calibration_year():
     from model.fazzon.monitoring import build_monitoring
 
     dates = pd.date_range("2025-06-01", "2025-09-30").append(pd.date_range("2026-06-01", "2026-09-30"))
-    daily = pd.DataFrame({"date": dates, "year": dates.year, "month": dates.month})
+    daily = pd.DataFrame({"date": dates, "year": dates.year, "month": dates.month, "weather": "good"})
     regime = (daily["year"] == 2026) & daily["date"].between("2026-07-04", "2026-08-31")
     daily["strada_pellizzano_salita_mattina"] = np.where(daily["year"] == 2026, 1100.0, 1000.0)
     daily["cars"] = np.where(regime, 33.0, daily["strada_pellizzano_salita_mattina"] * 0.1)
@@ -251,3 +260,5 @@ def test_monitoring_compares_every_year_with_the_calibration_year():
     assert m.loc[("fazzon_cars_per_morning_car", 2026, "rest_of_season"), "ratio_to_reference"] == pytest.approx(1.0)
     assert m.loc[("fazzon_cars_per_morning_car", 2025, "regime_window"), "ratio_to_reference"] == pytest.approx(1.0)
     assert "road_tonale" not in m.index.get_level_values("indicator")  # no data, no row
+    # 2025: cars = 0.1 x traffic, so the relation (A37) predicts the 2026 days outside the regime exactly
+    assert m.loc[("fazzon_cars_vs_calibration_relation", 2026, "rest_of_season"), "value"] == pytest.approx(1.0)

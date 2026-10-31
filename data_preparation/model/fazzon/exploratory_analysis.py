@@ -46,6 +46,12 @@ Cosa fa, in ordine:
    (``fazzon_presence_stats``) contro i dati osservati, la ripartizione dei
    visitatori che non salgono piu' in auto e la risposta al prezzo del
    parcheggio (``fazzon_modal_shift``).
+10. Mostra cosa si puo' misurare in ogni anno (condizioni di accesso osservate e
+    dati disponibili giorno per giorno) e l'evidenza delle scelte del modello di
+    spostamento modale: il riferimento in condizioni 2025 dalla relazione con il
+    traffico (A37), confrontato fuori campione con i livelli stagione x meteo;
+    l'effetto anno 2026 (A22), con le sue misure e la sensibilita' delle stime;
+    gli indicatori di monitoraggio (D20).
 
 Decisioni e ipotesi (con quelle ancora da validare con gli esperti di dominio)
 sono elencate in ``ASSUMPTIONS.md`` (stessa cartella).
@@ -62,8 +68,9 @@ auto" (biglietti x 2.83 persone/auto, dato *inferito*) — vedi
 per chi necessita della stima in persone.
 
 Output (scritti in ``OUTPUT_DIR``): ``panel_daily.csv``, ``correlations.csv``,
-``correlation_matrix.csv``, ``saturation_slopes.csv``, ``shuttle_road_did.csv``
-e i grafici PNG numerati, con etichette in italiano.
+``correlation_matrix.csv``, ``saturation_slopes.csv``, ``shuttle_road_did.csv``,
+``measurement_space.csv``, ``reference_cross_validation.csv``, ``year_effect_checks.csv``,
+``year_effect_sensitivity.csv`` e i grafici PNG numerati, con etichette in italiano.
 """
 
 # %% Import e configurazione
@@ -80,15 +87,24 @@ from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.lines import Line2D
 from scipy import stats
 
+from model.fazzon.modal_shift import (
+    DEMAND_PREDICTOR,
+    YEAR_EFFECT_UNCERTAINTY,
+    calibration_days,
+    estimate_point,
+    expected_cars,
+    fit_demand,
+)
+from model.fazzon.monitoring import CARS_PER_MORNING_CAR, CARS_VS_RELATION
 from model.fazzon.prepare import read_normalized, read_reference
 from model.fazzon.reference_datasets import (
-    EVENT_DAYS,
+    EXCLUDED_DAYS,
     PRICE_2025,
     REFERENCE_OCCUPANCY,
     REGULATED_PARKING,
     SEASONS,
-    SHUTTLE_NOT_RUNNING,
     SHUTTLE_PERIODS,
+    WEATHER_CLASSES,
     occupancy,
 )
 
@@ -102,9 +118,6 @@ PERSONS_PER_CAR = 2.83  # A1: NetMobility 2021 field study
 # semaforo e prenotazione dal 4/7 al 31/8, navetta Lakebus dal 4/7 al 30/8.
 REGIME_2026_START, REGIME_2026_PARKING_END = REGULATED_PARKING[2026]
 REGIME_2026_SHUTTLE_END = SHUTTLE_PERIODS["lakebus"][1]
-# Giorni 2026 esclusi dal confronto: evento "5days" (>2000 persone, prati
-# aggiuntivi adibiti a parcheggio, auto non conteggiate) e 21/8 (bus non attivo).
-EXCLUDED_DAYS_2026 = EVENT_DAYS.union(SHUTTLE_NOT_RUNNING)
 # Persone per veicolo secondo il gestore (ASSUMPTIONS.md, A2): ~2,5 senza
 # regime (2025, e 2026 fuori dal periodo regolato); ~3,5 con il regime 2026,
 # perche' con parcheggio a 20 euro "si sale solo con l'auto piena".
@@ -473,7 +486,7 @@ def load_parking_2025_2026(daily: pd.DataFrame) -> pd.DataFrame:
     out = pd.concat([y25, y26], ignore_index=True)
     out["cars_half"] = out["cars_half"].fillna(0)
     out["is_rainy"] = (out["rain_mm"] >= RAINY_DAY_MM).astype(int)
-    out["excluded"] = out["date"].isin(EXCLUDED_DAYS_2026)
+    out["excluded"] = out["date"].isin(EXCLUDED_DAYS)
     in_regime = out["date"].between(REGIME_2026_START, REGIME_2026_PARKING_END)
     out["occupancy"] = np.where(in_regime, OCCUPANCY_REGIME_2026, OCCUPANCY_NO_REGIME)
     out["persons_cars"] = out["cars"] * out["occupancy"]
@@ -497,7 +510,7 @@ def _period_2026(date_2026: pd.Timestamp) -> str:
 
 def compare_2025_2026(park: pd.DataFrame) -> pd.DataFrame:
     """Medie giornaliere per periodo, stessi giorni della settimana nei due
-    anni, esclusi gli eventi in ``EXCLUDED_DAYS_2026`` (e i corrispondenti
+    anni, esclusi gli eventi in ``EXCLUDED_DAYS`` (e i corrispondenti
     giorni 2025)."""
     wide = park.pivot(index="date_2025", columns="year")
     excluded = wide[("excluded", 2026)].astype(bool)
@@ -928,7 +941,7 @@ def plot_2025_vs_2026_daily(park: pd.DataFrame, path: Path):
     for ax in axes:
         _style_ax(ax)
         ax.axvspan(REGIME_2026_START, REGIME_2026_SHUTTLE_END, color=C_GOOD_STATUS, alpha=0.06, zorder=0)
-        for d in EXCLUDED_DAYS_2026:
+        for d in EXCLUDED_DAYS:
             ax.axvspan(d - pd.Timedelta(hours=12), d + pd.Timedelta(hours=12), color=C_MUTED, alpha=0.18, zorder=0)
 
     def line(ax, col, year, color, label, **kw):
@@ -1122,8 +1135,9 @@ def plot_modal_shift_split(estimates: pd.DataFrame, days: pd.DataFrame, path: Pa
         f"Giorni dal {first_walk:%d/%m/%Y} (persone in discesa registrate): {n_walk}; su tutti i {n_all} giorni del "
         f"regime: {lost_all['estimate']:.0f} visitori in meno al giorno, navetta "
         f"{_estimate(estimates, 'share_shuttle', 'all_days')['estimate'] * 100:.0f}%.\n"
-        "Visitori in meno = visitori attesi in condizioni 2025 (livello 2025 per stagione e meteo x effetto anno 2026, "
-        "A21, A22; 2,5 persone/veicolo)\n- visitori in auto e moto misurati (persone/veicolo dal prezzo pagato, A2). "
+        "Visitori in meno = visitori attesi in condizioni 2025 (relazione 2025 auto-traffico-meteo applicata al traffico "
+        "del giorno, A37; effetto anno 1 ± 10%, A22;\n2,5 persone/veicolo) - visitori in auto e moto misurati "
+        "(persone/veicolo dal prezzo pagato, A2). "
         "A piedi = persone in discesa - persone in salita in navetta (A6).\n"
         "Altrove = il resto, per differenza. Barre di errore: intervallo bootstrap al 90% sui giorni."
     )
@@ -1192,6 +1206,429 @@ def plot_price_response(estimates: pd.DataFrame, path: Path):
     )
     ax.text(0.0, -0.13, caveat, transform=ax.transAxes, fontsize=8.8, color=C_INK, va="top",
             bbox={"boxstyle": "round,pad=0.5", "facecolor": "#fbe1d6", "edgecolor": C_ORANGE, "linewidth": 0.8})
+    fig.tight_layout()
+    fig.savefig(path, facecolor=SURFACE, bbox_inches="tight")
+    plt.close(fig)
+
+
+# %% 10. Cosa si misura in ogni anno; riferimento in condizioni 2025 (A37) ed effetto anno (A22)
+# Condizione di accesso del giorno (stagione giugno-settembre): etichetta e colore (stesso ordine nei grafici).
+CONDITIONS = {
+    "free": ("5 €, senza navetta", C_BLUE),
+    "free_shuttle": ("5 €, con navetta (2025: Greenbus pilota)", C_AQUA),
+    "regime": ("20 € + prenotazione e semaforo, con navetta (2026: Lakebus)", C_ORANGE),
+    "regime_no_shuttle": ("20 € + prenotazione e semaforo, senza navetta", C_VIOLET),
+    "excluded": ("Escluso (evento, navetta ferma per maltempo, regole incerte il 31/8)", C_MUTED),
+}
+SHUTTLE_NAMES = {"greenbus_pilot": "Greenbus pilota", "lakebus": "Lakebus"}
+N_BOOT = 2000
+BOOT_SEED = 0
+
+
+def measurement_days(daily: pd.DataFrame) -> pd.DataFrame:
+    """Giorni della stagione degli anni con dati Fazzon, con la condizione di accesso e cosa e'
+    misurato (auto, traffico valido a Pellizzano, persone in salita / in discesa in navetta)."""
+    years = sorted(daily.loc[daily["cars"].notna(), "year"].unique())
+    s = daily[daily["month"].isin(list(SEASONS)) & daily["year"].isin(years)].copy()
+    s["condition"] = np.select(
+        [s["cars"].isna(), s["event_day"] | s["date"].isin(EXCLUDED_DAYS),
+         s["regulated_parking"] & s["shuttle"].notna(), s["regulated_parking"], s["shuttle"].notna()],
+        ["no_data", "excluded", "regime", "regime_no_shuttle", "free_shuttle"], "free")
+    s["has_traffic"] = s[DEMAND_PREDICTOR].notna()
+    s["has_bus_up"] = s["bus_up"].notna() | s["greenbus_tickets"].notna()
+    s["has_bus_down"] = s["bus_down"].notna()
+    return s[["date", "year", "condition", "shuttle", "has_traffic", "has_bus_up", "has_bus_down"]]
+
+
+def measurement_space(days: pd.DataFrame) -> pd.DataFrame:
+    """Giorni per anno e condizione, con quanti hanno traffico valido e persone in discesa."""
+    return (days.groupby(["year", "condition"])
+            .agg(days=("date", "size"), with_traffic=("has_traffic", "sum"), with_bus_down=("has_bus_down", "sum"),
+                 shuttle=("shuttle", lambda s: ", ".join(sorted(s.dropna().unique()))))
+            .reset_index())
+
+
+def _demand_forms() -> dict:
+    """Forme della relazione auto-traffico-meteo confrontate (A37): nome -> (design, log)."""
+    def weather(x):
+        return [(x["weather"] == w).to_numpy(dtype=float) for w in WEATHER_CLASSES[1:]]
+
+    def m(x):
+        return x[DEMAND_PREDICTOR].to_numpy(dtype=float)
+
+    def months(x):
+        return [(x["month"] == mo).to_numpy(dtype=float) for mo in sorted(SEASONS)[1:]]
+
+    one = lambda x: np.ones(len(x))  # noqa: E731
+    return {
+        "Traffico + meteo (scelta, A37)": (lambda x: np.column_stack([one(x), m(x), *weather(x)]), False),
+        "Traffico + meteo + mese": (lambda x: np.column_stack([one(x), m(x), *weather(x), *months(x)]), False),
+        "Proporzionale al traffico, per meteo": (lambda x: np.column_stack([m(x), *[w * m(x) for w in weather(x)]]), False),
+        "Log-log + meteo": (lambda x: np.column_stack([one(x), np.log(m(x)), *weather(x)]), True),
+    }
+
+
+def _fit_predict(train: pd.DataFrame, test: pd.DataFrame, design, log: bool) -> np.ndarray:
+    y = np.log(train["cars"].to_numpy()) if log else train["cars"].to_numpy(dtype=float)
+    coef, *_ = np.linalg.lstsq(design(train), y, rcond=None)
+    if not log:
+        return design(test) @ coef
+    smearing = np.mean(np.exp(y - design(train) @ coef))
+    return np.exp(design(test) @ coef) * smearing
+
+
+def reference_cross_validation(daily: pd.DataFrame, presence_stats: pd.DataFrame) -> pd.DataFrame:
+    """Errore medio assoluto (auto/giorno) del riferimento a livelli stagione x meteo (A21) e delle
+    forme della relazione con il traffico (A37): ``mae_2025`` fuori campione sul 2025 (si lascia
+    fuori una settimana alla volta; i livelli sono stimati su tutto il 2025, quindi in campione) e
+    ``mae_2026`` sui giorni 2026 a 5 euro senza regole (stima sul 2025: un vero test)."""
+    cal = calibration_days(daily)
+    cal = cal[cal["cars"] > 0].copy()
+    week = cal["date"].dt.isocalendar().week
+    test_2026 = daily[(daily["year"] == 2026) & daily["month"].isin(list(SEASONS)) & daily["cars"].notna()
+                      & daily[DEMAND_PREDICTOR].notna() & daily["weather"].notna() & ~daily["regulated_parking"]
+                      & ~daily["event_day"]]
+    levels = presence_stats.set_index(["season", "weather"])["mean_car_visitors"] / REFERENCE_OCCUPANCY
+
+    def level(x):
+        return np.array([levels[(SEASONS[mo], w)] for mo, w in zip(x["month"], x["weather"])])
+
+    rows = [{"reference": "Livelli stagione x meteo (A21, prima)", "mae_2025": np.abs(level(cal) - cal["cars"]).mean(),
+             "mae_2026": np.abs(level(test_2026) - test_2026["cars"]).mean()}]
+    for name, (design, log) in _demand_forms().items():
+        pred = pd.Series(np.nan, index=cal.index)
+        for w in week.unique():
+            test = week == w
+            pred[test] = _fit_predict(cal[~test], cal[test], design, log)
+        rows.append({"reference": name, "mae_2025": (pred - cal["cars"]).abs().mean(),
+                     "mae_2026": np.abs(_fit_predict(cal, test_2026, design, log) - test_2026["cars"]).mean()})
+    out = pd.DataFrame(rows)
+    out["n_2025"], out["n_2026"] = len(cal), len(test_2026)
+    return out
+
+
+def year_effect_checks(daily: pd.DataFrame, modal_shift: pd.DataFrame, monitoring: pd.DataFrame) -> pd.DataFrame:
+    """Le misure dell'effetto anno 2026 (A22) sui giorni a 5 euro senza regole, con intervallo
+    bootstrap al 90 %: rapporto grezzo auto / auto del mattino, relazione A37 (sui giorni 2026 e
+    rispetto agli stessi giorni 2025), regressione log con mese e meteo su tutta la stagione."""
+    rng = np.random.default_rng(BOOT_SEED)
+    coef = fit_demand(calibration_days(daily))
+    mon = monitoring[(monitoring["year"] == 2026) & (monitoring["period"] == "rest_of_season")].set_index("indicator")
+    s = daily[daily["month"].isin(list(SEASONS)) & daily["cars"].notna() & daily[DEMAND_PREDICTOR].notna()
+              & daily["weather"].notna() & ~daily["date"].isin(EXCLUDED_DAYS)].copy()
+    out_2026 = s[(s["year"] == 2026) & ~s["regulated_parking"]]
+    window = s["date"].dt.month * 100 + s["date"].dt.day
+    start, end = REGULATED_PARKING[2026]
+    out_2025 = s[(s["year"] == 2025) & ~window.between(start.month * 100 + start.day, end.month * 100 + end.day)]
+
+    def boot(stat):
+        values = [stat(out_2026.iloc[rng.integers(0, len(out_2026), len(out_2026))],
+                       out_2025.iloc[rng.integers(0, len(out_2025), len(out_2025))]) for _ in range(N_BOOT)]
+        return np.quantile(values, [0.05, 0.95])
+
+    def raw(a, b):
+        return (a["cars"].sum() / a[DEMAND_PREDICTOR].sum()) / (b["cars"].sum() / b[DEMAND_PREDICTOR].sum())
+
+    def relation(a, b):
+        return (a["cars"].sum() / expected_cars(a, coef).sum()) / (b["cars"].sum() / expected_cars(b, coef).sum())
+
+    observed = modal_shift.set_index("parameter").loc["year_effect_observed"]
+    rows = [
+        {"check": "Auto per auto del mattino, 2026 / 2025", "estimate": mon.loc[CARS_PER_MORNING_CAR, "ratio_to_reference"],
+         **dict(zip(["low", "high"], boot(raw)))},
+        {"check": "Relazione A37 sui giorni 2026", "estimate": observed["estimate"],
+         "low": observed["low"], "high": observed["high"]},
+        {"check": "Relazione A37, rispetto agli stessi giorni 2025", "estimate": relation(out_2026, out_2025),
+         **dict(zip(["low", "high"], boot(relation)))},
+    ]
+    # regressione su tutta la stagione 2025-2026: log(auto) ~ log(traffico) + mese + meteo + weekend + anno + anno x regole
+    s = s[s["cars"] > 0]
+    s["regime"] = (s["year"] == 2026) & s["regulated_parking"]
+
+    def design(x):
+        cols = [np.ones(len(x)), np.log(x[DEMAND_PREDICTOR]), x["is_weekend"], (x["year"] == 2026).astype(float),
+                x["regime"].astype(float)]
+        cols += [(x["month"] == mo).astype(float) for mo in sorted(SEASONS)[1:]]
+        cols += [(x["weather"] == w).astype(float) for w in WEATHER_CLASSES[1:]]
+        return np.column_stack(cols).astype(float)
+
+    def year_coef(x):
+        coef_log, *_ = np.linalg.lstsq(design(x), np.log(x["cars"].to_numpy()), rcond=None)
+        return np.exp(coef_log[3])
+
+    values = [year_coef(s.iloc[rng.integers(0, len(s), len(s))]) for _ in range(N_BOOT)]
+    rows.append({"check": "Regressione log con mese e meteo (2025-2026)", "estimate": year_coef(s),
+                 "low": np.quantile(values, 0.05), "high": np.quantile(values, 0.95)})
+    return pd.DataFrame(rows)
+
+
+def year_effect_sensitivity(modal_shift_daily: pd.DataFrame, effects=np.linspace(0.85, 1.15, 31)) -> pd.DataFrame:
+    """Stime dello spostamento modale al variare dell'effetto anno (A22), stessi giorni."""
+    d = modal_shift_daily.rename(columns={"morning_up": DEMAND_PREDICTOR})
+    year, regime = d[d["role"] == "year_effect"], d[d["role"] == "regime"]
+    return pd.DataFrame([{"year_effect": e, **estimate_point(year, regime, e)} for e in effects])
+
+
+def _condition_legend(ax, conditions, **kw):
+    handles = [plt.Rectangle((0, 0), 1, 1, color=CONDITIONS[c][1]) for c in conditions]
+    ax.legend(handles, [CONDITIONS[c][0] for c in conditions], frameon=False, **kw)
+
+
+def plot_measurement_space(days: pd.DataFrame, pilot: dict, path: Path):
+    """Sinistra: lo spazio delle condizioni di accesso (prezzo x navetta si/no), con i giorni misurati
+    per anno e il servizio di navetta. Destra: il calendario di ogni anno, con cosa e' misurato giorno
+    per giorno. `pilot`: l'esperimento naturale della navetta 2025 con il traffico come domanda
+    (``shuttle_natural_experiment``)."""
+    space = measurement_space(days)
+    years = sorted(days["year"].unique())
+    cells = {  # (riga, colonna) della griglia prezzo x navetta
+        "free": (0, 0), "free_shuttle": (0, 1), "regime_no_shuttle": (1, 0), "regime": (1, 1),
+    }
+    fig = plt.figure(figsize=(15, 6.8))
+    grid = fig.add_gridspec(1, 2, width_ratios=[1, 1.9], wspace=0.42)
+    ax = fig.add_subplot(grid[0])
+    ax.set_xlim(-0.5, 1.5)
+    ax.set_ylim(1.5, -0.5)
+    ax.set_xticks([0, 1], ["Senza navetta", "Con navetta"])
+    ax.set_yticks([0, 1], ["5 €", "20 € +\nprenotazione\n+ semaforo"])
+    ax.grid(False)
+    ax.tick_params(length=0)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    for cond, (row, col) in cells.items():
+        n = space[space["condition"] == cond].set_index("year")
+        measured = n["days"].sum() > 0
+        ax.add_patch(plt.Rectangle((col - 0.47, row - 0.45), 0.94, 0.9, color=CONDITIONS[cond][1] if measured else C_NEUTRAL_MID,
+                                   alpha=0.22 if measured else 1, zorder=1))
+        lines = [f"{y}: {int(n.loc[y, 'days'])} {'giorno' if n.loc[y, 'days'] == 1 else 'giorni'}"
+                 + (f"\n{', '.join(SHUTTLE_NAMES.get(s, s) for s in n.loc[y, 'shuttle'].split(', '))}"
+                    if n.loc[y, "shuttle"] else "")
+                 + (f"\n({int(n.loc[y, 'with_bus_down'])} con discesa)" if n.loc[y, "with_bus_down"] else "")
+                 for y in years if y in n.index]
+        ax.text(col, row, "\n".join(lines) if lines else "non osservato", ha="center", va="center", fontsize=9.5,
+                color=C_INK if lines else C_INK2, zorder=2)
+    ax.set_title("Condizioni di accesso osservate (giorni con auto contate)", loc="left", color=C_INK, fontsize=10.5)
+
+    ax = fig.add_subplot(grid[1])
+    ax.grid(False)
+    rows = []
+    for i, year in enumerate(years):
+        base = i * 4
+        d = days[days["year"] == year]
+        x = (d["date"] - pd.to_datetime(d["year"].astype(str) + "-06-01")).dt.days.to_numpy()
+        for xi, cond in zip(x, d["condition"]):
+            ax.add_patch(plt.Rectangle((xi, base), 1, 1.6, color=CONDITIONS[cond][1] if cond in CONDITIONS
+                                       else C_NEUTRAL_MID, linewidth=0))
+        for k, (col, label) in enumerate([("has_traffic", "traffico valido a Pellizzano"),
+                                          ("has_bus_down", "persone in discesa (a piedi)")]):
+            y0 = base + 1.9 + k * 0.55
+            ax.add_patch(plt.Rectangle((0, y0), 122, 0.4, color=C_NEUTRAL_MID, linewidth=0))
+            for xi in x[d[col].to_numpy()]:
+                ax.add_patch(plt.Rectangle((xi, y0), 1, 0.4, color=C_INK2, linewidth=0))
+            rows.append((y0 + 0.2, label))
+        rows.append((base + 0.8, f"{year}: auto contate"))
+    ax.set_xlim(0, 122)
+    ax.set_ylim(len(years) * 4 - 0.6, -0.4)
+    ax.set_yticks([r[0] for r in rows], [r[1] for r in rows], fontsize=9)
+    ax.set_xticks([0, 30, 61, 92], ["1 giu", "1 lug", "1 ago", "1 set"])
+    ax.tick_params(length=0)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    ax.set_title("Calendario: condizione del giorno e dati disponibili (grigio chiaro: nessun dato)",
+                 loc="left", color=C_INK, fontsize=10.5)
+    used = [c for c in CONDITIONS if c in set(days["condition"])]
+    _condition_legend(ax, used, loc="upper center", bbox_to_anchor=(0.5, -0.07), ncol=2, fontsize=8.5)
+    fig.suptitle("Cosa si può misurare: la navetta senza il prezzo solo nel 2025 (pilota, nessun effetto misurabile); "
+                 "il prezzo di 20 € e le regole 2026\nsolo insieme alla Lakebus (A25)",
+                 x=0.01, ha="left", fontsize=12, color=C_INK)
+    coef, se = pilot["shuttle_running_coef"], pilot["shuttle_running_se"]
+    note = ("Le due navette sono servizi diversi. Greenbus 2025: pilota 28/6-20/7, 1 €, giro lungo per Fucine e Ossana, "
+            f"solo biglietti venduti; nessun calo misurabile delle auto a parità\ndi traffico in valle ({coef:+.0f} "
+            f"auto/giorno, intervallo 90% da {coef - 1.645 * se:+.0f} a {coef + 1.645 * se:+.0f}, grafico 05b). "
+            "Lakebus 2026: 4/7-30/8, ogni 30 minuti da Pellizzano, persone in salita e in discesa.")
+    fig.text(0.01, -0.09, note, fontsize=8.5, color=C_INK2, va="top")
+    fig.savefig(path, facecolor=SURFACE, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_reference_choice(cv: pd.DataFrame, modal_shift_daily: pd.DataFrame, modal_shift: pd.DataFrame, path: Path):
+    """Sinistra: errore fuori campione sul 2025 dei riferimenti in condizioni 2025. Destra: auto
+    osservate / auto attese, giorno per giorno sui giorni 2026 con le regole, per i due riferimenti."""
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6), gridspec_kw={"width_ratios": [1, 1.4]})
+    _style_ax(ax1)
+    ax1.grid(True, axis="x")
+    ax1.grid(False, axis="y")
+    order = cv.iloc[::-1].reset_index(drop=True)
+    ys = np.arange(len(order))
+    h = 0.36
+    for off, col, color, label in [(h / 2, "mae_2025", C_BLUE, f"2025, una settimana esclusa alla volta "
+                                                                  f"({order['n_2025'].iloc[0]} giorni)"),
+                                   (-h / 2, "mae_2026", C_ORANGE, f"2026 a 5 € senza regole, stima sul 2025 "
+                                                                   f"({order['n_2026'].iloc[0]} giorni)")]:
+        ax1.barh(ys + off, order[col], height=h - 0.04, color=color, zorder=3, label=label)
+        for yi, v in zip(ys + off, order[col]):
+            ax1.text(v + 1, yi, f"{v:.0f}", va="center", fontsize=9, color=C_INK2)
+    ax1.set_yticks(ys, order["reference"], fontsize=9)
+    for tick in ax1.get_yticklabels():
+        if "scelta" in tick.get_text():
+            tick.set_fontweight("bold")
+    ax1.set_xlabel("Errore medio assoluto (auto/giorno)")
+    ax1.legend(frameon=False, loc="upper center", bbox_to_anchor=(0.4, -0.1), fontsize=8.5)
+    ax1.set_xlim(0, order[["mae_2025", "mae_2026"]].to_numpy().max() * 1.12)
+    ax1.set_title("Errore fuori campione: la scelta è seconda su entrambi i test", loc="left", color=C_INK,
+                  fontsize=10.5)
+
+    _style_ax(ax2)
+    regime = modal_shift_daily[modal_shift_daily["role"] == "regime"].sort_values("date")
+    response = modal_shift.set_index("parameter").loc["car_response", "estimate"]
+    for col, color, label in [("cars_2025_levels", C_MUTED, "Livelli stagione x meteo (A21)"),
+                              ("cars_2025_conditions", C_BLUE, "Relazione con traffico e meteo (A37)")]:
+        ratio = regime["cars"] / regime[col]
+        ax2.plot(regime["date"], ratio, color=color, linewidth=1.8, marker="o", markersize=3.5,
+                 label=f"{label}: variazione giornaliera {ratio.std() / ratio.mean() * 100:.0f}%, "
+                       f"correlazione {regime['cars'].corr(regime[col]):.2f}")
+    ax2.axhline(response, color=C_INK2, linewidth=1, linestyle="--",
+                label=f"Risposta delle auto (fuori-regole = 1): {response:.2f}")
+    ax2.set_ylim(bottom=0)
+    ax2.set_ylabel("Auto osservate / auto attese in condizioni 2025")
+    ax2.set_title("Giorni 2026 con le regole: con il traffico il rapporto oscilla meno", loc="left",
+                  color=C_INK, fontsize=10.5)
+    ax2.legend(frameon=False, loc="upper left", fontsize=8.5)
+    ax2.set_ylim(0, 0.8)
+    plt.setp(ax2.get_xticklabels(), rotation=30, ha="right")
+    fig.suptitle("Riferimento \"auto attese con le condizioni 2025\": la relazione con il traffico del giorno "
+                 "segue la domanda giorno per giorno", x=0.01, ha="left", fontsize=12, color=C_INK)
+    note = ("Livelli stagione x meteo: stimati su tutto il 2025 (errore in campione, quindi ottimistico). Relazione A37: "
+            "auto = a + b x auto in salita a Pellizzano 7-12 + c(meteo), stimata sul 2025.")
+    fig.text(0.01, -0.02, note, fontsize=8.5, color=C_INK2, va="top")
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    fig.savefig(path, facecolor=SURFACE, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_year_effect(checks: pd.DataFrame, sensitivity: pd.DataFrame, path: Path):
+    """Sinistra: le misure dell'effetto anno 2026 e la banda assunta (A22). Destra: le stime dello
+    spostamento modale al variare dell'effetto anno."""
+    band = (1 - YEAR_EFFECT_UNCERTAINTY, 1 + YEAR_EFFECT_UNCERTAINTY)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6.2), gridspec_kw={"width_ratios": [1, 1.2]})
+    _style_ax(ax1)
+    ax1.grid(True, axis="x")
+    ax1.grid(False, axis="y")
+    ax1.axvspan(*band, color=C_GOOD_STATUS, alpha=0.08, zorder=0)
+    ax1.axvline(1, color=C_INK2, linewidth=1, linestyle="--")
+    ys = np.arange(len(checks))[::-1]
+    for yi, (_, r) in zip(ys, checks.iterrows()):
+        ax1.errorbar(r["estimate"], yi, xerr=[[r["estimate"] - r["low"]], [r["high"] - r["estimate"]]], fmt="o",
+                     color=C_BLUE, markersize=8, capsize=5, linewidth=1.6, zorder=3)
+        ax1.text(r["high"] + 0.02, yi, f"{r['estimate']:.2f} ({r['low']:.2f}-{r['high']:.2f})", va="center",
+                 fontsize=9, color=C_INK2)
+    ax1.set_yticks(ys, checks["check"], fontsize=9)
+    ax1.set_xlim(0.6, 1.75)
+    ax1.set_xlabel("Effetto anno 2026 (1 = come il 2025)")
+    ax1.text(band[0] + 0.005, ys.max() + 0.55, f"ipotesi A22: 1 ± {YEAR_EFFECT_UNCERTAINTY * 100:.0f}%",
+             fontsize=9, color=C_GOOD_STATUS)
+    ax1.set_ylim(-0.6, ys.max() + 0.9)
+    ax1.set_title("Le misure: tutte compatibili con 1, nessuna precisa", loc="left", color=C_INK, fontsize=10.5)
+
+    _style_ax(ax2)
+    ax2.axvspan(*band, color=C_GOOD_STATUS, alpha=0.08, zorder=0)
+    ax2.axhline(0, color=C_AXIS, linewidth=1)
+    ax2.axvline(1, color=C_INK2, linewidth=1, linestyle="--")
+    series = [("car_response", "Risposta delle auto", C_INK),
+              ("with_walk_up__share_shuttle", "Quota in navetta", C_BLUE),
+              ("with_walk_up__share_walk_up", "Quota a piedi", C_AQUA),
+              ("with_walk_up__share_elsewhere", "Quota altrove", C_ORANGE)]
+    for col, label, color in series:
+        ax2.plot(sensitivity["year_effect"], sensitivity[col], color=color, linewidth=2, label=label)
+        ax2.annotate(label, (sensitivity["year_effect"].iloc[-1], sensitivity[col].iloc[-1]), xytext=(6, 0),
+                     textcoords="offset points", va="center", fontsize=9, color=C_INK2)
+    ax2.set_xlim(sensitivity["year_effect"].min(), sensitivity["year_effect"].max() + 0.06)
+    ax2.set_xlabel("Effetto anno 2026 assunto")
+    ax2.set_ylabel("Stima (frazione)")
+    ax2.set_title("Quanto pesa: sotto 0,9 la quota in navetta supera 1", loc="left",
+                  color=C_INK, fontsize=10.5)
+    ax2.legend(frameon=False, loc="upper left", fontsize=9)
+    fig.suptitle("Effetto anno 2026: fissato a 1 ± 10% (A22) perché i 18 giorni senza regole non bastano a misurarlo",
+                 x=0.01, ha="left", fontsize=12, color=C_INK)
+    note = ("Misure sui giorni 2026 a 5 € senza regole (giugno, 1 luglio, settembre; 18 giorni), intervalli bootstrap al "
+            "90%. La regressione usa tutta la stagione 2025-2026\n(log auto ~ log traffico + mese + meteo + weekend + "
+            "anno + regole). Banda verde: l'incertezza propagata nelle stime del modello.")
+    fig.text(0.01, -0.02, note, fontsize=8.5, color=C_INK2, va="top")
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    fig.savefig(path, facecolor=SURFACE, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_monitoring(monitoring: pd.DataFrame, path: Path):
+    """Gli indicatori di monitoraggio (D20) per anno, come rapporto al 2025, nei due periodi."""
+    band = (1 - YEAR_EFFECT_UNCERTAINTY, 1 + YEAR_EFFECT_UNCERTAINTY)
+    fig, axes = plt.subplots(1, 2, figsize=(15, 6), sharey=True)
+    series = [("road_pellizzano_morning_up", "Traffico in salita a Pellizzano, mattina", C_BLUE),
+              (CARS_PER_MORNING_CAR, "Auto a Fazzon per auto del mattino", C_ORANGE),
+              (CARS_VS_RELATION, "Auto a Fazzon / relazione 2025 (A37)", C_VIOLET)]
+    controls = [i for i in monitoring["indicator"].unique() if i.startswith("road_") and i not in
+                ("road_pellizzano_morning_up", "road_pellizzano")]
+    for ax, period, title in [(axes[0], "regime_window", "Finestra delle regole 2026 (4/7-31/8)"),
+                              (axes[1], "rest_of_season", "Resto della stagione (giugno, settembre)")]:
+        _style_ax(ax)
+        ax.axhspan(*band, color=C_GOOD_STATUS, alpha=0.08, zorder=0)
+        ax.axhline(1, color=C_INK2, linewidth=1, linestyle="--")
+        m = monitoring[monitoring["period"] == period]
+        for i, ind in enumerate(controls):
+            d = m[m["indicator"] == ind].sort_values("year")
+            ax.plot(d["year"], d["ratio_to_reference"], color=C_MUTED, linewidth=1, alpha=0.8,
+                    label="Stazioni di controllo e totali (Pracorno, Celledizzo, Tonale, Revò)" if i == 0 else None)
+        for k, (ind, label, color) in enumerate(series):
+            d = m[m["indicator"] == ind].sort_values("year")
+            ax.plot(d["year"], d["ratio_to_reference"], color=color, linewidth=2.2, marker="o", markersize=6,
+                    label=label)
+            if len(d):
+                last = d.iloc[-1]
+                ax.annotate(f"{last['ratio_to_reference']:.2f}", (last["year"], last["ratio_to_reference"]),
+                            xytext=(7, 8 - 8 * k), textcoords="offset points", va="center", fontsize=9, color=C_INK2)
+        ax.set_xticks(sorted(monitoring["year"].unique()))
+        ax.set_title(title, loc="left", color=C_INK, fontsize=10.5)
+    axes[0].set_ylabel("Rapporto al 2025 (stessi giorni del calendario)")
+    axes[0].set_ylim(0, 1.3)
+    axes[0].legend(frameon=False, loc="lower left", fontsize=8.5)
+    fig.suptitle("Monitoraggio: la domanda in valle non cambia; con le regole 2026 un terzo delle auto, "
+                 "fuori dalle regole come nel 2025\n(fascia verde: ±10%, l'incertezza ammessa sull'effetto anno, A22)",
+                 x=0.01, ha="left", fontsize=12, color=C_INK)
+    note = ("Auto a Fazzon solo dal 2025. Traffico: media giornaliera dei giorni validi (D10); Pracorno 2026 assente "
+            "(sensore guasto). Rapporti grezzi, senza correzione per meteo e giorni della settimana.")
+    fig.text(0.01, -0.01, note, fontsize=8.5, color=C_INK2, va="top")
+    fig.tight_layout(rect=(0, 0, 1, 0.92))
+    fig.savefig(path, facecolor=SURFACE, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_cars_vs_traffic_by_year(daily: pd.DataFrame, days: pd.DataFrame, modal_shift: pd.DataFrame, path: Path):
+    """Auto a Fazzon contro auto in salita a Pellizzano al mattino, per anno e condizione, con la
+    relazione 2025 (bel tempo) e la stessa relazione per la risposta delle auto 2026."""
+    d = days.merge(daily[["date", "cars", DEMAND_PREDICTOR, "weather"]], on="date")
+    d = d[d["cars"].notna() & d[DEMAND_PREDICTOR].notna()]
+    coef = fit_demand(calibration_days(daily))
+    response = modal_shift.set_index("parameter").loc["car_response", "estimate"]
+    fig, ax = plt.subplots(figsize=(12, 6.8))
+    _style_ax(ax)
+    for (year, cond), g in d[d["condition"].isin(CONDITIONS)].groupby(["year", "condition"]):
+        ax.scatter(g[DEMAND_PREDICTOR], g["cars"], s=36, marker="o" if year == 2025 else "^",
+                   color=CONDITIONS[cond][1], edgecolor=SURFACE, linewidth=0.8, zorder=3, alpha=0.9,
+                   label=f"{year} - {CONDITIONS[cond][0]} ({len(g)})")
+    xs = np.linspace(d[DEMAND_PREDICTOR].min(), d[DEMAND_PREDICTOR].max(), 50)
+    good = pd.DataFrame({DEMAND_PREDICTOR: xs, "weather": "good"})
+    ax.plot(xs, expected_cars(good, coef), color=C_INK2, linewidth=1.6, zorder=2)
+    ax.plot(xs, expected_cars(good, coef) * response, color=C_ORANGE, linewidth=1.6, linestyle="--", zorder=2)
+    ax.annotate("relazione 2025 (A37), bel tempo", (xs[-1], expected_cars(good, coef)[-1]), xytext=(-4, 8),
+                textcoords="offset points", ha="right", fontsize=9, color=C_INK2)
+    ax.annotate(f"x {response:.2f} (regole 2026)", (xs[-1], expected_cars(good, coef)[-1] * response),
+                xytext=(-4, 8), textcoords="offset points", ha="right", fontsize=9, color=C_INK2)
+    ax.set_xlabel(IT_LABELS[DEMAND_PREDICTOR])
+    ax.set_ylabel(IT_LABELS["parking_tickets"])
+    ax.set_ylim(bottom=0)
+    ax.legend(frameon=False, loc="upper left", fontsize=8.5)
+    ax.set_title("Stesso traffico in valle, un terzo delle auto con le regole 2026 (cerchi: 2025; triangoli: 2026)",
+                 loc="left", color=C_INK, fontsize=11)
     fig.tight_layout()
     fig.savefig(path, facecolor=SURFACE, bbox_inches="tight")
     plt.close(fig)
@@ -1287,6 +1724,30 @@ def main():
     plot_modal_shift_split(reference["fazzon_modal_shift"], reference["fazzon_modal_shift_daily"],
                            OUTPUT_DIR / "13_modal_shift_split.png")
     plot_price_response(reference["fazzon_modal_shift"], OUTPUT_DIR / "14_price_response.png")
+
+    print("\nCosa si misura in ogni anno (giorni per condizione di accesso):")
+    mdays = measurement_days(daily)
+    space = measurement_space(mdays)
+    space.to_csv(OUTPUT_DIR / "measurement_space.csv", index=False)
+    print(space.to_string(index=False))
+    plot_measurement_space(mdays, result_road, OUTPUT_DIR / "15_measurement_space.png")
+
+    print("\nRiferimento in condizioni 2025, errore fuori campione sul 2025 (A21 vs A37):")
+    cv = reference_cross_validation(daily, reference["fazzon_presence_stats"])
+    cv.to_csv(OUTPUT_DIR / "reference_cross_validation.csv", index=False)
+    print(cv.round(1).to_string(index=False))
+    plot_reference_choice(cv, reference["fazzon_modal_shift_daily"], reference["fazzon_modal_shift"],
+                          OUTPUT_DIR / "16_reference_choice.png")
+
+    print("\nEffetto anno 2026 (A22), misure:")
+    checks = year_effect_checks(daily, reference["fazzon_modal_shift"], reference["fazzon_monitoring"])
+    checks.to_csv(OUTPUT_DIR / "year_effect_checks.csv", index=False)
+    print(checks.round(3).to_string(index=False))
+    sensitivity = year_effect_sensitivity(reference["fazzon_modal_shift_daily"])
+    sensitivity.to_csv(OUTPUT_DIR / "year_effect_sensitivity.csv", index=False)
+    plot_year_effect(checks, sensitivity, OUTPUT_DIR / "17_year_effect.png")
+    plot_monitoring(reference["fazzon_monitoring"], OUTPUT_DIR / "18_monitoring.png")
+    plot_cars_vs_traffic_by_year(daily, mdays, reference["fazzon_modal_shift"], OUTPUT_DIR / "19_cars_vs_traffic_by_year.png")
 
     print(f"\nTutti gli output sono stati scritti in {OUTPUT_DIR}")
 
