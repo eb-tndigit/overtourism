@@ -20,6 +20,39 @@ from model.fazzon.standardize import (
 def test_config_lists_all_sources():
     config = load_config()
     assert {"parking", "road_counts", "vodafone_attendences", "meteo_station", "meteo_bulletin"} <= set(config.sources)
+    assert isinstance(config.sources["road_counts"], tuple)  # one entry per delivery
+
+
+def _road_csv(path, rows):
+    """rows: (station, date, direction, cars per hour) -> PAT file with one car row per hour."""
+    lines = ['"PUNTO","DATA","ORA","DIREZIONE","CLASSE","VELOCITA","N_VEICOLI"']
+    for station, date, direction, cars in rows:
+        lines += [f'"{station}","{date}","{hour:02d}",{direction},2,5,{cars}' for hour in range(24)]
+    path.write_text("\n".join(lines))
+    return path
+
+
+_ROAD_STATIONS = pd.DataFrame({"kind": ["road", "road"], "code": ["110", "155"], "name": ["pellizzano", "pracorno"]})
+
+
+def test_road_counts_later_delivery_replaces_earlier(tmp_path):
+    first = _road_csv(tmp_path / "a.csv", [("110", "01/08/2026", 2, 10), ("110", "02/08/2026", 2, 10),
+                                           ("155", "01/08/2026", 2, 7)])
+    second = _road_csv(tmp_path / "b.csv", [("110", "02/08/2026", 2, 20)])
+    hourly = standardize_road_counts([first, second], _ROAD_STATIONS)
+    cars = hourly.groupby(["station", "date"])["cars"].sum()
+    assert cars[("pellizzano", pd.Timestamp("2026-08-01"))] == 240  # only in the first delivery
+    assert cars[("pellizzano", pd.Timestamp("2026-08-02"))] == 480  # replaced, not added
+    assert cars[("pracorno", pd.Timestamp("2026-08-01"))] == 168
+
+
+def test_road_counts_undercounting_direction_is_invalid(tmp_path):
+    path = _road_csv(tmp_path / "r.csv", [("155", "01/08/2026", 1, 3), ("155", "01/08/2026", 2, 60),
+                                          ("110", "01/08/2026", 1, 50), ("110", "01/08/2026", 2, 70)])
+    daily = road_counts_daily(standardize_road_counts(path, _ROAD_STATIONS)).set_index(["station", "direction"])
+    assert not daily.loc[("pracorno", 1), "valid"]  # 72 cars, above the minimum, but 1/20 of direction 2
+    assert daily.loc[("pracorno", 2), "valid"]
+    assert daily.loc[("pellizzano", 1), "valid"] and daily.loc[("pellizzano", 2), "valid"]
 
 
 def _parking_sheet(tmp_path):
@@ -198,3 +231,23 @@ def test_occupancy_interpolates_between_low_and_high_price():
     from model.fazzon.reference_datasets import occupancy
 
     assert occupancy([0.0, 5.0, 10.0, 20.0, 40.0]).tolist() == pytest.approx([2.5, 2.5, 2.5 + 1 / 3, 3.5, 3.5])
+
+
+def test_monitoring_compares_every_year_with_the_calibration_year():
+    from model.fazzon.monitoring import build_monitoring
+
+    dates = pd.date_range("2025-06-01", "2025-09-30").append(pd.date_range("2026-06-01", "2026-09-30"))
+    daily = pd.DataFrame({"date": dates, "year": dates.year, "month": dates.month})
+    regime = (daily["year"] == 2026) & daily["date"].between("2026-07-04", "2026-08-31")
+    daily["strada_pellizzano_salita_mattina"] = np.where(daily["year"] == 2026, 1100.0, 1000.0)
+    daily["cars"] = np.where(regime, 33.0, daily["strada_pellizzano_salita_mattina"] * 0.1)
+    for station in ("pellizzano", "pracorno", "celledizzo", "tonale", "revo"):
+        daily[f"strada_{station}_totale"] = np.nan
+    m = build_monitoring(daily).set_index(["indicator", "year", "period"])
+    up = m.loc[("road_pellizzano_morning_up", 2026, "regime_window")]
+    assert up["ratio_to_reference"] == pytest.approx(1.1) and up["regime_in_force"]
+    ratio = m.loc[("fazzon_cars_per_morning_car", 2026, "regime_window"), "ratio_to_reference"]
+    assert ratio == pytest.approx(0.03 / 0.1)
+    assert m.loc[("fazzon_cars_per_morning_car", 2026, "rest_of_season"), "ratio_to_reference"] == pytest.approx(1.0)
+    assert m.loc[("fazzon_cars_per_morning_car", 2025, "regime_window"), "ratio_to_reference"] == pytest.approx(1.0)
+    assert "road_tonale" not in m.index.get_level_values("indicator")  # no data, no row

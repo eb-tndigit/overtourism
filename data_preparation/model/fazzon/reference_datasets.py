@@ -7,6 +7,8 @@ Output: <final>/fazzon/
   - fazzon_daily: one row per day, measured Fazzon data + access regime flags + predictors
   - fazzon_presence_stats: the presence statistics of the Fazzon model
     (executor-backend/src/model/fazzon/fazzon_presence_stats.py), per season and weather class
+  - fazzon_modal_shift, fazzon_modal_shift_daily (modal_shift.py, step 2b)
+  - fazzon_monitoring (monitoring.py, step 2c): drift indicators, every year vs the calibration year
 
 `fazzon_daily` holds measured values and the access rules of each day; assumptions
 (occupancy, non-car share, ...) are applied in the statistics. Every decision and
@@ -30,7 +32,10 @@ SHUTTLE_PERIODS = {
     "greenbus_pilot": (pd.Timestamp("2025-06-28"), pd.Timestamp("2025-07-20")),
     "lakebus": (pd.Timestamp("2026-07-04"), pd.Timestamp("2026-08-30")),
 }
-REGULATED_PARKING = (pd.Timestamp("2026-07-04"), pd.Timestamp("2026-08-31"))
+# Regulated access (traffic light, booking, regulated price), per year: add a line for a new season.
+REGULATED_PARKING = {
+    2026: (pd.Timestamp("2026-07-04"), pd.Timestamp("2026-08-31")),
+}
 # D3: 21/08/2026, bad weather all day: shuttle not running, parking at 5 euro.
 SHUTTLE_NOT_RUNNING = pd.to_datetime(["2026-08-21"])
 REDUCED_PRICE_DAYS = {pd.Timestamp("2026-08-21"): 5.0}
@@ -163,7 +168,9 @@ def build_fazzon_daily(tables: dict[str, pd.DataFrame]) -> pd.DataFrame:
     daily["shuttle"] = None
     for name, (first, last) in SHUTTLE_PERIODS.items():
         daily.loc[d.between(first, last) & ~d.isin(SHUTTLE_NOT_RUNNING), "shuttle"] = name
-    daily["regulated_parking"] = d.between(*REGULATED_PARKING)
+    daily["regulated_parking"] = False
+    for first, last in REGULATED_PARKING.values():
+        daily.loc[d.between(first, last), "regulated_parking"] = True
     daily["event_day"] = d.isin(EVENT_DAYS)
     _add_parking_price(daily, parking_days=fz.index)
     daily["year"] = d.dt.year
@@ -272,11 +279,14 @@ def build_all(tables: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
     from model.fazzon.modal_shift import estimate_modal_shift  # step 2b, uses the stats above
 
     modal_shift, modal_shift_days = estimate_modal_shift(daily, stats)
+    from model.fazzon.monitoring import build_monitoring  # step 2c
+
     return {
         "fazzon_daily": daily,
         "fazzon_presence_stats": stats,
         "fazzon_modal_shift": modal_shift,
         "fazzon_modal_shift_daily": modal_shift_days,
+        "fazzon_monitoring": build_monitoring(daily),
     }
 
 
@@ -289,6 +299,6 @@ def _check(daily: pd.DataFrame, stats: pd.DataFrame) -> None:
     by_season = stats.groupby("season")["weather_freq_rel"].sum()
     if not np.allclose(by_season, 1.0) or (stats["weather_freq_rel"] <= 0).any():
         raise ValueError(f"weather_freq_rel must be > 0 and sum to 1 per season: {by_season.to_dict()}")
-    for year in (2025, 2026):
-        n = daily.loc[daily["year"] == year, "cars"].notna().sum()
-        logger.info("fazzon_daily: %d days with Fazzon car counts in %d", n, year)
+    for year, n in daily.groupby("year")["cars"].count().items():
+        if n:
+            logger.info("fazzon_daily: %d days with Fazzon car counts in %d", n, year)

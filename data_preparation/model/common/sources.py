@@ -9,6 +9,9 @@ Each pipeline lists its sources in a YAML file (``<name>.yaml``):
       <name>:
         key: <object key on the data lake, relative to settings.yaml platform.s3_prefix>
         local: <path relative to local_source_dir>
+      <name>:                  # one source delivered in several files (e.g. one per year):
+        - key: ...             # a list of key/local pairs, resolved to a list of paths
+          local: ...
 
 As in the main pipeline, only the data lake is read: external sources are fetched by the
 scripts in data_download/ and uploaded to the data lake. With a local source dir the files are
@@ -36,18 +39,21 @@ class Source:
 
 @dataclass(frozen=True)
 class SourcesConfig:
-    sources: dict[str, Source]
+    sources: dict[str, Source | tuple[Source, ...]]  # a tuple: one source in several files
     local_source_dir: Path | None
+
+
+def _source(name: str, spec) -> Source | tuple[Source, ...]:
+    if isinstance(spec, list):
+        return tuple(Source(name=name, key=s["key"], local=s["local"]) for s in spec)
+    return Source(name=name, key=spec["key"], local=spec["local"])
 
 
 def load_sources_config(path, local_source_dir=None) -> SourcesConfig:
     """Reads the YAML; `local_source_dir` (e.g. from the command line) overrides its value."""
     path = Path(path)
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    sources = {
-        name: Source(name=name, key=spec["key"], local=spec["local"])
-        for name, spec in (raw.get("sources") or {}).items()
-    }
+    sources = {name: _source(name, spec) for name, spec in (raw.get("sources") or {}).items()}
     if local_source_dir is not None:
         return SourcesConfig(sources=sources, local_source_dir=Path(local_source_dir).expanduser().resolve())
     local = raw.get("local_source_dir")
@@ -70,18 +76,26 @@ def _download_s3(source: Source, dest: Path) -> None:
     tmp.rename(dest)
 
 
-def resolve_sources(config: SourcesConfig, raw_dir: Path, refresh: bool = False) -> dict[str, Path]:
-    """Local path of every source, downloading it from the data lake if needed."""
+def _resolve(config: SourcesConfig, source: Source, raw_dir: Path, refresh: bool) -> Path:
+    if config.local_source_dir is not None:
+        path = config.local_source_dir / source.local
+        if not path.exists():
+            raise FileNotFoundError(f"[{source.name}] {path} not found (local_source_dir)")
+        return path
+    path = ensure_dir(raw_dir) / Path(source.key).name
+    if refresh or not path.exists():
+        logger.info("[%s] downloading %s from the data lake...", source.name, source.key)
+        _download_s3(source, path)
+    return path
+
+
+def resolve_sources(config: SourcesConfig, raw_dir: Path, refresh: bool = False) -> dict[str, Path | list[Path]]:
+    """Local path of every source (a list for a source in several files), downloading it from the
+    data lake if needed."""
     paths = {}
     for name, source in config.sources.items():
-        if config.local_source_dir is not None:
-            path = config.local_source_dir / source.local
-            if not path.exists():
-                raise FileNotFoundError(f"[{name}] {path} not found (local_source_dir)")
+        if isinstance(source, tuple):
+            paths[name] = [_resolve(config, s, raw_dir, refresh) for s in source]
         else:
-            path = ensure_dir(raw_dir) / Path(source.key).name
-            if refresh or not path.exists():
-                logger.info("[%s] downloading %s from the data lake...", name, source.key)
-                _download_s3(source, path)
-        paths[name] = path
+            paths[name] = _resolve(config, source, raw_dir, refresh)
     return paths

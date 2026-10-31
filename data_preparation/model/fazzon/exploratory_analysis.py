@@ -100,7 +100,7 @@ PERSONS_PER_CAR = 2.83  # A1: NetMobility 2021 field study
 
 # Regime 2026 (definito in reference_datasets.py): parcheggio a pagamento con
 # semaforo e prenotazione dal 4/7 al 31/8, navetta Lakebus dal 4/7 al 30/8.
-REGIME_2026_START, REGIME_2026_PARKING_END = REGULATED_PARKING
+REGIME_2026_START, REGIME_2026_PARKING_END = REGULATED_PARKING[2026]
 REGIME_2026_SHUTTLE_END = SHUTTLE_PERIODS["lakebus"][1]
 # Giorni 2026 esclusi dal confronto: evento "5days" (>2000 persone, prati
 # aggiuntivi adibiti a parcheggio, auto non conteggiate) e 21/8 (bus non attivo).

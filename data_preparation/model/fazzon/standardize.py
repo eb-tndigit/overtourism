@@ -106,13 +106,34 @@ def standardize_greenbus_2025(path) -> pd.DataFrame:
 # ------------------------------------------------------------------ road counts
 ROAD_CAR_CLASSES = (2, 3)  # autovetture e monovolumi, also with trailer
 ROAD_MIN_DAILY_CARS = 50  # D10: below this per direction the sensor is considered off
+ROAD_MAX_DIRECTION_RATIO = 2.0  # D10: a direction counting less than half the other one is undercounting
 
 
-def standardize_road_counts(path, stations: pd.DataFrame) -> pd.DataFrame:
+def standardize_road_counts(paths, stations: pd.DataFrame) -> pd.DataFrame:
     """PAT hourly counts (class x speed band rows) -> cars per station / date / direction / hour.
 
-    Streamed with pyarrow: the source is ~2.3 GB / 69 M rows.
+    `paths`: one file or a list of deliveries in delivery order; on the same station and day a
+    later delivery replaces an earlier one (D10). Streamed with pyarrow: the 2022-2025 file is
+    ~2.3 GB / 69 M rows.
     """
+    if isinstance(paths, (str, Path)):
+        paths = [paths]
+    deliveries = []
+    for i, path in enumerate(paths):
+        out = _read_road_counts(path, stations)
+        out["delivery"] = i
+        deliveries.append(out)
+    out = pd.concat(deliveries, ignore_index=True)
+    latest = out.groupby(["station_code", "date"])["delivery"].transform("max")
+    replaced = out["delivery"] < latest
+    if replaced.any():
+        logger.info("Road counts: %d station-days replaced by a later delivery",
+                    out[replaced].drop_duplicates(["station_code", "date"]).shape[0])
+    out = out[~replaced].drop(columns="delivery")
+    return out.sort_values(["station", "date", "direction", "hour"]).reset_index(drop=True)
+
+
+def _read_road_counts(path, stations: pd.DataFrame) -> pd.DataFrame:
     convert = pacsv.ConvertOptions(
         column_types={"PUNTO": pa.string(), "DATA": pa.string(), "ORA": pa.string(),
                       "DIREZIONE": pa.int8(), "CLASSE": pa.int8(), "N_VEICOLI": pa.int32()},
@@ -140,7 +161,7 @@ def standardize_road_counts(path, stations: pd.DataFrame) -> pd.DataFrame:
     unknown = out["station"].isna()
     if unknown.any():
         raise ValueError(f"road stations not in {STATIONS_FILE.name}: {sorted(out.loc[unknown, 'station_code'].unique())}")
-    return out.sort_values(["station", "date", "direction", "hour"]).reset_index(drop=True)
+    return out
 
 
 def road_counts_daily(hourly: pd.DataFrame) -> pd.DataFrame:
@@ -148,7 +169,9 @@ def road_counts_daily(hourly: pd.DataFrame) -> pd.DataFrame:
 
     D10: valid = at least 23 hours present and at least ROAD_MIN_DAILY_CARS cars: several sensors
     keep reporting zeros for months (Dimaro from mid-2024, Tonale in 2022, Croviana direction 2
-    most of the time); those zeros are missing data, not empty roads.
+    most of the time); those zeros are missing data, not empty roads. When both directions pass,
+    the one counting less than 1 / ROAD_MAX_DIRECTION_RATIO of the other is invalid: a sensor can
+    undercount without going to zero (Pracorno direction 1 from 20/02/2026: 2-5 % of direction 2).
     """
     daily = (
         hourly.groupby(["station_code", "station", "date", "direction"])
@@ -156,6 +179,9 @@ def road_counts_daily(hourly: pd.DataFrame) -> pd.DataFrame:
         .reset_index()
     )
     daily["valid"] = (daily["hours"] >= 23) & (daily["cars"] >= ROAD_MIN_DAILY_CARS)
+    other = daily.groupby(["station_code", "date"])["cars"].transform("sum") - daily["cars"]
+    both_valid = daily.groupby(["station_code", "date"])["valid"].transform("sum") == 2
+    daily["valid"] &= ~(both_valid & (daily["cars"] * ROAD_MAX_DIRECTION_RATIO < other))
     return daily
 
 
@@ -242,8 +268,9 @@ def standardize_all(paths: dict[str, Path]) -> dict[str, pd.DataFrame]:
     tables["fazzon_parking"] = standardize_parking(paths["parking"])
     tables["fazzon_parking_2025"] = standardize_parking_2025(paths["parking_2025"])
     tables["fazzon_greenbus_2025"] = standardize_greenbus_2025(paths["greenbus_2025"])
-    logger.info("Road counts (streaming %s)...", Path(paths["road_counts"]).name)
-    tables["road_counts_hourly"] = standardize_road_counts(paths["road_counts"], stations)
+    road_files = paths["road_counts"] if isinstance(paths["road_counts"], list) else [paths["road_counts"]]
+    logger.info("Road counts (streaming %s)...", ", ".join(Path(p).name for p in road_files))
+    tables["road_counts_hourly"] = standardize_road_counts(road_files, stations)
     tables["road_counts_daily"] = road_counts_daily(tables["road_counts_hourly"])
     logger.info("Weather...")
     tables["meteo_station"] = standardize_meteo_station(paths["meteo_station"])
