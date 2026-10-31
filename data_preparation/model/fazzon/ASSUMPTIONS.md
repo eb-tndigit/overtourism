@@ -45,7 +45,7 @@ Paths: `pipeline/` = `data_preparation/model/fazzon/`, `model/` = `executor-back
 | A5 | "N° persone bus" in the parking sheet = people going up | — | Operator sheet | `pipeline/standardize.py` (`bus_up`) | to validate (OQ2) |
 | A6 | People coming down by bus but not going up by bus walked up | bus_down − bus_up ≥ walkers | Working hypothesis | `pipeline/modal_shift.py` (`walk_up`); `model/fazzon_presence_stats.py` (walk-up share) | to validate (OQ1) |
 | A7 | 2026 parking price outside 04/07–31/08 | 5 euro/day, as in 2025 | none | `pipeline/reference_datasets.py` (`PRICE_2026_UNREGULATED`, `parking_price_assumed`) | to validate (OQ10) |
-| A8 | Parking occupancy ratio (simultaneous / daily cars) | 0.555 (dwell 4.44 h / 8 h) | 2021 calibration | `model/fazzon_model.py` (`i_occupancy_ratio`) | in use |
+| A8 | Parking occupancy ratio (simultaneous / daily cars) | 0.555 (dwell 4.44 h / 8 h) | 2021 calibration on the Lago dei Caprioli survey, 22-29/08/2021 (lake: `fazzon/Rilevazione affluenza lago caprioli.xlsx`) | `model/fazzon_model.py` (`i_occupancy_ratio`) | in use |
 | A9 | Road passages per car | 2 (one round trip per day) | — | `model/fazzon_model.py` (`i_xo_road_trips`) | in use |
 | A10 | Share of visitors using the restaurants | 0.55 | 2022 EETRA survey (>50 %) | `model/fazzon_model.py` (`i_u_food_fraction`) | in use |
 | A11 | Restaurant seat turnover | 2 sittings/seat/day | — | `model/fazzon_model.py` (`i_xo_food_sittings`) | in use |

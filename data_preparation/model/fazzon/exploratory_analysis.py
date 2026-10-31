@@ -22,15 +22,17 @@ Cosa fa, in ordine:
    Strade) in Val di Sole / Val di Non.
 3. Calcola le correlazioni grezze e destagionalizzate (entro-mese) con il
    target, e una matrice di correlazione completa tra tutte le variabili.
-4. Quantifica l'effetto di saturazione del canale auto (appiattimento della
-   pendenza ad alta domanda) confrontandolo con il canale bici/pedoni.
+4. Verifica l'ipotesi di saturazione del canale auto (appiattimento della
+   pendenza ad alta domanda) confrontandolo con il canale bici/pedoni. Contro
+   le presenze Vodafone la pendenza cala, contro il traffico misurato a
+   Pellizzano (punto 7) no: la saturazione non e' confermata.
 5. Esegue l'"esperimento naturale" della navetta: confronta le auto per un
    dato livello di domanda/meteo tra il periodo in cui la navetta era
    realmente attiva (28/06/2025 -> 20/07/2025) e il resto della stagione.
-6. Produce un grafico che rende esplicita l'assenza di dati: i dati sui
-   biglietti navetta non coprono affatto i giorni di domanda più alta della
-   stagione, quindi la domanda sullo spostamento modale non è oggi
-   rispondibile con questo dataset.
+6. Mostra la copertura dei dati della navetta pilota 2025: i biglietti non
+   coprono i giorni di domanda più alta della stagione, quindi con i soli dati
+   2025 lo spostamento modale non è stimabile (lo è con i dati 2026, punto 8 e
+   ``modal_shift.py``).
 7. Usa i conteggi stradali (auto *misurate* sulla SS42 a Pellizzano) come
    segnale di domanda alternativo alle presenze Vodafone: ripete l'analisi di
    saturazione e l'esperimento navetta, e confronta il periodo navetta 2025
@@ -40,6 +42,10 @@ Cosa fa, in ordine:
    semaforo, navetta "Lakebus") con la stagione 2025 (parcheggio a 5 euro fino a
    esaurimento posti, navetta pilota Greenbus solo 28/6-20/7), a parita' di
    giorno della settimana.
+9. Mostra i dataset letti dal modello: i livelli di auto per stagione e meteo
+   (``fazzon_presence_stats``) contro i dati osservati, la ripartizione dei
+   visitatori che non salgono piu' in auto e la risposta al prezzo del
+   parcheggio (``fazzon_modal_shift``).
 
 Decisioni e ipotesi (con quelle ancora da validare con gli esperti di dominio)
 sono elencate in ``ASSUMPTIONS.md`` (stessa cartella).
@@ -77,9 +83,13 @@ from scipy import stats
 from model.fazzon.prepare import read_normalized, read_reference
 from model.fazzon.reference_datasets import (
     EVENT_DAYS,
+    PRICE_2025,
+    REFERENCE_OCCUPANCY,
     REGULATED_PARKING,
+    SEASONS,
     SHUTTLE_NOT_RUNNING,
     SHUTTLE_PERIODS,
+    occupancy,
 )
 
 FAZZON_DIR = Path(__file__).resolve().parent
@@ -133,6 +143,7 @@ IT_LABELS = {
     "strada_pracorno_totale": "Auto Pracorno (Val di Rabbi), totale",
     "strada_celledizzo_totale": "Auto Celledizzo (Val di Peio), totale",
     "strada_tonale_totale": "Auto Passo del Tonale, totale",
+    "strada_revo_totale": "Auto Revò (Val di Non), totale",
     "tmax": "Temperatura massima (C, stazione Male')",
     "tmin": "Temperatura minima (C, stazione Male')",
     "rain_mm": "Pioggia (mm, stazione Male')",
@@ -163,6 +174,10 @@ DIVERGING_CMAP = LinearSegmentedColormap.from_list(
     "blue_red_diverging", [C_BLUE, C_NEUTRAL_MID, C_RED]
 )
 
+WEATHER_COLORS = {"good": C_BLUE, "cool": C_AQUA, "rainy": C_VIOLET}
+WEATHER_LABELS = {"good": "Bel tempo", "cool": "Fresco", "rainy": "Pioggia"}
+SEASON_LABELS = {"june": "Giugno", "july": "Luglio", "august": "Agosto", "september": "Settembre"}
+
 plt.rcParams.update({
     "figure.facecolor": SURFACE,
     "axes.facecolor": SURFACE,
@@ -182,16 +197,16 @@ plt.rcParams.update({
 
 
 # %% 1-3. Dati: dataset della pipeline Fazzon e pannello giornaliero 2025
-def load_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def load_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, pd.DataFrame]]:
     """``fazzon_daily`` (dataset di riferimento), validita' giornaliera dei
-    contatori stradali e anagrafica delle stazioni, prodotti da
-    ``python -m model.fazzon.prepare``."""
+    contatori stradali, anagrafica delle stazioni e tutti i dataset di
+    riferimento, prodotti da ``python -m model.fazzon.prepare``."""
     try:
         reference = read_reference()
         normalized = read_normalized()
     except FileNotFoundError as e:
         raise SystemExit(f"{e}\nEseguire prima, da data_preparation: python -m model.fazzon.prepare") from None
-    return reference["fazzon_daily"], normalized["road_counts_daily"], normalized["stations"]
+    return reference["fazzon_daily"], normalized["road_counts_daily"], normalized["stations"], reference
 
 
 def build_panel(daily: pd.DataFrame) -> pd.DataFrame:
@@ -207,8 +222,7 @@ def build_panel(daily: pd.DataFrame) -> pd.DataFrame:
     p["is_rainy"] = (p["rain_mm"] >= RAINY_DAY_MM).astype(int)
     keep = ["date", "parking_tickets", "car_visitors", "shuttle_running", "bus_tickets", "dow", "month",
             "is_weekend"]
-    predictors = [c for c in p.columns if c.startswith(("vf_pres_", "bici_", "tgc_", "strada_"))
-                  and c != "strada_revo_totale"]
+    predictors = [c for c in p.columns if c.startswith(("vf_pres_", "bici_", "tgc_", "strada_"))]
     weather = ["weather_desc", "tmin", "tmax", "rain_mm", "meteo_quality", "tmin_bollettino", "tmax_bollettino",
                "rain_mm_bollettino", "is_rainy"]
     return p[keep + predictors + weather].reset_index(drop=True)
@@ -257,6 +271,7 @@ CORRELATION_MATRIX_COLS = [
     "vf_pres_comune_ossana_pellizzano", "vf_pres_poi_caprioli",
     "bici_valley_total", "bici_near_fazzon",
     "strada_pellizzano_salita_mattina", "strada_pellizzano_totale", "strada_pracorno_totale",
+    "strada_celledizzo_totale", "strada_revo_totale", "strada_tonale_totale",
     "tgc_accessi_tonale", "tmax", "tmin", "rain_mm", "is_weekend",
 ]
 
@@ -588,7 +603,8 @@ def plot_correlation_matrix(matrix: pd.DataFrame, path: Path):
 
 def plot_saturation(
     panel: pd.DataFrame, demand_col: str, path: Path, mode: str = "median", min_frac: float = 0.2,
-    title: str = "La crescita delle auto rallenta all'aumentare della domanda in valle",
+    title: str = "Auto a Fazzon vs presenze in valle: la pendenza cala ad alta domanda\n"
+                 "(non contro il traffico misurato a Pellizzano: saturazione non confermata)",
 ):
     """``mode="median"``: soglia fissa a meta' campione (Plot 3).
     ``mode="optimal"``: soglia scelta per griglia, minimizzando l'errore
@@ -693,7 +709,8 @@ def plot_car_vs_bici_divergence(
         else "soglia ottimizzata per canale (minimizza l'errore totale delle due rette)"
     )
     fig.suptitle(
-        f"Stessa domanda in valle, risposta opposta: le auto rallentano, bici/pedoni no\n{subtitle}",
+        f"Rispetto alle presenze Vodafone le auto rallentano, bici/pedoni no\n"
+        f"(rispetto al traffico misurato a Pellizzano le auto non rallentano)\n{subtitle}",
         x=0.02, ha="left", fontsize=12, color=C_INK, y=1.03,
     )
     fig.subplots_adjust(top=0.72, wspace=0.28)
@@ -764,7 +781,7 @@ def plot_bus_coverage_gap(panel: pd.DataFrame, path: Path):
              fontsize=8, color=C_INK2)
     ax.set_ylabel(IT_LABELS["parking_tickets"])
     ax.set_title(
-        "Non esistono dati sulla navetta per i giorni di domanda più alta della stagione",
+        "Navetta pilota 2025: nessun dato per i giorni di domanda più alta della stagione",
         loc="left", color=C_INK,
     )
     ax.legend(frameon=False, loc="upper left", fontsize=8.5)
@@ -986,10 +1003,204 @@ def plot_2025_vs_2026_periods(comp: pd.DataFrame, path: Path):
     plt.close(fig)
 
 
+# %% 9. Dataset del modello: livelli per stagione e meteo, spostamento modale, prezzo
+def _estimate(estimates: pd.DataFrame, parameter: str, days: str = "") -> pd.Series:
+    row = estimates[(estimates["parameter"] == parameter) & (estimates["days"] == days)]
+    return row.iloc[0]
+
+
+def plot_demand_drivers(panel: pd.DataFrame, daily: pd.DataFrame, presence_stats: pd.DataFrame, path: Path):
+    """Sinistra: auto a Fazzon vs auto verso monte al mattino a Pellizzano (A17), colorate per
+    classe meteo (A19). Destra: auto per stagione e classe meteo, i livelli usati dal modello
+    (A21) con le medie osservate."""
+    weather = daily.set_index("date")["weather"]
+    p = panel.dropna(subset=["strada_pellizzano_salita_mattina"]).copy()
+    p["weather"] = p["date"].map(weather)
+    x, y = p["strada_pellizzano_salita_mattina"], p["parking_tickets"]
+    fit = stats.linregress(x, y)
+
+    def within_month(s):
+        return s - s.groupby(p["month"]).transform("mean")
+
+    r2_wm = within_month(x).corr(within_month(y)) ** 2
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6.2), gridspec_kw={"width_ratios": [1.1, 1]})
+    _style_ax(ax1)
+    for w, color in WEATHER_COLORS.items():
+        d = p[p["weather"] == w]
+        ax1.scatter(d["strada_pellizzano_salita_mattina"], d["parking_tickets"], s=34, color=color, alpha=0.85,
+                    zorder=3, label=f"{WEATHER_LABELS[w]} ({len(d)} giorni)")
+    xs = np.array([x.min(), x.max()])
+    ax1.plot(xs, fit.intercept + fit.slope * xs, color=C_INK2, linewidth=1.6, zorder=2,
+             label=f"Retta: R² = {fit.rvalue ** 2:.2f} (entro il mese: {r2_wm:.2f})")
+    ax1.set_xlabel(IT_LABELS["strada_pellizzano_salita_mattina"])
+    ax1.set_ylabel(IT_LABELS["parking_tickets"])
+    ax1.set_title("Il traffico in valle al mattino spiega gran parte delle auto a Fazzon",
+                  loc="left", color=C_INK, fontsize=10.5)
+    ax1.legend(frameon=False, loc="upper left", fontsize=9.5)
+
+    _style_ax(ax2)
+    s = presence_stats.copy()
+    s["cars"] = s["mean_car_visitors"] / REFERENCE_OCCUPANCY
+    observed = (daily[(daily["year"] == 2025) & daily["cars"].notna() & daily["weather"].notna()]
+                .assign(season=lambda d: d["month"].map(SEASONS))
+                .groupby(["season", "weather"])["cars"].agg(["mean", "size"]))
+    seasons = list(SEASON_LABELS)
+    xpos = np.arange(len(seasons))
+    width = 0.26
+    for i, (w, color) in enumerate(WEATHER_COLORS.items()):
+        off = (i - 1) * width
+        level = s.set_index(["season", "weather"]).loc[[(se, w) for se in seasons], "cars"].to_numpy()
+        factor = s.loc[s["weather"] == w, "weather_factor"].iloc[0]
+        label = WEATHER_LABELS[w] + ("" if w == "good" else f" (x {factor:.2f})".replace(".", ","))
+        ax2.bar(xpos + off, level, width=width, color=color, alpha=0.85, zorder=3, label=label)
+        for xi, se in zip(xpos + off, seasons):
+            if (se, w) in observed.index:
+                m, n = observed.loc[(se, w)]
+                ax2.scatter(xi, m, marker="_", s=260, color=C_INK, linewidth=2, zorder=4)
+                ax2.text(xi, -12, f"{int(n)}", ha="center", va="top", fontsize=8, color=C_INK2)
+            else:
+                ax2.text(xi, -12, "0", ha="center", va="top", fontsize=8, color=C_INK2)
+    ax2.scatter([], [], marker="_", s=260, color=C_INK, linewidth=2, label="Media osservata 2025")
+    ax2.set_xticks(xpos)
+    ax2.set_xticklabels([SEASON_LABELS[se] for se in seasons])
+    ax2.tick_params(axis="x", pad=16)
+    ax2.set_ylim(bottom=0)
+    ax2.set_ylabel("Auto / giorno (livello del modello)")
+    ax2.set_title("Il meteo: stesso fattore in ogni stagione (A21)", loc="left", color=C_INK, fontsize=10.5)
+    ax2.legend(frameon=False, loc="upper left", fontsize=9.5)
+
+    fig.suptitle(f"Cosa muove le auto a Fazzon (stagione 2025, {len(p)} giorni)", x=0.01, ha="left", fontsize=12,
+                 color=C_INK)
+    note = ("Meteo (A19): pioggia = almeno 5 mm; fresco = senza pioggia e temperatura massima di oltre 2 °C sotto "
+            "la media climatologica del mese; bel tempo = il resto. Stazione Meteotrentino di Malè.\n"
+            "Destra: barre = livelli del modello (livello della stagione x fattore meteo); trattini = media dei giorni "
+            "osservati; numeri sotto le barre = giorni osservati.")
+    fig.text(0.01, -0.04, note, fontsize=8.5, color=C_INK2, va="top")
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    fig.savefig(path, facecolor=SURFACE, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_modal_shift_split(estimates: pd.DataFrame, days: pd.DataFrame, path: Path):
+    """Visitori in meno in auto/moto al giorno (regime 2026 vs condizioni 2025) e loro ripartizione
+    fra navetta, salita a piedi e altrove, con gli intervalli bootstrap al 90 %."""
+    regime = days[days["role"] == "regime"]
+    n_all = len(regime)
+    n_walk = int(regime["bus_down"].notna().sum())
+    first_walk = regime.loc[regime["bus_down"].notna(), "date"].min()
+    lost = _estimate(estimates, "lost_per_day", "with_walk_up")
+    lost_all = _estimate(estimates, "lost_per_day", "all_days")
+    shares = [
+        ("Navetta\n(persone in salita)", "share_shuttle", C_BLUE),
+        ("A piedi\n(scendono in navetta, non salgono)", "share_walk_up", C_AQUA),
+        ("Altrove\n(il resto)", "share_elsewhere", C_MUTED),
+    ]
+
+    fig, ax = plt.subplots(figsize=(12, 6.2))
+    _style_ax(ax)
+    xpos = np.arange(len(shares))
+    for xi, (label, parameter, color) in zip(xpos, shares):
+        e = _estimate(estimates, parameter, "with_walk_up")
+        ax.bar(xi, e["estimate"] * 100, width=0.55, color=color, zorder=3)
+        ax.errorbar(xi, e["estimate"] * 100, yerr=[[(e["estimate"] - e["low"]) * 100], [(e["high"] - e["estimate"]) * 100]],
+                    color=C_INK, capsize=8, linewidth=1.4, zorder=4)
+        ax.text(xi + 0.3, e["estimate"] * 100, f"{e['estimate'] * 100:.0f}%\n({e['low'] * 100:.0f}% / {e['high'] * 100:.0f}%)",
+                va="center", ha="left", fontsize=9.5, color=C_INK2)
+    ax.axhline(0, color=C_AXIS, linewidth=1)
+    ax.set_xticks(xpos)
+    ax.set_xticklabels([s[0] for s in shares])
+    ax.set_xlim(-0.5, len(shares) - 0.2)
+    ax.set_ylabel("Quota dei visitori in meno in auto/moto (%)")
+    ax.set_title(
+        f"Regime 2026: circa {lost['estimate']:.0f} visitori al giorno in meno arrivano in auto o moto "
+        f"(intervallo 90%: {lost['low']:.0f}-{lost['high']:.0f}).\n"
+        f"Tre su quattro salgono in navetta; la quota che va altrove non è distinguibile da zero",
+        loc="left", color=C_INK, fontsize=11,
+    )
+    note = (
+        f"Giorni dal {first_walk:%d/%m/%Y} (persone in discesa registrate): {n_walk}; su tutti i {n_all} giorni del "
+        f"regime: {lost_all['estimate']:.0f} visitori in meno al giorno, navetta "
+        f"{_estimate(estimates, 'share_shuttle', 'all_days')['estimate'] * 100:.0f}%.\n"
+        "Visitori in meno = visitori attesi in condizioni 2025 (livello 2025 per stagione e meteo x effetto anno 2026, "
+        "A21, A22; 2,5 persone/veicolo)\n- visitori in auto e moto misurati (persone/veicolo dal prezzo pagato, A2). "
+        "A piedi = persone in discesa - persone in salita in navetta (A6).\n"
+        "Altrove = il resto, per differenza. Barre di errore: intervallo bootstrap al 90% sui giorni."
+    )
+    ax.text(0.0, -0.2, note, transform=ax.transAxes, fontsize=8.5, color=C_INK2, va="top")
+    fig.tight_layout()
+    fig.savefig(path, facecolor=SURFACE, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_price_response(estimates: pd.DataFrame, path: Path):
+    """Visitori e veicoli privati in funzione del prezzo per veicolo, relativi a 5 euro: la
+    curva esponenziale del modello (A23), con la banda di beta, e i due livelli osservati."""
+    beta = _estimate(estimates, "beta_per_euro")
+    price_2026 = _estimate(estimates, "price_paid")
+    visitors = _estimate(estimates, "visitor_response")
+    cars = _estimate(estimates, "car_response")
+
+    prices = np.linspace(0, 25, 251)
+
+    def response(b):
+        return np.exp(-b * np.clip(prices - PRICE_2025, 0, None))  # A27: nessun aumento sotto 5 euro
+
+    vehicles_factor = occupancy(PRICE_2025) / occupancy(prices)
+    observed = prices <= price_2026["estimate"]
+
+    fig, ax = plt.subplots(figsize=(12, 6.5))
+    _style_ax(ax)
+    for values, low, high, color, label in [
+        (response(beta["estimate"]), response(beta["high"]), response(beta["low"]), C_BLUE,
+         "Visitori in auto/moto"),
+        (response(beta["estimate"]) * vehicles_factor, response(beta["high"]) * vehicles_factor,
+         response(beta["low"]) * vehicles_factor, C_ORANGE, "Veicoli (con più persone per veicolo, A2)"),
+    ]:
+        ax.fill_between(prices, low * 100, high * 100, color=color, alpha=0.13, zorder=1)
+        ax.plot(prices[observed], values[observed] * 100, color=color, linewidth=2.4, zorder=3, label=label)
+        ax.plot(prices[~observed], values[~observed] * 100, color=color, linewidth=2.4, linestyle="--", zorder=3)
+
+    ax.scatter([PRICE_2025], [100], s=70, color=C_INK, zorder=5)
+    ax.annotate("2025: 5 €\n(riferimento)", (PRICE_2025, 100), xytext=(8, 6), textcoords="offset points",
+                fontsize=9.5, color=C_INK)
+    for e, color, name in [(visitors, C_BLUE, "visitori"), (cars, C_ORANGE, "veicoli")]:
+        ax.errorbar(price_2026["estimate"], e["estimate"] * 100,
+                    yerr=[[(e["estimate"] - e["low"]) * 100], [(e["high"] - e["estimate"]) * 100]],
+                    fmt="o", color=color, markersize=8, capsize=6, zorder=5)
+        ax.annotate(f"2026 ({name}): {e['estimate'] * 100:.0f}%", (price_2026["estimate"], e["estimate"] * 100),
+                    xytext=(-12, -4), textcoords="offset points", ha="right", fontsize=9.5, color=color)
+    ax.annotate(f"prezzo medio pagato 2026: {price_2026['estimate']:.1f} €\n(20 € giornata, 10 € pomeriggio, A24)",
+                (price_2026["estimate"], 4), ha="center", fontsize=8.5, color=C_INK2)
+    ax.axvline(price_2026["estimate"], color=C_AXIS, linewidth=1, linestyle=":")
+    ax.set_xlim(0, 25)
+    ax.set_ylim(0, 115)
+    ax.set_xlabel("Prezzo pagato per veicolo (€)")
+    ax.set_ylabel("Rispetto al 2025 a 5 € (%)")
+    ax.set_title(
+        f"Risposta al prezzo del parcheggio: −{beta['estimate'] * 100:.0f}% di visitori in auto/moto per ogni euro "
+        f"in più (circa; β = {beta['estimate']:.3f}, intervallo 90%: {beta['low']:.3f}-{beta['high']:.3f})",
+        loc="left", color=C_INK, fontsize=11,
+    )
+    ax.legend(frameon=False, loc="upper right", fontsize=10)
+    caveat = (
+        "ATTENZIONE: la curva passa per due soli livelli di prezzo osservati (5 € nel 2025, circa 15 € pagati in media "
+        "nel 2026). La forma esponenziale è un'ipotesi (A23), non è\nstimata dai dati: fra i due punti è "
+        "un'interpolazione, oltre i 15 € (tratteggio) un'estrapolazione. Tutto l'effetto del pacchetto 2026 (prezzo, "
+        "prenotazione, semaforo, navetta) è\nattribuito al prezzo (A25): un cambio di prezzo senza il resto del "
+        "pacchetto è un'estrapolazione. Sotto i 5 € si assume nessun aumento (A27). Fasce: intervallo 90% di β."
+    )
+    ax.text(0.0, -0.13, caveat, transform=ax.transAxes, fontsize=8.8, color=C_INK, va="top",
+            bbox={"boxstyle": "round,pad=0.5", "facecolor": "#fbe1d6", "edgecolor": C_ORANGE, "linewidth": 0.8})
+    fig.tight_layout()
+    fig.savefig(path, facecolor=SURFACE, bbox_inches="tight")
+    plt.close(fig)
+
+
 # %% Main
 def main():
     print("Lettura dei dataset della pipeline Fazzon...")
-    daily, road_daily, stations = load_data()
+    daily, road_daily, stations, reference = load_data()
     panel = build_panel(daily)
     panel.to_csv(OUTPUT_DIR / "panel_daily.csv", index=False)
     print(f"  {len(panel)} giorni, {panel['date'].min().date()} -> {panel['date'].max().date()}")
@@ -1070,6 +1281,12 @@ def main():
     print(comp.round(1).T.to_string())
     plot_2025_vs_2026_daily(park, OUTPUT_DIR / "10_2025_vs_2026_daily.png")
     plot_2025_vs_2026_periods(comp, OUTPUT_DIR / "11_2025_vs_2026_periods.png")
+
+    print("\nDataset del modello (livelli per stagione e meteo, spostamento modale, risposta al prezzo)...")
+    plot_demand_drivers(panel, daily, reference["fazzon_presence_stats"], OUTPUT_DIR / "12_demand_drivers.png")
+    plot_modal_shift_split(reference["fazzon_modal_shift"], reference["fazzon_modal_shift_daily"],
+                           OUTPUT_DIR / "13_modal_shift_split.png")
+    plot_price_response(reference["fazzon_modal_shift"], OUTPUT_DIR / "14_price_response.png")
 
     print(f"\nTutti gli output sono stati scritti in {OUTPUT_DIR}")
 
