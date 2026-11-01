@@ -2,7 +2,7 @@
 """
 STEP 2b - Modal-shift estimation (D8).
 
-Input : fazzon_daily, fazzon_presence_stats (step 2)
+Input : fazzon_daily; the season x weather levels of the calibration year (A21, comparison only)
 Output: <final>/fazzon/fazzon_modal_shift (one row per parameter, with a bootstrap 90 % interval)
         and fazzon_modal_shift_daily (the 2026 days used)
 
@@ -13,7 +13,7 @@ Behaviour model (every element is an entry of ASSUMPTIONS.md):
   applied to the day's traffic and weather, times a 2026 year effect of 1 +- 10 % (A22). The
   year effect measured on the 2026 days at 5 euro without the access rules is reported as a
   check (``year_effect_observed``), not used. Counts at 5 euro include the motorbikes (A26).
-  The season x weather level (fazzon_presence_stats, A21) is kept in the days for comparison.
+  The season x weather level of the calibration year (A21) is kept in the days for comparison.
 * Persons per vehicle: a function of the price paid (A2): 2.5 at 5 euro, 3.5 at 20 euro, linear in
   between. Visitors by private vehicle = vehicles x occupancy; under the 2026 rules the motorbikes
   are counted apart (``moto_persons``) and added.
@@ -32,8 +32,8 @@ import logging
 import numpy as np
 import pandas as pd
 
+from model.fazzon.demand import DEMAND_PREDICTOR, calibration_days, expected_cars, fit_demand
 from model.fazzon.reference_datasets import (
-    CALIBRATION_YEAR,
     OCCUPANCY_HIGH,
     OCCUPANCY_LOW,
     PRICE_2025,
@@ -49,43 +49,19 @@ N_BOOTSTRAP = 2000
 INTERVAL = (0.05, 0.95)
 SEED = 0
 
-DEMAND_PREDICTOR = "strada_pellizzano_salita_mattina"  # A37: cars up valley at Pellizzano 07-12 (A16, A17)
 YEAR_EFFECT = 1.0  # A22
 YEAR_EFFECT_UNCERTAINTY = 0.10  # A22: drawn uniformly in YEAR_EFFECT +- this, in the bootstrap
 
 
-# ------------------------------------------------------------------ demand in 2025 conditions (A37)
-def calibration_days(daily: pd.DataFrame) -> pd.DataFrame:
-    """Calibration-year days with Fazzon cars, valid traffic and weather class (D4: all of them)."""
-    return daily[(daily["year"] == CALIBRATION_YEAR) & daily["cars"].notna() & daily[DEMAND_PREDICTOR].notna()
-                 & daily["weather"].notna()]
-
-
-def _design(days: pd.DataFrame) -> np.ndarray:
-    weather = [(days["weather"] == w).to_numpy(dtype=float) for w in WEATHER_CLASSES[1:]]
-    return np.column_stack([np.ones(len(days)), days[DEMAND_PREDICTOR].to_numpy(dtype=float), *weather])
-
-
-def fit_demand(calibration: pd.DataFrame) -> np.ndarray:
-    """A37: cars = a + b x cars up valley + c(weather), least squares; returns (a, b, c_cool, c_rainy)."""
-    coef, *_ = np.linalg.lstsq(_design(calibration), calibration["cars"].to_numpy(dtype=float), rcond=None)
-    return coef
-
-
-def expected_cars(days: pd.DataFrame, coef: np.ndarray) -> np.ndarray:
-    """Cars at Fazzon in calibration-year conditions, from the day's traffic and weather (A37)."""
-    return _design(days) @ coef
-
-
 # ------------------------------------------------------------------ days
-def modal_shift_days(daily: pd.DataFrame, stats: pd.DataFrame, coef: np.ndarray) -> pd.DataFrame:
+def modal_shift_days(daily: pd.DataFrame, levels: pd.DataFrame, coef: np.ndarray) -> pd.DataFrame:
     """2026 days with car counts and traffic, the cars expected in 2025 conditions and the price paid.
 
     ``role``: ``year_effect`` (5 euro, no access rules, no event; A22) or ``regime`` (access
     rules and shuttle running; D2, D3 excluded). ``cars_2025_levels``: the season x weather level
     (A21), for comparison.
     """
-    levels = stats.set_index(["season", "weather"])["mean_car_visitors"] / REFERENCE_OCCUPANCY
+    levels = levels.set_index(["season", "weather"])["mean_car_visitors"] / REFERENCE_OCCUPANCY
     f = daily[(daily["year"] == 2026) & daily["cars"].notna() & daily["month"].isin(list(SEASONS))].copy()
     f = f.dropna(subset=["weather"])
     f["season"] = f["month"].map(SEASONS)
@@ -143,12 +119,13 @@ def _with_expected(days: pd.DataFrame, coef: np.ndarray) -> pd.DataFrame:
     return days.assign(cars_2025_conditions=expected_cars(days, coef))
 
 
-def estimate_modal_shift(daily: pd.DataFrame, stats: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+def estimate_modal_shift(daily: pd.DataFrame, levels: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Return ``(estimates, days)``: one row per parameter with the point estimate and the
-    bootstrap interval, and the days used."""
+    bootstrap interval, and the days used. `levels`: the season x weather levels of the
+    calibration year (``level_presence_stats``, A21), kept in the days for comparison."""
     calibration = calibration_days(daily)
     coef = fit_demand(calibration)
-    days = modal_shift_days(daily, stats, coef)
+    days = modal_shift_days(daily, levels, coef)
     design_days = days.rename(columns={"morning_up": DEMAND_PREDICTOR})
     year = design_days[design_days["role"] == "year_effect"]
     regime = design_days[design_days["role"] == "regime"]

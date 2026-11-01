@@ -15,6 +15,7 @@ Output: <final>/fazzon/
 assumption is listed in ASSUMPTIONS.md; the IDs in the comments below refer to it.
 """
 
+import calendar
 import logging
 
 import numpy as np
@@ -231,9 +232,10 @@ def weather_factors(cal: pd.DataFrame, n_iter: int = 50) -> tuple[pd.Series, pd.
     return level, factor
 
 
-def build_presence_stats(daily: pd.DataFrame) -> pd.DataFrame:
-    """Presence statistics per (season, weather) cell, in the layout read by
-    fazzon_presence_stats.py.
+def level_presence_stats(daily: pd.DataFrame) -> pd.DataFrame:
+    """Season x weather levels of the calibration year (A21), in the layout of the presence
+    statistics. Replaced by ``build_presence_stats`` (A37, A38); kept for comparison (modal-shift
+    days, exploratory analysis).
 
     * ``season_freq_rel``: share of the calibration days in the season (A14).
     * ``weather_freq_rel``: P(weather | season), climatology (A20).
@@ -277,13 +279,73 @@ def build_presence_stats(daily: pd.DataFrame) -> pd.DataFrame:
     return stats
 
 
+MIN_CELL_DAYS = 10  # fewer traffic days in a season x weather cell: error, not a thin estimate
+
+
+def season_weights() -> pd.Series:
+    """A14: share of the calendar days of each season (month) in June-September."""
+    days = pd.Series({season: calendar.monthrange(CALIBRATION_YEAR, month)[1] for month, season in SEASONS.items()})
+    return days / days.sum()
+
+
+def build_presence_stats(daily: pd.DataFrame) -> pd.DataFrame:
+    """Presence statistics per (season, weather) cell, in the layout read by
+    fazzon_presence_stats.py.
+
+    * ``season_freq_rel``: share of the calendar days in the season (A14).
+    * ``weather_freq_rel``: P(weather | season), climatology (A20).
+    * Visitors by private vehicle in 2025 conditions (5 euro; A2, A26): the cars of every season
+      day of every year with valid traffic and weather class, from the calibration year's relation
+      with the traffic (A37; below zero: zero); mean = their mean x REFERENCE_OCCUPANCY;
+      variance = their variance + DISPERSION x mean (the scatter of the days around the
+      relation, A38), x REFERENCE_OCCUPANCY^2.
+    * Non-car visitors: car visitors x NON_CAR_SHARE / (1 - NON_CAR_SHARE) (A3),
+      SD = OTHER_STD_REL x mean (A4).
+    """
+    from model.fazzon.demand import calibration_days, demand_days, dispersion, expected_cars, fit_demand
+
+    other_ratio = NON_CAR_SHARE / (1.0 - NON_CAR_SHARE)
+    cal = calibration_days(daily)
+    coef = fit_demand(cal)
+    phi = dispersion(cal, coef)
+    days = demand_days(daily).copy()
+    days["season"] = days["month"].map(SEASONS)
+    days["cars"] = np.clip(expected_cars(days, coef), 0.0, None)
+    climatology = weather_climatology(daily)
+    weights = season_weights()
+
+    rows = []
+    for season in SEASONS.values():
+        for weather in WEATHER_CLASSES:
+            cell = days.loc[(days["season"] == season) & (days["weather"] == weather), "cars"]
+            if len(cell) < MIN_CELL_DAYS:
+                raise ValueError(f"{season} / {weather}: {len(cell)} days with traffic, fewer than {MIN_CELL_DAYS}")
+            mean_car = cell.mean() * REFERENCE_OCCUPANCY
+            std_car = np.sqrt(cell.var() + phi * cell.mean()) * REFERENCE_OCCUPANCY
+            rows.append({
+                "season": season,
+                "weather": weather,
+                "season_freq_rel": weights[season],
+                "weather_freq_rel": climatology.loc[season, weather],
+                "mean_car_visitors": mean_car,
+                "std_car_visitors": std_car,
+                "mean_other_visitors": mean_car * other_ratio,
+                "std_other_visitors": mean_car * other_ratio * OTHER_STD_REL,
+                "n_days": len(cell),
+            })
+    stats = pd.DataFrame(rows)
+    years = sorted(days["year"].unique())
+    stats.insert(0, "calibration", f"traffic_{years[0]}_{years[-1]}_relation_{CALIBRATION_YEAR}")
+    return stats
+
+
 def build_all(tables: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
     daily = build_fazzon_daily(tables)
     stats = build_presence_stats(daily)
     _check(daily, stats)
-    from model.fazzon.modal_shift import estimate_modal_shift  # step 2b, uses the stats above
+    from model.fazzon.modal_shift import estimate_modal_shift  # step 2b
 
-    modal_shift, modal_shift_days = estimate_modal_shift(daily, stats)
+    modal_shift, modal_shift_days = estimate_modal_shift(daily, level_presence_stats(daily))
     from model.fazzon.monitoring import build_monitoring  # step 2c
 
     return {

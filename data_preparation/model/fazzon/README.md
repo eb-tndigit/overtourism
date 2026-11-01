@@ -37,8 +37,11 @@ python -m model.fazzon.exploratory_analysis     # exploratory analysis and plots
     `parking_price_afternoon`, `parking_price_assumed`), weather and weather class (`weather`,
     `tmax_clim`), predictors (road counts,
     Vodafone, bikes, Guest Card).
-  * `fazzon_presence_stats`: the presence statistics of the Fazzon model, per season and weather
-    class (good / cool / rainy), with the season weights and the weather climatology.
+  * `fazzon_presence_stats`: the presence statistics of the Fazzon model, per season (month) and
+    weather class (good / cool / rainy), with the season weights and the weather climatology. The
+    cars in 2025 conditions come from every season day of every year with valley traffic
+    (2023–2026), converted with the 2025 relation between Fazzon cars, morning traffic at
+    Pellizzano and weather (`demand.py`, A37, A38).
   * `fazzon_modal_shift` (`modal_shift.py`, step 2b): the behaviour model of the 2026 rules —
     the cars expected in 2025 conditions on each 2026 day come from the 2025 relation between
     Fazzon cars, morning traffic up valley at Pellizzano and weather (A37), with a year effect of

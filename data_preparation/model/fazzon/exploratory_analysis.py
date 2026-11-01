@@ -87,17 +87,19 @@ from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.lines import Line2D
 from scipy import stats
 
-from model.fazzon.modal_shift import (
+from model.fazzon.demand import (
     DEMAND_PREDICTOR,
-    YEAR_EFFECT_UNCERTAINTY,
     calibration_days,
-    estimate_point,
+    demand_days,
+    dispersion,
     expected_cars,
     fit_demand,
 )
+from model.fazzon.modal_shift import YEAR_EFFECT_UNCERTAINTY, estimate_point
 from model.fazzon.monitoring import CARS_PER_MORNING_CAR, CARS_VS_RELATION
 from model.fazzon.prepare import read_normalized, read_reference
 from model.fazzon.reference_datasets import (
+    CALIBRATION_YEAR,
     EXCLUDED_DAYS,
     PRICE_2025,
     REFERENCE_OCCUPANCY,
@@ -105,6 +107,7 @@ from model.fazzon.reference_datasets import (
     SEASONS,
     SHUTTLE_PERIODS,
     WEATHER_CLASSES,
+    level_presence_stats,
     occupancy,
 )
 
@@ -1025,7 +1028,7 @@ def _estimate(estimates: pd.DataFrame, parameter: str, days: str = "") -> pd.Ser
 def plot_demand_drivers(panel: pd.DataFrame, daily: pd.DataFrame, presence_stats: pd.DataFrame, path: Path):
     """Sinistra: auto a Fazzon vs auto verso monte al mattino a Pellizzano (A17), colorate per
     classe meteo (A19). Destra: auto per stagione e classe meteo, i livelli usati dal modello
-    (A21) con le medie osservate."""
+    (dal traffico in valle, A37) con le medie osservate."""
     weather = daily.set_index("date")["weather"]
     p = panel.dropna(subset=["strada_pellizzano_salita_mattina"]).copy()
     p["weather"] = p["date"].map(weather)
@@ -1064,9 +1067,7 @@ def plot_demand_drivers(panel: pd.DataFrame, daily: pd.DataFrame, presence_stats
     for i, (w, color) in enumerate(WEATHER_COLORS.items()):
         off = (i - 1) * width
         level = s.set_index(["season", "weather"]).loc[[(se, w) for se in seasons], "cars"].to_numpy()
-        factor = s.loc[s["weather"] == w, "weather_factor"].iloc[0]
-        label = WEATHER_LABELS[w] + ("" if w == "good" else f" (x {factor:.2f})".replace(".", ","))
-        ax2.bar(xpos + off, level, width=width, color=color, alpha=0.85, zorder=3, label=label)
+        ax2.bar(xpos + off, level, width=width, color=color, alpha=0.85, zorder=3, label=WEATHER_LABELS[w])
         for xi, se in zip(xpos + off, seasons):
             if (se, w) in observed.index:
                 m, n = observed.loc[(se, w)]
@@ -1080,15 +1081,17 @@ def plot_demand_drivers(panel: pd.DataFrame, daily: pd.DataFrame, presence_stats
     ax2.tick_params(axis="x", pad=16)
     ax2.set_ylim(bottom=0)
     ax2.set_ylabel("Auto / giorno (livello del modello)")
-    ax2.set_title("Il meteo: stesso fattore in ogni stagione (A21)", loc="left", color=C_INK, fontsize=10.5)
+    ax2.set_title("Livelli del modello per mese e meteo (dal traffico in valle, A37)", loc="left", color=C_INK,
+                  fontsize=10.5)
     ax2.legend(frameon=False, loc="upper left", fontsize=9.5)
 
     fig.suptitle(f"Cosa muove le auto a Fazzon (stagione 2025, {len(p)} giorni)", x=0.01, ha="left", fontsize=12,
                  color=C_INK)
     note = ("Meteo (A19): pioggia = almeno 5 mm; fresco = senza pioggia e temperatura massima di oltre 2 °C sotto "
             "la media climatologica del mese; bel tempo = il resto. Stazione Meteotrentino di Malè.\n"
-            "Destra: barre = livelli del modello (livello della stagione x fattore meteo); trattini = media dei giorni "
-            "osservati; numeri sotto le barre = giorni osservati.")
+            "Destra: barre = livelli del modello (media dei giorni con traffico valido di tutti gli anni, convertiti "
+            "con la relazione 2025); trattini = media dei giorni osservati 2025;\nnumeri sotto le barre = giorni "
+            "osservati 2025 (giugno: solo gli ultimi giorni del mese).")
     fig.text(0.01, -0.04, note, fontsize=8.5, color=C_INK2, va="top")
     fig.tight_layout(rect=(0, 0, 1, 0.95))
     fig.savefig(path, facecolor=SURFACE, bbox_inches="tight")
@@ -1277,7 +1280,7 @@ def _fit_predict(train: pd.DataFrame, test: pd.DataFrame, design, log: bool) -> 
     return np.exp(design(test) @ coef) * smearing
 
 
-def reference_cross_validation(daily: pd.DataFrame, presence_stats: pd.DataFrame) -> pd.DataFrame:
+def reference_cross_validation(daily: pd.DataFrame, levels_2025: pd.DataFrame) -> pd.DataFrame:
     """Errore medio assoluto (auto/giorno) del riferimento a livelli stagione x meteo (A21) e delle
     forme della relazione con il traffico (A37): ``mae_2025`` fuori campione sul 2025 (si lascia
     fuori una settimana alla volta; i livelli sono stimati su tutto il 2025, quindi in campione) e
@@ -1288,7 +1291,7 @@ def reference_cross_validation(daily: pd.DataFrame, presence_stats: pd.DataFrame
     test_2026 = daily[(daily["year"] == 2026) & daily["month"].isin(list(SEASONS)) & daily["cars"].notna()
                       & daily[DEMAND_PREDICTOR].notna() & daily["weather"].notna() & ~daily["regulated_parking"]
                       & ~daily["event_day"]]
-    levels = presence_stats.set_index(["season", "weather"])["mean_car_visitors"] / REFERENCE_OCCUPANCY
+    levels = levels_2025.set_index(["season", "weather"])["mean_car_visitors"] / REFERENCE_OCCUPANCY
 
     def level(x):
         return np.array([levels[(SEASONS[mo], w)] for mo, w in zip(x["month"], x["weather"])])
@@ -1634,6 +1637,109 @@ def plot_cars_vs_traffic_by_year(daily: pd.DataFrame, days: pd.DataFrame, modal_
     plt.close(fig)
 
 
+def presence_stats_check(daily: pd.DataFrame, stats_new: pd.DataFrame, stats_old: pd.DataFrame) -> pd.DataFrame:
+    """Quanto le distribuzioni Gamma delle celle mese x meteo descrivono le auto osservate a 5 euro
+    senza regole: copertura dell'intervallo al 90 % e punteggio logaritmico medio, per le celle dal
+    traffico (A37, A38) e per i livelli 2025 (A21). Il 2025 e' in campione per entrambe; i giorni
+    2026 sono un test."""
+    obs = daily[daily["cars"].notna() & daily["weather"].notna() & daily["month"].isin(list(SEASONS))
+                & (daily["parking_price"] == PRICE_2025) & ~daily["regulated_parking"]
+                & ~daily["date"].isin(EXCLUDED_DAYS)].copy()
+    obs["season"] = obs["month"].map(SEASONS)
+    rows = []
+    for name, table in [("Dal traffico 2023-2026 (A37, A38)", stats_new), ("Livelli 2025 (A21, prima)", stats_old)]:
+        cells = table.set_index(["season", "weather"])
+        mean = np.array([cells.loc[(s, w), "mean_car_visitors"] for s, w in zip(obs["season"], obs["weather"])])
+        sd = np.array([cells.loc[(s, w), "std_car_visitors"] for s, w in zip(obs["season"], obs["weather"])])
+        mean, sd = mean / REFERENCE_OCCUPANCY, sd / REFERENCE_OCCUPANCY
+        shape, scale = (mean / sd) ** 2, sd ** 2 / mean
+        cars = obs["cars"].to_numpy(dtype=float)
+        inside = (cars >= stats.gamma.ppf(0.05, shape, scale=scale)) & (cars <= stats.gamma.ppf(0.95, shape, scale=scale))
+        score = stats.gamma.logpdf(np.maximum(cars, 0.5), shape, scale=scale)
+        for year in sorted(obs["year"].unique()):
+            m = (obs["year"] == year).to_numpy()
+            rows.append({"cells": name, "year": year, "days": int(m.sum()), "coverage_90": inside[m].mean(),
+                         "log_score": score[m].mean(), "mae_mean": np.abs(mean[m] - cars[m]).mean()})
+    return pd.DataFrame(rows)
+
+
+def plot_presence_calibration(daily: pd.DataFrame, stats_new: pd.DataFrame, stats_old: pd.DataFrame,
+                              check: pd.DataFrame, path: Path):
+    """Sinistra: traffico in valle al mattino per mese e anno (stabilita'). Centro: auto per cella
+    mese x meteo, dal traffico (A37, A38) e dai livelli 2025 (A21), con le medie osservate 2025.
+    Destra: copertura dell'intervallo al 90 % sulle auto osservate."""
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(17, 6.2), gridspec_kw={"width_ratios": [1, 1.5, 0.8]})
+    seasons = list(SEASON_LABELS)
+    days = demand_days(daily).assign(season=lambda d: d["month"].map(SEASONS))
+    years = sorted(days["year"].unique())
+    _style_ax(ax1)
+    width = 0.8 / len(years)
+    year_colors = [C_MUTED, C_AXIS, C_BLUE, C_ORANGE][-len(years):] if len(years) <= 4 else [C_MUTED] * len(years)
+    for i, (year, color) in enumerate(zip(years, year_colors)):
+        g = days[days["year"] == year].groupby("season")[DEMAND_PREDICTOR].agg(["mean", "std"]).reindex(seasons)
+        x = np.arange(len(seasons)) + (i - (len(years) - 1) / 2) * width
+        ax1.bar(x, g["mean"], width=width - 0.02, color=color, zorder=3, label=str(year))
+        ax1.errorbar(x, g["mean"], yerr=g["std"], fmt="none", color=C_INK2, linewidth=0.8, capsize=2, zorder=4)
+    ax1.set_xticks(np.arange(len(seasons)), [SEASON_LABELS[s] for s in seasons])
+    ax1.set_ylabel("Auto in salita a Pellizzano 7-12 (media ± dev. std.)")
+    ax1.legend(frameon=False, loc="upper left", fontsize=8.5, ncol=2)
+    ax1.set_title("Traffico in valle: stabile tra gli anni", loc="left", color=C_INK, fontsize=10.5)
+
+    _style_ax(ax2)
+    new, old = stats_new.set_index(["season", "weather"]), stats_old.set_index(["season", "weather"])
+    observed = (daily[(daily["year"] == CALIBRATION_YEAR) & daily["cars"].notna() & daily["weather"].notna()]
+                .assign(season=lambda d: d["month"].map(SEASONS)).groupby(["season", "weather"])["cars"].mean())
+    labels, x = [], 0
+    for season in seasons:
+        for w in WEATHER_CLASSES:
+            for off, table, color in [(-0.18, old, C_MUTED), (0.18, new, C_BLUE)]:
+                mean = table.loc[(season, w), "mean_car_visitors"] / REFERENCE_OCCUPANCY
+                sd = table.loc[(season, w), "std_car_visitors"] / REFERENCE_OCCUPANCY
+                ax2.bar(x + off, mean, width=0.34, color=color, zorder=3)
+                ax2.errorbar(x + off, mean, yerr=sd, fmt="none", color=C_INK2, linewidth=0.8, capsize=2, zorder=4)
+            if (season, w) in observed.index:
+                ax2.scatter(x, observed[(season, w)], marker="_", s=300, color=C_INK, linewidth=2, zorder=5)
+            labels.append(f"{SEASON_LABELS[season][:3]}\n{WEATHER_LABELS[w].split()[0].lower()}\n"
+                          f"{int(old.loc[(season, w), 'n_days'])}|{int(new.loc[(season, w), 'n_days'])}")
+            x += 1
+    ax2.set_xticks(np.arange(x), labels, fontsize=7.5)
+    ax2.set_ylabel("Auto / giorno in condizioni 2025 (media ± dev. std.)")
+    handles = [plt.Rectangle((0, 0), 1, 1, color=C_MUTED), plt.Rectangle((0, 0), 1, 1, color=C_BLUE),
+               Line2D([], [], marker="_", markersize=14, color=C_INK, linewidth=0, markeredgewidth=2)]
+    ax2.legend(handles, ["Livelli 2025 (A21, prima)", "Dal traffico 2023-2026 (A37, A38)", "Media osservata 2025"],
+               frameon=False, loc="upper left", fontsize=8.5)
+    ax2.set_title("Celle mese x meteo (sotto: giorni usati, prima|ora)", loc="left", color=C_INK, fontsize=10.5)
+
+    _style_ax(ax3)
+    names = list(dict.fromkeys(check["cells"]))
+    yrs = sorted(check["year"].unique())
+    width = 0.8 / len(names)
+    for i, (name, color) in enumerate(zip(names, [C_BLUE, C_MUTED])):
+        g = check[check["cells"] == name].set_index("year").reindex(yrs)
+        xs = np.arange(len(yrs)) + (i - (len(names) - 1) / 2) * width
+        ax3.bar(xs, g["coverage_90"], width=width - 0.03, color=color, zorder=3)
+        for xi, v in zip(xs, g["coverage_90"]):
+            ax3.text(xi, v + 0.01, f"{v:.2f}", ha="center", va="bottom", fontsize=9, color=C_INK2)
+    days_by_year = check.drop_duplicates("year").set_index("year")["days"]
+    ax3.set_xticks(np.arange(len(yrs)), [f"{y}\n({days_by_year[y]} giorni{', test' if y != CALIBRATION_YEAR else ''})"
+                                        for y in yrs])
+    ax3.axhline(0.9, color=C_INK2, linewidth=1, linestyle="--")
+    ax3.set_ylim(0, 1.08)
+    ax3.set_ylabel("Giorni osservati dentro l'intervallo al 90%")
+    ax3.set_title("Copertura (attesa: 0,90)", loc="left", color=C_INK, fontsize=10.5)
+    fig.suptitle("Domanda giornaliera per mese e meteo calibrata sul traffico in valle: celle su 20-80 giorni invece "
+                 "di 0-15; giugno molto più basso\n(i livelli 2025 di giugno venivano da 2-3 giorni di fine mese)",
+                 x=0.01, ha="left", fontsize=12, color=C_INK)
+    note = ("Celle dal traffico: ogni giorno della stagione 2023-2026 con traffico valido e classe meteo, convertito in "
+            "auto con la relazione 2025 (A37); varianza = varianza dei giorni + dispersione attorno alla relazione (A38).\n"
+            "Copertura: auto osservate a 5 € senza regole; il 2025 è in campione per entrambe le tabelle, i giorni 2026 "
+            "(giugno e settembre) sono un test.")
+    fig.text(0.01, -0.03, note, fontsize=8.5, color=C_INK2, va="top")
+    fig.tight_layout(rect=(0, 0, 1, 0.92))
+    fig.savefig(path, facecolor=SURFACE, bbox_inches="tight")
+    plt.close(fig)
+
+
 # %% Main
 def main():
     print("Lettura dei dataset della pipeline Fazzon...")
@@ -1733,7 +1839,8 @@ def main():
     plot_measurement_space(mdays, result_road, OUTPUT_DIR / "15_measurement_space.png")
 
     print("\nRiferimento in condizioni 2025, errore fuori campione sul 2025 (A21 vs A37):")
-    cv = reference_cross_validation(daily, reference["fazzon_presence_stats"])
+    levels_2025 = level_presence_stats(daily)
+    cv = reference_cross_validation(daily, levels_2025)
     cv.to_csv(OUTPUT_DIR / "reference_cross_validation.csv", index=False)
     print(cv.round(1).to_string(index=False))
     plot_reference_choice(cv, reference["fazzon_modal_shift_daily"], reference["fazzon_modal_shift"],
@@ -1748,6 +1855,13 @@ def main():
     plot_year_effect(checks, sensitivity, OUTPUT_DIR / "17_year_effect.png")
     plot_monitoring(reference["fazzon_monitoring"], OUTPUT_DIR / "18_monitoring.png")
     plot_cars_vs_traffic_by_year(daily, mdays, reference["fazzon_modal_shift"], OUTPUT_DIR / "19_cars_vs_traffic_by_year.png")
+
+    print("\nStatistiche di presenza: celle dal traffico (A37, A38) vs livelli 2025 (A21), sulle auto osservate:")
+    check = presence_stats_check(daily, reference["fazzon_presence_stats"], levels_2025)
+    check.to_csv(OUTPUT_DIR / "presence_stats_check.csv", index=False)
+    print(check.round(3).to_string(index=False))
+    plot_presence_calibration(daily, reference["fazzon_presence_stats"], levels_2025, check,
+                              OUTPUT_DIR / "20_presence_calibration.png")
 
     print(f"\nTutti gli output sono stati scritti in {OUTPUT_DIR}")
 

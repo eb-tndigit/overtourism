@@ -32,7 +32,7 @@ weather or weekday mix: the adjusted effects are estimated in modal_shift.py.
 import numpy as np
 import pandas as pd
 
-from model.fazzon.modal_shift import DEMAND_PREDICTOR, calibration_days, expected_cars, fit_demand
+from model.fazzon.demand import DEMAND_PREDICTOR, calibration_days, expected_cars, fit_demand
 
 from model.fazzon.reference_datasets import (
     CALIBRATION_YEAR,

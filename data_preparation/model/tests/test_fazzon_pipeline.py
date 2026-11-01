@@ -7,6 +7,7 @@ from model.fazzon.reference_datasets import (
     REFERENCE_OCCUPANCY,
     build_fazzon_daily,
     build_presence_stats,
+    level_presence_stats,
     weather_factors,
 )
 from model.fazzon.standardize import (
@@ -154,7 +155,7 @@ def test_weather_factors_recover_multiplicative_effect():
     assert factor["good"] == 1.0 and factor["rainy"] == pytest.approx(0.5)
 
 
-def test_presence_stats_per_season_and_weather():
+def test_level_presence_stats_per_season_and_weather():
     days = pd.date_range("2025-07-01", "2025-08-31")
     cars = {str(d.date()): (300.0 if d.month == 8 else 150.0) for d in days}
     rain = {str(d.date()): 20.0 for d in days if d.day % 4 == 0}  # rainy days: half the cars
@@ -164,7 +165,7 @@ def test_presence_stats_per_season_and_weather():
     cars["2025-08-28"] = 27.0  # D4: bad-weather days are part of the calibration
     rain["2025-08-28"] = 34.0
     daily = build_fazzon_daily(_tables_for_daily(cars, rain, tmax))
-    stats = build_presence_stats(daily).set_index(["season", "weather"])
+    stats = level_presence_stats(daily).set_index(["season", "weather"])
     assert set(stats.index.get_level_values("season")) == {"july", "august"}
     assert set(stats.index.get_level_values("weather")) == {"good", "cool", "rainy"}
     assert stats.loc[("august", "good"), "mean_car_visitors"] == pytest.approx(300.0 * REFERENCE_OCCUPANCY, rel=0.05)
@@ -176,10 +177,47 @@ def test_presence_stats_per_season_and_weather():
     assert stats.groupby("season")["weather_freq_rel"].sum().tolist() == pytest.approx([1.0, 1.0])
 
 
-def test_presence_stats_fail_without_days_of_a_weather_class():
+def test_level_presence_stats_fail_without_days_of_a_weather_class():
     cars = {str(d.date()): 100.0 for d in pd.date_range("2025-07-01", "2025-07-31")}
     daily = build_fazzon_daily(_tables_for_daily(cars))  # all days good: no cool / rainy days
     with pytest.raises(ValueError, match="weather classes"):
+        level_presence_stats(daily)
+
+
+def _traffic_daily(years=(2024, 2025)):
+    """Season days with traffic and weather; Fazzon cars only in 2025: cars = 0.1 x traffic +
+    c(weather), c = 0 / -20 / -30 (A37)."""
+    dates = pd.DatetimeIndex([d for y in years for d in pd.date_range(f"{y}-06-01", f"{y}-09-30")])
+    weather = np.array(["good", "cool", "rainy"])[np.arange(len(dates)) % 3]
+    traffic = 1000.0 + 10.0 * (np.arange(len(dates)) % 40)
+    cars = 0.1 * traffic + np.select([weather == "cool", weather == "rainy"], [-20.0, -30.0], 0.0)
+    daily = pd.DataFrame({"date": dates, "year": dates.year, "month": dates.month, "weather": weather,
+                          "strada_pellizzano_salita_mattina": traffic, "cars": cars})
+    daily.loc[daily["year"] != 2025, "cars"] = np.nan
+    return daily
+
+
+def test_presence_stats_from_traffic_and_relation():
+    daily = _traffic_daily()
+    stats = build_presence_stats(daily).set_index(["season", "weather"])
+    days = daily.assign(season=daily["month"].map({6: "june", 7: "july", 8: "august", 9: "september"}))
+    cell = days[(days["season"] == "august") & (days["weather"] == "cool")]
+    expected = 0.1 * cell["strada_pellizzano_salita_mattina"] - 20.0  # both years, through the 2025 relation
+    assert stats.loc[("august", "cool"), "mean_car_visitors"] == pytest.approx(expected.mean() * REFERENCE_OCCUPANCY)
+    # exact relation: no scatter around it (A38), the SD is the spread of the days
+    assert stats.loc[("august", "cool"), "std_car_visitors"] == pytest.approx(expected.std() * REFERENCE_OCCUPANCY)
+    assert stats.loc[("august", "cool"), "n_days"] == len(cell)
+    seasons = stats.reset_index().drop_duplicates("season").set_index("season")["season_freq_rel"]
+    assert seasons.to_dict() == pytest.approx({"june": 30 / 122, "july": 31 / 122, "august": 31 / 122,
+                                               "september": 30 / 122})  # A14: calendar days
+    assert stats.groupby("season")["weather_freq_rel"].sum().tolist() == pytest.approx([1.0] * 4)
+    assert stats.reset_index()["calibration"].iloc[0] == "traffic_2024_2025_relation_2025"
+
+
+def test_presence_stats_fail_with_few_traffic_days_in_a_cell():
+    daily = _traffic_daily(years=(2025,))
+    daily.loc[(daily["month"] == 6) & (daily["weather"] == "rainy"), "strada_pellizzano_salita_mattina"] = np.nan
+    with pytest.raises(ValueError, match="days with traffic"):
         build_presence_stats(daily)
 
 

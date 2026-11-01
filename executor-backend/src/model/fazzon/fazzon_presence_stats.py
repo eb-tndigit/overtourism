@@ -31,7 +31,8 @@ The tables are the reference datasets produced by the Fazzon data-preparation pi
 weather) cell) and ``fazzon_modal_shift`` (behaviour parameters).  Their calibration and
 assumptions are listed in that folder's ``ASSUMPTIONS.md`` (A2: persons per vehicle;
 A3: non-car share 0.31 in 2025 conditions; A4: non-car SD 50 % of the mean; A14: season
-weights; A19–A21: weather classes, frequencies and effect; A6, A23: modal shift).  It is read from the Fazzon data folder (see
+weights; A19, A20: weather classes and frequencies; A37, A38: demand per season and weather
+from the valley traffic; A6, A23: modal shift).  It is read from the Fazzon data folder (see
 :mod:`src.model.fazzon.fazzon_data`) every time :func:`presence_inputs` is called,
 i.e. every time a model is built: there are no built-in values, and a missing or
 malformed file is an error.
