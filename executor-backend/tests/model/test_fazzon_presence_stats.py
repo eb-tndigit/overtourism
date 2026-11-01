@@ -237,6 +237,34 @@ def test_startup_downloads_when_not_standalone(tmp_path, monkeypatch):
     assert fazzon_data.ensure_fazzon_data() == tmp_path / "local"
 
 
+def _evaluate_at_points(backend, overrides=None, **points):
+    """Evaluate with the uncertain usage parameters pinned at single values (A39), so that
+    the usage fields can be checked exactly; *points* override the pinned values."""
+    from civic_digital_twins.dt_model import Scenario
+    from scipy import stats
+
+    def point(
+        value,
+    ):  # a distribution-backed index takes a distribution: a single point
+        return stats.rv_discrete(values=([value], [1.0]))
+
+    inp = backend.model.inputs
+    pins = {
+        inp.i_occupancy_low: point(2.5),
+        inp.i_occupancy_high: point(3.5),
+        inp.i_occupancy_ratio: point(0.555),
+        inp.i_u_food_fraction_car: point(points.get("food_car", 0.50)),
+        inp.i_u_food_fraction_other: point(points.get("food_other", 0.66)),
+        inp.i_xo_food_sittings: point(2.0),
+    }
+    scenario = Scenario(
+        backend.model,
+        overrides={**pins, **(overrides or {})},
+        parameter_axes=backend._parameter_axes,
+    )
+    return backend._evaluate_scenario(scenario)
+
+
 def test_policy_moves_the_samples_and_scales_the_vehicles():
     """The access policy moves the arrivals (samples); on the field it acts only through the
     persons per vehicle (A2): same car arrivals, fewer vehicles at a higher price."""
@@ -253,6 +281,11 @@ def test_policy_moves_the_samples_and_scales_the_vehicles():
     assert all(t >= c for t, c in zip(policy.samples_x, policy.samples_y))
     assert np.mean(np.subtract(policy.samples_x, policy.samples_y)) > np.mean(
         np.subtract(base.samples_x, base.samples_y)
+    )
+    model = backend.model
+    base = _evaluate_at_points(backend)
+    policy = _evaluate_at_points(
+        backend, {model.cv_parking_price: "20", model.i_shuttle_buses: 2.0}
     )
     i = 10
     assert policy.usage_fields["parking"][i, i] / base.usage_fields["parking"][
@@ -271,19 +304,40 @@ def test_field_axes_and_food_usage_by_arrival_mode():
     from src.model.fazzon.fazzon_backend import FazzonBackend
 
     backend = FazzonBackend()
-    out = backend.evaluate({})
+    out = _evaluate_at_points(backend)
     assert out.x_values.max() == 3000 and out.y_values.max() == 2000
     food = out.usage_fields["food"]
     t, c = 50, 25  # 1500 arrivals, 500 by car
     assert food[t, c] == pytest.approx((500 * 0.50 + 1000 * 0.66) / 2.0)
     assert food[t, 0] > food[t, c] > food[t, 50]
-    same = backend.evaluate(
-        {
-            "restaurant usage fraction, visitors by car": 0.55,
-            "restaurant usage fraction, visitors by other means": 0.55,
-        }
-    ).usage_fields["food"]
-    assert same[t, 0] == pytest.approx(same[t, c])
+    same = _evaluate_at_points(backend, food_car=0.55, food_other=0.55)
+    assert same.usage_fields["food"][t, 0] == pytest.approx(
+        same.usage_fields["food"][t, c]
+    )
+    # with the ranges, the same ordering holds on average
+    ranged = backend.evaluate({}).usage_fields["food"]
+    assert ranged[t, 0] > ranged[t, c] > ranged[t, 50]
+
+
+def test_behaviour_derived_from_vehicle_response_and_occupancy():
+    """A39: at the point values the behaviour is the pipeline's; more persons per vehicle under
+    the rules (same cars) means more visitors kept by car: smaller beta, fewer visitors lost,
+    so larger shuttle and walk-up shares."""
+    from src.model.fazzon.fazzon_presence_stats import behaviour_for
+
+    b = behaviour_params()
+    point = behaviour_for(b, b["car_response"], b["occupancy_low"], b["occupancy_high"])
+    for key in ("beta_per_euro", "share_shuttle", "share_walk_up"):
+        assert point[key] == pytest.approx(b[key])
+    fuller = behaviour_for(b, b["car_response"], b["occupancy_low"], 4.0)
+    assert fuller["beta_per_euro"] < b["beta_per_euro"]
+    assert fuller["share_shuttle"] > b["share_shuttle"]
+    assert fuller["share_shuttle"] + fuller["share_walk_up"] <= 1.0 + 1e-12
+    # a weaker vehicle response (fewer cars kept) means a larger beta
+    assert (
+        behaviour_for(b, 0.8 * b["car_response"], 2.5, 3.5)["beta_per_euro"]
+        > b["beta_per_euro"]
+    )
 
 
 def test_policy_kpis():
@@ -355,19 +409,21 @@ def test_kpis_order_model_kpis_first():
 def test_price_slider_is_converted_to_its_level():
     from src.model.fazzon.fazzon_backend import FazzonBackend, price_level
 
-    assert [price_level(p) for p in (0, 5, 7.4, 7.6, 15, 39, 100)] == [
+    assert [price_level(p) for p in (0, 5, 7.4, 7.6, 15, 29.6, 100)] == [
         "5",
         "5",
-        "5",
-        "10",
+        "7",
+        "8",
         "15",
-        "40",
-        "40",
+        "30",
+        "30",
     ]
     backend = FazzonBackend()
-    a = backend.evaluate({"parking price (euro per vehicle)": 14.0})
+    a = backend.evaluate({"parking price (euro per vehicle)": 14.6})
     b = backend.evaluate({"parking price (euro per vehicle)": 15.0})
-    assert np.array_equal(a.samples_x, b.samples_x)
+    c = backend.evaluate({"parking price (euro per vehicle)": 14.0})
+    assert np.array_equal(a.samples_x, b.samples_x)  # same 1-euro class
+    assert np.mean(c.samples_y) > np.mean(b.samples_y)  # 1 euro less, more car arrivals
 
 
 def test_behaviour_params_missing_parameter_raises(tmp_path):

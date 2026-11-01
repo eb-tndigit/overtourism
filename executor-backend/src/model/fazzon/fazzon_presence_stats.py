@@ -21,6 +21,13 @@ and the behaviour model (``fazzon_modal_shift``, D8):
   capacity)  (A28, A30, A33, A34);
 * the rest of the deterred car demand goes elsewhere and does not arrive.
 
+Uncertainty (A39): the arrivals also depend on four uncertain quantities, distribution
+indexes of the model sampled by the ensemble: the demand level D (A22), the persons per
+vehicle at the low and at the high price L, H (A2) and the vehicle response k (cars / cars
+expected at 5 euro on the 2026 regime days, measured; A23).  β and the shuttle and walk-up
+shares are derived from them on every draw (:func:`behaviour_for`), consistently with the
+2026 observations; at the point values they are the estimates of ``fazzon_modal_shift``.
+
 The data has ``P(weather | season)`` (climatology, A20); the model uses one weather
 distribution for all seasons, their weighted average (D13).
 
@@ -106,7 +113,7 @@ def load_presence_stats(data_dir: str | Path | None = None) -> pd.DataFrame:
 
 PRICE_INDEX_NAME = "parking price (euro per vehicle)"
 SHUTTLE_INDEX_NAME = "shuttle capacity (riders per day)"
-PRICE_LEVELS: tuple[int, ...] = (5, 10, 15, 20, 25, 30, 35, 40)  # D15: 5-euro classes
+PRICE_LEVELS: tuple[int, ...] = tuple(range(5, 31))  # D15: 1-euro classes, 5-30 euro
 SHUTTLE_CAPACITY_STEP = (
     60  # D16: capacity classes of 60 riders (one run of the 2026 Lakebus)
 )
@@ -152,6 +159,54 @@ def shuttle_capacity_level(capacity: float) -> str:
     return str(min(max(level, 0), SHUTTLE_CAPACITY_LEVELS[-1]))
 
 
+VEHICLE_RESPONSE_NAME = "vehicle response at the 2026 regime price"
+OCCUPANCY_LOW_NAME = "persons per vehicle at low price"
+OCCUPANCY_HIGH_NAME = "persons per vehicle at high price"
+DEMAND_LEVEL_NAME = "demand level"
+
+
+def behaviour_for(
+    behaviour: dict[str, float], k: float, low: float, high: float
+) -> dict[str, float]:
+    """The behaviour parameters for one draw of the vehicle response *k* and of the persons
+    per vehicle at the low and high price *low*, *high* (A39).
+
+    The 2026 regime days are fixed observations: cars C, shuttle riders S and walk-ups W.
+    The visitor response at the price paid p26 is R = k x occupancy(p26) / low, and the
+    visitors lost per car are (low / k)(1 - R); β = -ln R / (p26 - 5), and the shares are
+    S / lost and W / lost (rescaled to sum to 1 when the shuttle and the walk-ups exceed the
+    lost visitors).  R, S and W are taken relative to the point estimates, so that at the
+    point values the result is ``behaviour`` itself.
+    """
+    p26, ref = behaviour["price_paid"], behaviour["reference_price"]
+    k0, r0 = behaviour["car_response"], behaviour["visitor_response"]
+    low0, high0 = behaviour["occupancy_low"], behaviour["occupancy_high"]
+    r = (
+        r0
+        * (k / k0)
+        * (
+            occupancy(p26, {**behaviour, "occupancy_low": low, "occupancy_high": high})
+            / low
+        )
+        / (occupancy(p26, behaviour) / low0)
+    )
+    r = min(r, 0.999)
+    lost0 = (low0 / k0) * (1.0 - r0)
+    lost = (low / k) * (1.0 - r)
+    shuttle = behaviour["share_shuttle"] * lost0 / lost
+    walk = behaviour["share_walk_up"] * lost0 / lost
+    if shuttle + walk > 1.0:
+        shuttle, walk = shuttle / (shuttle + walk), walk / (shuttle + walk)
+    return {
+        **behaviour,
+        "occupancy_low": low,
+        "occupancy_high": high,
+        "beta_per_euro": -float(np.log(r)) / (p26 - ref),
+        "share_shuttle": shuttle,
+        "share_walk_up": walk,
+    }
+
+
 def price_response(price: float, behaviour: dict[str, float]) -> float:
     """R(p): share of the car demand still arriving by private vehicle (A23; A27: 1 below the
     reference price)."""
@@ -163,13 +218,15 @@ def make_presence_factories(stats_table: pd.DataFrame, behaviour: dict[str, floa
     """Return ``(car_arrivals_stats, other_arrivals_stats)`` closures.
 
     Both take the parent values as keyword arguments (``season``, ``weather``, the price
-    level and the shuttle level, keyed by the index names) and return a **Gamma**
+    level, the shuttle level and the uncertain quantities of A39, keyed by the index names;
+    a missing uncertain quantity takes its point value) and return a **Gamma**
     distribution with mean μ and variance σ²::
 
         k = μ² / σ²   (shape)
         θ = σ² / μ    (scale)
 
-    Car arrivals scale the car demand by R(price) (mean and SD).  Non-car arrivals add the
+    The demand (car and non-car) is scaled by D x L / L0: the visitors of the presence
+    statistics are cars x L0.  Car arrivals scale the car demand by R(price) (mean and SD).  Non-car arrivals add the
     walkers and the shuttle riders to the non-car demand; the riders are capped by the
     shuttle capacity class on the cell mean (A33), and the shifted part keeps the car
     demand's coefficient of variation; non-car demand and shifted part are taken as
@@ -186,29 +243,48 @@ def make_presence_factories(stats_table: pd.DataFrame, behaviour: dict[str, floa
 
     def _cell(kwargs):
         cell = stats_table.loc[(kwargs["season"], kwargs["weather"])]
+        low = float(kwargs.get(OCCUPANCY_LOW_NAME, behaviour["occupancy_low"]))
+        b = behaviour_for(
+            behaviour,
+            k=float(kwargs.get(VEHICLE_RESPONSE_NAME, behaviour["car_response"])),
+            low=low,
+            high=float(kwargs.get(OCCUPANCY_HIGH_NAME, behaviour["occupancy_high"])),
+        )
+        scale = (
+            float(kwargs.get(DEMAND_LEVEL_NAME, 1.0)) * low / behaviour["occupancy_low"]
+        )
+        demand = {
+            col: float(cell[col]) * scale
+            for col in (
+                "mean_car_visitors",
+                "std_car_visitors",
+                "mean_other_visitors",
+                "std_other_visitors",
+            )
+        }
         price = float(kwargs[PRICE_INDEX_NAME])
         capacity = float(
             kwargs.get(SHUTTLE_INDEX_NAME, 0)
         )  # not a parent of the car arrivals
-        return cell, price_response(price, behaviour), capacity
+        return demand, b, price_response(price, b), capacity
 
     def car_arrivals_stats(**kwargs):
-        cell, r, _ = _cell(kwargs)
+        cell, _, r, _ = _cell(kwargs)
         return _gamma(
             cell["mean_car_visitors"] * r, (cell["std_car_visitors"] * r) ** 2
         )
 
     def other_arrivals_stats(**kwargs):
-        cell, r, capacity = _cell(kwargs)
+        cell, b, r, capacity = _cell(kwargs)
         deterred = cell["mean_car_visitors"] * (1.0 - r)
-        shuttle_demand = deterred * behaviour["share_shuttle"]
+        shuttle_demand = deterred * b["share_shuttle"]
         riders = min(
             shuttle_demand, capacity
         )  # A33; A28: no shuttle -> capacity 0; A34: excess elsewhere
         shuttle_part = (
             riders / cell["mean_car_visitors"] if cell["mean_car_visitors"] > 0 else 0.0
         )
-        shifted = (1.0 - r) * behaviour["share_walk_up"] + shuttle_part
+        shifted = (1.0 - r) * b["share_walk_up"] + shuttle_part
         mean = cell["mean_other_visitors"] + cell["mean_car_visitors"] * shifted
         var = (
             cell["std_other_visitors"] ** 2 + (cell["std_car_visitors"] * shifted) ** 2
@@ -271,6 +347,10 @@ BEHAVIOUR_PARAMETERS: dict[str, str] = {
     "occupancy_high": "",
     "share_shuttle": "with_walk_up",  # same days as the walk-up share (from 01/08/2026)
     "share_walk_up": "with_walk_up",
+    # 2026 regime observations, for the behaviour of each draw (A39, behaviour_for)
+    "car_response": "",
+    "price_paid": "",
+    "visitor_response": "",
 }
 
 
@@ -295,7 +375,15 @@ def behaviour_params(data_dir: str | Path | None = None) -> dict[str, float]:
         raise ValueError(
             f"Fazzon modal-shift parameters in {data_dir}: missing {missing}"
         )
-    return {p: float(values[(p, d)]) for p, d in BEHAVIOUR_PARAMETERS.items()}
+    out = {p: float(values[(p, d)]) for p, d in BEHAVIOUR_PARAMETERS.items()}
+    # 90 % interval of the vehicle response (A39)
+    if {"low", "high"} <= set(df.columns):
+        bounds = df.set_index(["parameter", "days"]).loc[("car_response", "")]
+        out["car_response_low"] = float(bounds["low"])
+        out["car_response_high"] = float(bounds["high"])
+    else:
+        out["car_response_low"] = out["car_response_high"] = out["car_response"]
+    return out
 
 
 # ---------------------------------------------------------------------------

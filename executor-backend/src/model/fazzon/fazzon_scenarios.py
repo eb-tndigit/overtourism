@@ -121,7 +121,7 @@ A2_REDUCED_CAP = WhatIfScenario(
 # ---------------------------------------------------------------------------
 # Categoria B — Tariffa e navetta
 #
-# cv_parking_price: prezzo medio pagato per veicolo, a passi di 5 € (A24, D15); 2025 = 5 €.
+# cv_parking_price: prezzo medio pagato per veicolo, da 5 a 30 € a passi di 1 € (A24, D15); 2025 = 5 €.
 # i_shuttle_buses: bus della navetta (2 x 30 posti ogni 30 minuti, 9-19 = Lakebus 2026, A29).
 # La risposta alla tariffa e la ripartizione fra navetta / a piedi / altrove sono
 # stimate sui dati 2025-2026 (pipeline Fazzon, fazzon_modal_shift; D8).

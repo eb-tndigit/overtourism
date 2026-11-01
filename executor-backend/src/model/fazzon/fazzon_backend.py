@@ -30,7 +30,16 @@ from src.model.common.sustainability_field import (
     arrange_frontend_data,
     compute_sustainability_field,
 )
-from src.model.fazzon.fazzon_model import FazzonModel
+from src.model.fazzon.fazzon_model import (
+    DEMAND_LEVEL_RANGE,
+    FOOD_FRACTION_CAR_RANGE,
+    FOOD_FRACTION_OTHER_RANGE,
+    FOOD_SITTINGS_RANGE,
+    OCCUPANCY_HIGH_RANGE,
+    OCCUPANCY_LOW_RANGE,
+    OCCUPANCY_RATIO_RANGE,
+    FazzonModel,
+)
 from src.model.fazzon.fazzon_presence_stats import (
     PRICE_INDEX_NAME,
     PRICE_LEVELS,
@@ -43,7 +52,7 @@ from src.model.fazzon.fazzon_presence_stats import (
 
 
 def price_level(price: float) -> str:
-    """The price level (5-euro class, D15) of a price in euro: nearest class, clipped to the
+    """The price level (1-euro class, D15) of a price in euro: nearest class, clipped to the
     levels' range."""
     step = PRICE_LEVELS[1] - PRICE_LEVELS[0]
     level = int(round(float(price) / step) * step)
@@ -101,7 +110,9 @@ class FazzonBackend:
         self._config = OvertourismEvaluationConfig(
             ensemble_size=12,  # 4 seasons x 3 weather classes (D5, D7)
             ensemble_seed=0,
-            n_samples_per_combo=10,
+            # draws of the uncertain parameters per season x weather (A39), for the field and
+            # for the presence samples
+            n_samples_per_combo=100,
             sample_seed=1,
             target_presence_samples=2000,
             confidence=0.8,
@@ -203,7 +214,7 @@ class FazzonBackend:
                 kind="scalar",  # a category in the model, converted by evaluate() (D15)
                 label="Tariffa parcheggio (€ per veicolo)",
                 description=(
-                    "Prezzo medio pagato per veicolo, a passi di 5 €. 5 € = regole 2025; 15 € = "
+                    "Prezzo medio pagato per veicolo, da 5 a 30 € a passi di 1 €. 5 € = regole 2025; 15 € = "
                     "media pagata con le regole 2026 (20 € giornata, 10 € dopo le 12).  Una tariffa "
                     "più alta riduce gli arrivi in auto (risposta stimata sui dati 2025-2026) e "
                     "aumenta le persone per veicolo; chi rinuncia all'auto prende la navetta (se "
@@ -293,59 +304,51 @@ class FazzonBackend:
                 max_value=22.0,
                 step=1.0,
             ),
-            inp.i_shuttle_peak_end_hour.name: OvertourismParameterMeta(
-                name=inp.i_shuttle_peak_end_hour.name,
-                kind="scalar",
-                label="Navetta: fine picco del mattino (ora)",
-                description="I passeggeri si concentrano fra la prima corsa e quest'ora. ASSUNZIONE: 12.",
-                unit="h",
-                category="Navetta",
-                default=12.0,
-                min_value=10.0,
-                max_value=15.0,
-                step=1.0,
-            ),
-            inp.i_shuttle_peak_share.name: OvertourismParameterMeta(
-                name=inp.i_shuttle_peak_share.name,
-                kind="scalar",
-                label="Navetta: quota passeggeri nel picco",
-                description="Quota dei passeggeri che vuole salire nel picco del mattino: limita la capacità utilizzabile. ASSUNZIONE: 0.6 (da validare; dati 2026: al massimo 0.69).",
-                unit="",
-                category="Navetta",
-                default=0.6,
-                min_value=0.1,
-                max_value=1.0,
-                step=0.05,
-            ),
             inp.i_u_food_fraction_car.name: OvertourismParameterMeta(
                 name=inp.i_u_food_fraction_car.name,
-                kind="scalar",
+                kind="distribution",
                 label="Ristorazione: quota visitatori in auto che usano i ristoranti",
                 description=(
-                    "Chi arriva in auto può portarsi il picnic. ASSUNZIONE: 0.50, con 0.66 per gli "
-                    "altri visitatori dà la quota 0.55 dell'indagine EETRA 2022 con le regole 2025."
+                    "Range [min, max]. Chi arriva in auto può portarsi il picnic. "
+                    "SEGNAPOSTO: 0.40-0.60; con 0.56-0.76 per gli altri visitatori dà, al "
+                    "centro dei range, la quota 0.55 dell'indagine EETRA 2022 con le regole 2025."
                 ),
                 unit="",
                 category="Ristorazione",
-                default=0.50,
-                min_value=0.0,
-                max_value=1.0,
-                step=0.05,
-            ),
-            inp.i_u_food_fraction_other.name: OvertourismParameterMeta(
-                name=inp.i_u_food_fraction_other.name,
-                kind="scalar",
-                label="Ristorazione: quota altri visitatori che usano i ristoranti",
-                description=(
-                    "Visitatori arrivati in navetta, a piedi o in bici. ASSUNZIONE: 0.66 (vedi la "
-                    "quota dei visitatori in auto)."
-                ),
-                unit="",
-                category="Ristorazione",
-                default=0.66,
+                default_range=FOOD_FRACTION_CAR_RANGE,
                 min_value=0.0,
                 max_value=1.0,
                 step=0.02,
+                distribution_family="uniform",
+            ),
+            inp.i_u_food_fraction_other.name: OvertourismParameterMeta(
+                name=inp.i_u_food_fraction_other.name,
+                kind="distribution",
+                label="Ristorazione: quota altri visitatori che usano i ristoranti",
+                description=(
+                    "Range [min, max]. Visitatori arrivati in navetta, a piedi o in bici. "
+                    "SEGNAPOSTO: 0.56-0.76 (vedi la quota dei visitatori in auto)."
+                ),
+                unit="",
+                category="Ristorazione",
+                default_range=FOOD_FRACTION_OTHER_RANGE,
+                min_value=0.0,
+                max_value=1.0,
+                step=0.02,
+                distribution_family="uniform",
+            ),
+            inp.i_xo_food_sittings.name: OvertourismParameterMeta(
+                name=inp.i_xo_food_sittings.name,
+                kind="distribution",
+                label="Ristorazione: turni per posto al giorno",
+                description="Range [min, max] dei turni di ogni posto a sedere. SEGNAPOSTO: 1.5-2.5.",
+                unit="turni",
+                category="Ristorazione",
+                default_range=FOOD_SITTINGS_RANGE,
+                min_value=1.0,
+                max_value=4.0,
+                step=0.1,
+                distribution_family="uniform",
             ),
             inp.cv_season.name: OvertourismParameterMeta(
                 name=inp.cv_season.name,
@@ -372,6 +375,99 @@ class FazzonBackend:
                 category="Contesto",
                 support=list(inp.cv_weather.support),
                 support_labels=WEATHER_LABELS,
+            ),  # Advanced: calibration values, not policy levers; shown last
+            inp.i_shuttle_peak_end_hour.name: OvertourismParameterMeta(
+                name=inp.i_shuttle_peak_end_hour.name,
+                kind="scalar",
+                label="Navetta: fine picco del mattino (ora)",
+                description="I passeggeri si concentrano fra la prima corsa e quest'ora. ASSUNZIONE: 12.",
+                unit="h",
+                category="Parametri avanzati",
+                default=12.0,
+                min_value=10.0,
+                max_value=15.0,
+                step=1.0,
+            ),
+            inp.i_shuttle_peak_share.name: OvertourismParameterMeta(
+                name=inp.i_shuttle_peak_share.name,
+                kind="scalar",
+                label="Navetta: quota passeggeri nel picco",
+                description="Quota dei passeggeri che vuole salire nel picco del mattino: limita la capacità utilizzabile. ASSUNZIONE: 0.6 (da validare; dati 2026: al massimo 0.69).",
+                unit="",
+                category="Parametri avanzati",
+                default=0.6,
+                min_value=0.1,
+                max_value=1.0,
+                step=0.05,
+            ),
+            inp.i_occupancy_ratio.name: OvertourismParameterMeta(
+                name=inp.i_occupancy_ratio.name,
+                kind="distribution",
+                label="Parcheggio: auto presenti insieme / auto del giorno",
+                description=(
+                    "Range [min, max]. Rilevazione al lago, 22-29/08/2021: 0.50-0.60 secondo il "
+                    "giorno (media 0.555)."
+                ),
+                unit="",
+                category="Parametri avanzati",
+                default_range=OCCUPANCY_RATIO_RANGE,
+                min_value=0.3,
+                max_value=0.9,
+                step=0.01,
+                distribution_family="uniform",
+            ),
+            inp.i_occupancy_low.name: OvertourismParameterMeta(
+                name=inp.i_occupancy_low.name,
+                kind="distribution",
+                label="Persone per veicolo a 5 €",
+                description=(
+                    "Range [min, max], triangolare con moda alla stima del gestore (2.5 nel 2025, "
+                    "moto incluse). Rilevazione al lago 2021: 2.7-2.9 persone per auto. "
+                    "Minimo SEGNAPOSTO."
+                ),
+                unit="persone",
+                category="Parametri avanzati",
+                default_range=OCCUPANCY_LOW_RANGE,
+                min_value=1.5,
+                max_value=4.0,
+                step=0.1,
+                distribution_family="triang",
+                distribution_fixed_params={"c": float(inp.i_occupancy_low.params["c"])},
+            ),
+            inp.i_occupancy_high.name: OvertourismParameterMeta(
+                name=inp.i_occupancy_high.name,
+                kind="distribution",
+                label="Persone per veicolo a 20 €",
+                description=(
+                    "Range [min, max], triangolare con moda alla stima del gestore (3.5 nel "
+                    "2026: si sale solo con l'auto piena). SEGNAPOSTO."
+                ),
+                unit="persone",
+                category="Parametri avanzati",
+                default_range=OCCUPANCY_HIGH_RANGE,
+                min_value=2.5,
+                max_value=5.0,
+                step=0.1,
+                distribution_family="triang",
+                distribution_fixed_params={
+                    "c": float(inp.i_occupancy_high.params["c"])
+                },
+            ),
+            inp.i_demand_level.name: OvertourismParameterMeta(
+                name=inp.i_demand_level.name,
+                kind="distribution",
+                label="Livello della domanda rispetto al 2025",
+                description=(
+                    "Range [min, max] del fattore sulla domanda nelle condizioni 2025 (1 = come "
+                    "il 2025). Effetto anno 1 ± 10 %, compatibile con i dati 2026."
+                ),
+                unit="",
+                category="Parametri avanzati",
+                default_range=DEMAND_LEVEL_RANGE,
+                min_value=0.5,
+                max_value=1.5,
+                step=0.05,
+                distribution_family="uniform",
             ),
         }
 
@@ -400,6 +496,7 @@ class FazzonBackend:
         sampling_ensemble = CrossProductEnsemble(
             sampling_scenario,
             max_categorical_size=config.ensemble_size,
+            n_samples_per_combo=config.n_samples_per_combo,
             rng=np.random.default_rng(config.sample_seed),
         )
         pv_samples = sample_across(

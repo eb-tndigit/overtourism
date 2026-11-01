@@ -36,7 +36,7 @@ Context variables
 -----------------
 cv_season   : june / july / august / september   (calendar days of each month; A14)
 cv_weather  : good / cool / rainy  (climatology averaged over the seasons; D7, A19, A20, D13)
-cv_parking_price : 5, 10, ..., 40 euro per vehicle (always fixed by the backend; D15)
+cv_parking_price : 5, 6, ..., 30 euro per vehicle (always fixed by the backend; D15)
 cv_shuttle  : usable shuttle capacity class, riders per day (derived by the backend from the
               shuttle timetable parameters; D15, D16)
 
@@ -69,13 +69,43 @@ from civic_digital_twins.dt_model import (
 from scipy import stats
 
 from .fazzon_presence_stats import (
+    DEMAND_LEVEL_NAME,
+    OCCUPANCY_HIGH_NAME,
+    OCCUPANCY_LOW_NAME,
     PRICE_INDEX_NAME,
     PRICE_LEVELS,
     SHUTTLE_CAPACITY_LEVELS,
     SHUTTLE_INDEX_NAME,
+    VEHICLE_RESPONSE_NAME,
     WEATHERS,
     presence_inputs,
 )
+
+# Ranges of the uncertain parameters (A39).  PLACEHOLDER: a range chosen without a source,
+# to be validated; the user can change every range in the dashboard.
+OCCUPANCY_LOW_RANGE = (
+    2.3,
+    2.9,
+)  # A2: low end PLACEHOLDER; high end: 2021 survey, 2.69-2.87 per car
+OCCUPANCY_HIGH_RANGE = (3.0, 4.0)  # A2: PLACEHOLDER around the operator's ~3.5
+DEMAND_LEVEL_RANGE = (0.9, 1.1)  # A22: year effect 1 +- 10 %
+OCCUPANCY_RATIO_RANGE = (0.49, 0.61)  # A8: 2021 survey, 0.495-0.604 by day
+FOOD_FRACTION_CAR_RANGE = (0.40, 0.60)  # A10: PLACEHOLDER
+FOOD_FRACTION_OTHER_RANGE = (0.56, 0.76)  # A10: PLACEHOLDER
+FOOD_SITTINGS_RANGE = (1.5, 2.5)  # A11: PLACEHOLDER
+
+
+def _uniform(name: str, bounds: tuple[float, float]) -> DistributionIndex:
+    lo, hi = bounds
+    return DistributionIndex(name, stats.uniform, {"loc": lo, "scale": hi - lo})
+
+
+def _triang(name: str, bounds: tuple[float, float], mode: float) -> DistributionIndex:
+    """Triangular on *bounds* with its mode at the point value (clipped into the range)."""
+    lo, hi = bounds
+    c = min(max((mode - lo) / (hi - lo), 0.0), 1.0)
+    return DistributionIndex(name, stats.triang, {"loc": lo, "scale": hi - lo, "c": c})
+
 
 # ---------------------------------------------------------------------------
 # Constraint
@@ -357,16 +387,19 @@ class FazzonModel(Model):
         i_shuttle_peak_share: Index
         # Persons per vehicle (A2)
         i_occupancy_low_price: Index
-        i_occupancy_low: Index
+        i_occupancy_low: DistributionIndex
         i_occupancy_high_price: Index
-        i_occupancy_high: Index
+        i_occupancy_high: DistributionIndex
+        # Uncertain quantities of the arrivals only (parents of the presence variables, A39)
+        i_vehicle_response: DistributionIndex
+        i_demand_level: DistributionIndex
         # Conversion parameters
-        i_occupancy_ratio: Index
+        i_occupancy_ratio: DistributionIndex
         i_xo_road_trips: Index
         # Food parameters
-        i_u_food_fraction_car: Index
-        i_u_food_fraction_other: Index
-        i_xo_food_sittings: Index
+        i_u_food_fraction_car: DistributionIndex
+        i_u_food_fraction_other: DistributionIndex
+        i_xo_food_sittings: DistributionIndex
         # Capacity parameters
         i_c_parking: DistributionIndex
         i_c_road: DistributionIndex
@@ -411,11 +444,34 @@ class FazzonModel(Model):
                 for c in SHUTTLE_CAPACITY_LEVELS
             },
         )
-        policy = [cv_season, cv_weather, cv_parking_price, cv_shuttle]
+        # A39: uncertain quantities of the arrivals, sampled by the ensemble
+        i_occupancy_low = _triang(
+            OCCUPANCY_LOW_NAME, OCCUPANCY_LOW_RANGE, behaviour["occupancy_low"]
+        )
+        i_occupancy_high = _triang(
+            OCCUPANCY_HIGH_NAME, OCCUPANCY_HIGH_RANGE, behaviour["occupancy_high"]
+        )
+        # measured: normal with the 90 % interval of fazzon_modal_shift
+        k_sd = (behaviour["car_response_high"] - behaviour["car_response_low"]) / (
+            2 * stats.norm.ppf(0.95)
+        )
+        i_vehicle_response = DistributionIndex(
+            VEHICLE_RESPONSE_NAME,
+            stats.norm,
+            {"loc": behaviour["car_response"], "scale": max(k_sd, 1e-9)},
+        )
+        i_demand_level = _uniform(DEMAND_LEVEL_NAME, DEMAND_LEVEL_RANGE)
+        uncertain = [
+            i_vehicle_response,
+            i_occupancy_low,
+            i_occupancy_high,
+            i_demand_level,
+        ]
+        policy = [cv_season, cv_weather, cv_parking_price, cv_shuttle, *uncertain]
 
         pv_visitors_car = ConditionalDistributionIndex(
             "visitors_car",
-            [cv_season, cv_weather, cv_parking_price],
+            [cv_season, cv_weather, cv_parking_price, *uncertain],
             car_visitors_stats,
         )
         # Trial: y axis = all visitors arriving (car + other)
@@ -454,36 +510,37 @@ class FazzonModel(Model):
             i_shuttle_peak_share=Index(
                 "shuttle riders in the morning peak (share)", 0.6
             ),  # A35
-            # Persons per vehicle, from the pipeline (fazzon_modal_shift, A2)
+            # Persons per vehicle, point values from the pipeline (fazzon_modal_shift, A2)
             i_occupancy_low_price=Index(
                 "occupancy low price", behaviour["occupancy_low_price"]
             ),
-            i_occupancy_low=Index(
-                "persons per vehicle at low price", behaviour["occupancy_low"]
-            ),
+            i_occupancy_low=i_occupancy_low,
             i_occupancy_high_price=Index(
                 "occupancy high price", behaviour["occupancy_high_price"]
             ),
-            i_occupancy_high=Index(
-                "persons per vehicle at high price", behaviour["occupancy_high"]
-            ),
+            i_occupancy_high=i_occupancy_high,
+            i_vehicle_response=i_vehicle_response,
+            i_demand_level=i_demand_level,
             # Conversion parameters
-            i_occupancy_ratio=Index(
-                "parking occupancy ratio", 0.555
-            ),  # A8: 4.44h/8h, 2021 calibration
+            # A8: simultaneous / daily cars, 2021 survey (mean 0.555, 0.495-0.604 by day)
+            i_occupancy_ratio=_uniform(
+                "parking occupancy ratio", OCCUPANCY_RATIO_RANGE
+            ),
             i_xo_road_trips=Index(
                 "road round-trip multiplier", 2.0
             ),  # A9: in + out = 2 passages
             # Food. A10: 0.55 of all visitors (EETRA 2022, >50 %) in 2025 conditions, where
-            # 31 % arrive by other means (A3): 0.69 x 0.50 + 0.31 x 0.66 = 0.55
-            i_u_food_fraction_car=Index(
-                "restaurant usage fraction, visitors by car", 0.50
+            # 31 % arrive by other means (A3): 0.69 x 0.50 + 0.31 x 0.66 = 0.55 at the
+            # centres of the ranges
+            i_u_food_fraction_car=_uniform(
+                "restaurant usage fraction, visitors by car", FOOD_FRACTION_CAR_RANGE
             ),
-            i_u_food_fraction_other=Index(
-                "restaurant usage fraction, visitors by other means", 0.66
+            i_u_food_fraction_other=_uniform(
+                "restaurant usage fraction, visitors by other means",
+                FOOD_FRACTION_OTHER_RANGE,
             ),
-            i_xo_food_sittings=Index(
-                "food seat turnover", 2.0
+            i_xo_food_sittings=_uniform(
+                "food seat turnover", FOOD_SITTINGS_RANGE
             ),  # A11: ~2 sittings/seat/day
             # Capacities
             # A12 — Parking: policy cap is 150 simultaneous cars.  Triangular captures
