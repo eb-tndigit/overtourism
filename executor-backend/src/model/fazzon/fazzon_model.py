@@ -33,7 +33,7 @@ lakeside constraint was dropped (D6).
 
 Context variables
 -----------------
-cv_season   : june / july / august / september   (from 2025 parking data; A14)
+cv_season   : june / july / august / september   (calendar days of each month; A14)
 cv_weather  : good / cool / rainy  (climatology averaged over the seasons; D7, A19, A20, D13)
 cv_parking_price : 5, 10, ..., 40 euro per vehicle (always fixed by the backend; D15)
 cv_shuttle  : usable shuttle capacity class, riders per day (derived by the backend from the
@@ -41,7 +41,7 @@ cv_shuttle  : usable shuttle capacity class, riders per day (derived by the back
 
 Presence variables
 ------------------
-pv_visitors_car   : daily arrivals by private vehicle (2025 parking data, modal shift; A2, A23, A26)
+pv_visitors_car   : daily arrivals by private vehicle (valley traffic via the 2025 relation, modal shift; A37, A38, A2, A23, A26)
 pv_visitors_other : daily arrivals by other means (A3, A4, A6, A28)
 
 No day-type CV (D5).
@@ -307,7 +307,7 @@ class FazzonModel(Model):
 
     Context variables
     -----------------
-    cv_season   : june / july / august / september   (prior: proportional to observed days, A14)
+    cv_season   : june / july / august / september   (prior: calendar days of each month, A14)
     cv_weather  : good / cool / rainy                (prior: climatology, A20, D13)
     cv_parking_price, cv_shuttle : access policy     (always fixed by the backend, D15)
 
