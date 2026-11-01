@@ -405,7 +405,7 @@ class FazzonBackend:
                 kind="distribution",
                 label="Parcheggio: auto presenti insieme / auto del giorno",
                 description=(
-                    "Range [min, max]. Rilevazione al lago, 22-29/08/2021: 0.50-0.60 secondo il "
+                    "Range [min, max]. Rilevazione del 22-29/08/2021: 0.50-0.60 secondo il "
                     "giorno (media 0.555)."
                 ),
                 unit="",
@@ -422,7 +422,7 @@ class FazzonBackend:
                 label="Persone per veicolo a 5 €",
                 description=(
                     "Range [min, max], triangolare con moda alla stima del gestore (2.5 nel 2025, "
-                    "moto incluse). Rilevazione al lago 2021: 2.7-2.9 persone per auto. "
+                    "moto incluse). Rilevazione 22-29/08/2021: 2.7-2.9 persone per auto. "
                     "Minimo SEGNAPOSTO."
                 ),
                 unit="persone",

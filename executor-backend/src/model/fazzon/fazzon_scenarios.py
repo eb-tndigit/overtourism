@@ -1,4 +1,4 @@
-"""Scenari what-if per il modello di overtourism di Fazzon (Lago dei Caprioli, Val di Sole).
+"""Scenari what-if per il modello di overtourism dell'Altipiano di Fazzon (Val di Sole).
 
 Ogni :class:`WhatIfScenario` porta un'etichetta di visualizzazione, una descrizione
 (tabella Markdown mostrata sotto la figura del campo) e una ``overrides_fn`` che mappa

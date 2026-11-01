@@ -30,7 +30,7 @@ _BASE_URL = os.environ.get("OVERTOURISM_API_BASE_URL", "http://localhost:8001")
 def _get_adapter() -> HttpOvertourismAdapter:
     return HttpOvertourismAdapter(
         model_key="fazzon",
-        title="Overtourism Digital Twin — Fazzon (Lago dei Caprioli) [API]",
+        title="Overtourism Digital Twin — Altipiano di Fazzon [API]",
         base_url=_BASE_URL,
     )
 

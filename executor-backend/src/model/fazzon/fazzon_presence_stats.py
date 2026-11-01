@@ -1,4 +1,4 @@
-"""Presence statistics for the Fazzon (Lago dei Caprioli, Val di Sole) overtourism model.
+"""Presence statistics for the Altipiano di Fazzon (Val di Sole) overtourism model.
 
 Two presence variables are modelled:
 

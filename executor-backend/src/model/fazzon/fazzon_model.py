@@ -1,4 +1,4 @@
-"""Fazzon (Lago dei Caprioli, Val di Sole) overtourism model definition.
+"""Altipiano di Fazzon (Val di Sole) overtourism model definition.
 
 The model uses the ``@define`` / ``compute()`` contract throughout — no
 ``legacy=True`` escape hatches.  Each concern sub-model declares its I/O
