@@ -28,6 +28,7 @@ from src.model.common.sustainability_field import (
     SustainabilityFieldOutput,
     arrange_frontend_data,
     compute_sustainability_field,
+    expected_period_days,
 )
 from src.model.fazzon.fazzon_model import (
     DEMAND_LEVEL_RANGE,
@@ -51,6 +52,8 @@ from src.model.fazzon.fazzon_presence_stats import (
     shuttle_capacity_level,
     shuttle_usable_capacity,
 )
+
+SEASON_DAYS = 122  # June-September (A14): the period of the whole-season scenarios
 
 
 def price_level(price: float) -> str:
@@ -549,6 +552,12 @@ class FazzonBackend:
             usage_fields=usage_fields,
             capacity_distributions=capacity_distributions,
             confidence=config.confidence,
+            # the incertezza of the sustainability: from one year to another (D22)
+            period_days=expected_period_days(
+                SEASON_DAYS,
+                scenario.overrides,
+                [model.inputs.cv_season, model.inputs.cv_weather],
+            ),
             extra_kpis={
                 f"{quantity} {which}": {
                     "value": round(kpis[quantity][which]["value"], 1),

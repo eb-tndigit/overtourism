@@ -580,7 +580,7 @@ def run_dashboard(adapter: OvertourismAdapter) -> None:
         st.metric(
             "Sostenibilità complessiva",
             f"{idx_val * 100:.1f}%",
-            delta=f"CI ±{idx_ci * 100:.1f}%",
+            delta=f"incertezza ±{idx_ci * 100:.1f}%",
             delta_color="off",
         )
         st.markdown("**Per vincolo:**")
@@ -588,7 +588,7 @@ def run_dashboard(adapter: OvertourismAdapter) -> None:
             {
                 "Vincolo": output.constraint_labels.get(name, name.capitalize()),
                 "Sost.": f"{v * 100:.1f}%",
-                "CI": f"±{c * 100:.1f}%",
+                "Incertezza": f"±{c * 100:.1f}%",
             }
             for name, (v, c) in output.sustainability_by_constraint.items()
         ]

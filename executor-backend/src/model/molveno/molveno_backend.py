@@ -29,6 +29,7 @@ from src.model.common.sustainability_field import (
     SustainabilityFieldOutput,
     arrange_frontend_data,
     compute_sustainability_field,
+    expected_period_days,
 )
 from src.model.molveno.molveno_model import MolvenoModel
 from src.model.molveno.molveno_presence_stats import (
@@ -605,6 +606,7 @@ class MolvenoBackend:
         model = self._model
         config = self._config
         pv_t, pv_e = model.inputs.pv_tourists, model.inputs.pv_excursionists
+        first, end = self.period(scenario)
         tt = np.linspace(0, self._t_max, self._t_sample + 1)
         ee = np.linspace(0, self._e_max, self._e_sample + 1)
 
@@ -672,4 +674,11 @@ class MolvenoBackend:
             usage_fields=usage_fields,
             capacity_distributions=capacity_distributions,
             confidence=config.confidence,
+            # the incertezza of the sustainability: from one year to another, over the days
+            # of the period
+            period_days=expected_period_days(
+                end - first,
+                scenario.overrides,
+                [model.inputs.cv_weekday, model.inputs.cv_weather],
+            ),
         )

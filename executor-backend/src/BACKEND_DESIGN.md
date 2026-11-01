@@ -303,7 +303,9 @@ per-constraint levels, critical constraint). A `kpis` entry has one of two forma
 told apart by its fields (not by its key):
 
 - `{"level", "confidence"}` (plus `"name"` for `critical constraint`): a
-  percentage with its confidence half-width — the sustainability KPIs above;
+  percentage with its confidence half-width — the sustainability KPIs above; with
+  `period_days` set, the half-width is that of the average over the days of the
+  scenario's period (the variability from one year to another, shown as "incertezza");
 - `{"value", "share"}`: a quantity, with its share in percent (0–100;
   `share` optional) — e.g. Fazzon's `arrivals mean` / `arrivals peak` (arrivals
   per day, and their share of the potential visitors) and `vehicles mean` /
