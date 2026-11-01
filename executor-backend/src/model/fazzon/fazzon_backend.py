@@ -19,7 +19,6 @@ from civic_digital_twins.dt_model import (
     Evaluation,
     Scenario,
     build_scenario,
-    sample_across,
 )
 
 from src.model.common.labels import MONTH_LABELS, WEATHER_LABELS
@@ -43,9 +42,12 @@ from src.model.fazzon.fazzon_model import (
 from src.model.fazzon.fazzon_presence_stats import (
     PRICE_INDEX_NAME,
     PRICE_LEVELS,
+    behaviour_for,
     behaviour_params,
-    load_presence_stats,
+    daily_accounting,
+    occupancy,
     policy_kpis,
+    price_response,
     shuttle_capacity_level,
     shuttle_usable_capacity,
 )
@@ -93,8 +95,7 @@ class FazzonBackend:
 
     def __init__(self) -> None:
         model = FazzonModel(inputs=FazzonModel.default_inputs())
-        # Demand statistics and behaviour parameters, for the policy KPIs
-        self._presence_stats = load_presence_stats()
+        # Behaviour parameters, for the days simulated by _simulate_days
         self._behaviour = behaviour_params()
         self._model = model
         self._index_map: dict[str, Any] = {idx.name: idx for idx in model.indexes}
@@ -243,6 +244,24 @@ class FazzonBackend:
                 step=10.0,
                 distribution_family="triang",
                 distribution_fixed_params={"c": 0.5},
+            ),
+            inp.i_parking_limit.name: OvertourismParameterMeta(
+                name=inp.i_parking_limit.name,
+                kind="scalar",
+                label="Parcheggio a numero chiuso (1 = sì)",
+                description=(
+                    "1: nei giorni in cui le auto superano la capacità del parcheggio, quelle in "
+                    "più sono respinte (come con la prenotazione): i loro passeggeri prendono la "
+                    "navetta se ci sono posti, salgono a piedi o rinunciano. 0: nessun limite, "
+                    "il superamento si vede solo nella sostenibilità dei parcheggi. "
+                    "ASSUNZIONE: nessun dato su come ha agito il limite di prenotazione nel 2026."
+                ),
+                unit="",
+                category="Parcheggio",
+                default=0.0,
+                min_value=0.0,
+                max_value=1.0,
+                step=1.0,
             ),
             inp.i_shuttle_buses.name: OvertourismParameterMeta(
                 name=inp.i_shuttle_buses.name,
@@ -472,16 +491,15 @@ class FazzonBackend:
         }
 
     def _evaluate_scenario(self, scenario: Scenario) -> SustainabilityFieldOutput:
-        """Run the seeded field + presence-sample evaluation for `scenario`."""
+        """Run the seeded field + simulated-days evaluation for `scenario`."""
         scenario = self._with_policy(scenario)
         model = self._model
         config = self._config
         pv_car, pv_total = model.inputs.pv_visitors_car, model.inputs.pv_visitors_total
-        pv_noncar = model.inputs.pv_visitors_other
         tt = np.linspace(0, self._t_max, self._t_sample + 1)
         cc = np.linspace(0, self._c_max, self._c_sample + 1)
 
-        # Presence samples for the scatter overlay — seeded independently of the field.
+        # Simulated days for the scatter and the KPIs — seeded independently of the field.
         sampling_overrides = {
             idx: (
                 [val]
@@ -499,12 +517,7 @@ class FazzonBackend:
             n_samples_per_combo=config.n_samples_per_combo,
             rng=np.random.default_rng(config.sample_seed),
         )
-        pv_samples = sample_across(
-            sampling_ensemble,
-            [pv_car, pv_noncar],
-            total=config.target_presence_samples,
-            rng=np.random.default_rng(config.sample_seed),
-        )
+        days = self._simulate_days(sampling_ensemble, scenario)
 
         # Field ensemble — seeded, n_samples_per_combo capacity-distribution replicates
         # per categorical combo. `scenario` already carries parameter_axes (set by
@@ -525,51 +538,94 @@ class FazzonBackend:
             )
         )
 
+        kpis = policy_kpis(days)
         return SustainabilityFieldOutput(
             field=field,
             field_elements=field_elements,
             x_values=tt,
             y_values=cc,
-            # total = car + non-car draws of the same day (aligned by sample_across)
-            samples_x=list(pv_samples[pv_car] + pv_samples[pv_noncar]),
-            samples_y=list(pv_samples[pv_car]),
+            samples_x=list(days["arrivals"]),
+            samples_y=list(days["car_arrivals"]),
             usage_fields=usage_fields,
             capacity_distributions=capacity_distributions,
             confidence=config.confidence,
-            extra_kpis=self._policy_kpis(scenario),
+            extra_kpis={
+                f"{quantity} {which}": {
+                    "value": round(kpis[quantity][which]["value"], 1),
+                    "share": round(kpis[quantity][which]["share"] * 100, 2),
+                }
+                for quantity in ("arrivals", "vehicles")
+                for which in ("mean", "peak")
+            },
         )
 
-    def _policy_kpis(self, scenario: Scenario) -> dict[str, dict[str, float]]:
-        """Arrivals out of the potential visitors and vehicles out of the 2025-rules
-        vehicles (A36), for the scenario's policy and for the seasons / weather classes it
-        allows (fixed or restricted categories)."""
+    def _simulate_days(
+        self, ensemble: CrossProductEnsemble, scenario: Scenario
+    ) -> dict[str, np.ndarray]:
+        """The days of the scenario and what happens on each (A36).
+
+        Each member of *ensemble* (a season x weather combination of the scenario, with one
+        draw of the uncertain parameters, A39) gives ``max(1, round(weight x
+        target_presence_samples))`` days, as ``sample_across`` does: the demand of each day
+        in 2025 conditions is drawn from ``pv_demand_car`` / ``pv_demand_other``, and the
+        member's draws set the behaviour (``behaviour_for``), the persons per vehicle and,
+        with the parking limit on (A40), the vehicles the parking can take in the day
+        (capacity / occupancy ratio).
+        """
         inp = self._model.inputs
-        overrides = scenario.overrides
-
-        def allowed(idx) -> dict[str, float]:
-            weights = dict(idx.outcomes)
-            pin = overrides.get(idx)
-            if pin is None:
-                return weights
-            keep = [pin] if isinstance(pin, str) else list(pin)
-            return {k: weights[k] for k in keep}
-
-        seasons, weathers = allowed(inp.cv_season), allowed(inp.cv_weather)
-        cell_weights = {
-            (s, w): ps * pw for s, ps in seasons.items() for w, pw in weathers.items()
-        }
-        result = policy_kpis(
-            self._presence_stats,
-            self._behaviour,
-            cell_weights,
-            price=float(overrides[inp.cv_parking_price]),
-            capacity=float(overrides[inp.cv_shuttle]),
+        config = self._config
+        values = {id(idx): np.asarray(v) for idx, v in ensemble.assignments().items()}
+        weights = ensemble.ensemble_weights[0]
+        rng = np.random.default_rng(config.sample_seed)
+        price = float(scenario.overrides[inp.cv_parking_price])
+        seats = float(scenario.overrides[inp.cv_shuttle])
+        limit_on = (
+            float(
+                scenario.overrides.get(
+                    inp.i_parking_limit, inp.i_parking_limit.concrete_default
+                )
+            )
+            >= 0.5
         )
-        return {
-            f"{quantity} {days}": {
-                "value": round(result[quantity][days]["value"], 1),
-                "share": round(result[quantity][days]["share"] * 100, 2),
-            }
-            for quantity in ("arrivals", "vehicles")
-            for days in ("mean", "peak")
-        }
+
+        member, demand = [], {inp.pv_demand_car: [], inp.pv_demand_other: []}
+        for i, w in enumerate(weights):
+            n = max(1, round(float(w) * config.target_presence_samples))
+            for idx, out in demand.items():
+                parents = {p.name: values[id(p)][i] for p in idx.parents}
+                draws = idx.distribution_for(**parents).rvs(size=n, random_state=rng)
+                out.append(np.asarray(draws, dtype=float).ravel())
+            member.append(np.full(n, i))
+        member = np.concatenate(member)
+
+        # behaviour of each member, from its draws of k, L, H (A39)
+        k = values[id(inp.i_vehicle_response)].astype(float)
+        low = values[id(inp.i_occupancy_low)].astype(float)
+        high = values[id(inp.i_occupancy_high)].astype(float)
+        per_member = np.empty((len(weights), 5))
+        for i in range(len(weights)):
+            b = behaviour_for(self._behaviour, k[i], low[i], high[i])
+            per_member[i] = (
+                price_response(price, b),
+                b["share_shuttle"],
+                b["share_walk_up"],
+                occupancy(price, b),
+                occupancy(b["reference_price"], b),
+            )
+        response, shuttle, walk, occ_price, occ_reference = per_member[member].T
+        car_limit = None
+        if limit_on:
+            capacity = values[id(inp.i_c_parking)].astype(float)
+            ratio = values[id(inp.i_occupancy_ratio)].astype(float)
+            car_limit = (capacity / ratio)[member]
+        return daily_accounting(
+            np.concatenate(demand[inp.pv_demand_car]),
+            np.concatenate(demand[inp.pv_demand_other]),
+            response=response,
+            share_shuttle=shuttle,
+            share_walk_up=walk,
+            occupancy_price=occ_price,
+            occupancy_reference=occ_reference,
+            seats=np.full(member.size, seats),
+            car_limit=car_limit,
+        )

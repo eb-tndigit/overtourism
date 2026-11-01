@@ -43,7 +43,9 @@ cv_shuttle  : usable shuttle capacity class, riders per day (derived by the back
 Presence variables
 ------------------
 pv_visitors_car   : daily arrivals by private vehicle (valley traffic via the 2025 relation, modal shift; A37, A38, A2, A23, A26)
-pv_visitors_other : daily arrivals by other means (A3, A4, A6, A28)
+pv_visitors_total : daily arrivals, all means (A3, A4, A6, A28)
+pv_demand_car, pv_demand_other : visitors of a day in 2025 conditions, by private vehicle and
+              by other means: the days simulated by the backend (A36, A39)
 
 No day-type CV (D5).
 """
@@ -352,7 +354,8 @@ class FazzonModel(Model):
     ------------------
     pv_visitors_total : daily arrivals, all means           (axis x of the field)
     pv_visitors_car   : daily arrivals by private vehicle   (axis y of the field)
-    pv_visitors_other : daily arrivals by other means       (scatter sampling only)
+    pv_demand_car, pv_demand_other : visitors of a day in 2025 conditions (the days
+                        simulated by the backend for the scatter and the KPIs, A36)
 
     Both depend on the season, the weather, the parking price level and whether the
     shuttle runs (D15): the access policy moves the arrivals on the field (modal shift),
@@ -372,7 +375,9 @@ class FazzonModel(Model):
         # Presence distributions
         pv_visitors_car: ConditionalDistributionIndex
         pv_visitors_total: ConditionalDistributionIndex
-        pv_visitors_other: ConditionalDistributionIndex  # sampling only (scatter)
+        # Demand of a day in 2025 conditions: the days of the backend (scatter, KPIs; A36)
+        pv_demand_car: ConditionalDistributionIndex
+        pv_demand_other: ConditionalDistributionIndex
         # Access policy (D15)
         cv_parking_price: CategoricalIndex
         cv_shuttle: CategoricalIndex
@@ -385,6 +390,8 @@ class FazzonModel(Model):
         i_shuttle_end_hour: Index
         i_shuttle_peak_end_hour: Index
         i_shuttle_peak_share: Index
+        # 1: the parking turns away the cars above its capacity of the day (A40); 0: no limit
+        i_parking_limit: Index
         # Persons per vehicle (A2)
         i_occupancy_low_price: Index
         i_occupancy_low: DistributionIndex
@@ -425,7 +432,7 @@ class FazzonModel(Model):
         The presence statistics are read from the Fazzon data folder at every call
         (see :mod:`src.model.fazzon.fazzon_data`).
         """
-        season, weather, behaviour, car_visitors_stats, other_visitors_stats = (
+        season, weather, behaviour, car_visitors_stats, _, demand_stats = (
             presence_inputs()
         )
         cv_season = CategoricalIndex("season", {s: season[s] for s in season})  # A14
@@ -480,12 +487,15 @@ class FazzonModel(Model):
             policy,
             car_visitors_stats.total,
         )
-        # Non-car arrivals: not in the graph, used by the backend to sample the scatter
-        # (total = car + non-car draw of the same day)
-        pv_visitors_other = ConditionalDistributionIndex(
-            "visitors_other",
-            policy,
-            other_visitors_stats,
+        # Demand of a day in 2025 conditions: not in the graph; the backend draws the days
+        # from them and computes what happens on each (scatter and KPIs, A36)
+        car_demand_stats, other_demand_stats = demand_stats
+        demand_parents = [cv_season, cv_weather, i_occupancy_low, i_demand_level]
+        pv_demand_car = ConditionalDistributionIndex(
+            "demand_car", demand_parents, car_demand_stats
+        )
+        pv_demand_other = ConditionalDistributionIndex(
+            "demand_other", demand_parents, other_demand_stats
         )
 
         return cls.Inputs(
@@ -495,7 +505,8 @@ class FazzonModel(Model):
             cv_shuttle=cv_shuttle,
             pv_visitors_car=pv_visitors_car,
             pv_visitors_total=pv_visitors_total,
-            pv_visitors_other=pv_visitors_other,
+            pv_demand_car=pv_demand_car,
+            pv_demand_other=pv_demand_other,
             # Shuttle: no bus in 2025 conditions (the Greenbus pilot only ran 28/06-20/07, D1).
             # 2026 Lakebus (A29): 2 buses x 30 seats, together every 30 min, 9-19.
             i_shuttle_buses=Index("shuttle buses", 0.0),
@@ -510,6 +521,8 @@ class FazzonModel(Model):
             i_shuttle_peak_share=Index(
                 "shuttle riders in the morning peak (share)", 0.6
             ),  # A35
+            # A40: off by default (no evidence of how the 2026 booking limit acted)
+            i_parking_limit=Index("parking turns away cars above capacity", 0.0),
             # Persons per vehicle, point values from the pipeline (fazzon_modal_shift, A2)
             i_occupancy_low_price=Index(
                 "occupancy low price", behaviour["occupancy_low_price"]

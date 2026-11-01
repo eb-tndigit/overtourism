@@ -37,7 +37,7 @@ def test_presence_inputs_reads_files_at_every_call(tmp_path, monkeypatch):
     stats.loc[stats["season"] == "july", "mean_car_visitors"] = 1000.0
     write_fazzon_stats(tmp_path, stats=stats)
     monkeypatch.setenv(fazzon_data.DATA_DIR_ENV, str(tmp_path))
-    seasons, weather, behaviour, car, _ = presence_inputs()
+    seasons, weather, behaviour, car, _, _ = presence_inputs()
     assert seasons["july"] == pytest.approx(31 / 82)
     assert weather == pytest.approx({"good": 0.62, "cool": 0.2, "rainy": 0.18})
     assert behaviour["beta_per_euro"] == 0.09
@@ -137,7 +137,7 @@ def test_weather_weights_average_the_seasons(tmp_path, monkeypatch):
         {"good": 0.5, "cool": 0.3, "rainy": 0.2}
     )
     write_fazzon_stats(tmp_path, stats=stats)
-    seasons, weather, _, _, _ = presence_inputs(tmp_path)
+    seasons, weather, _, _, _, _ = presence_inputs(tmp_path)
     expected_good = seasons["july"] * 0.5 + (1 - seasons["july"]) * 0.62
     assert weather["good"] == pytest.approx(expected_good)
     assert sum(weather.values()) == pytest.approx(1.0)
@@ -378,13 +378,73 @@ def test_policy_kpis():
         * occupancy(5.0, behaviour)
         / occupancy(20.0, behaviour)
     )
+    # at the point values; the days draw the persons per vehicle (A39), hence the tolerance
     assert kpis["price"]["vehicles mean"]["share"] == pytest.approx(
-        expected * 100, abs=0.01
+        expected * 100, rel=0.03
     )
     # the shuttle does not change the vehicles
     assert kpis["lakebus"]["vehicles mean"] == kpis["price"]["vehicles mean"]
     august = backend.evaluate({**price, "season": "august"}).kpis
     assert august["vehicles mean"]["value"] > kpis["price"]["vehicles mean"]["value"]
+
+
+def test_daily_accounting():
+    """Every potential visitor arrives or is lost; the shuttle takes at most its seats; with the
+    parking limit the vehicles above it are turned away (A36, A40)."""
+    from src.model.fazzon.fazzon_presence_stats import daily_accounting
+
+    car = np.array([400.0, 1000.0])
+    other = np.array([100.0, 300.0])
+    common = dict(
+        response=np.array([0.5, 0.5]),
+        share_shuttle=np.array([0.8, 0.8]),
+        share_walk_up=np.array([0.1, 0.1]),
+        occupancy_price=np.array([3.0, 3.0]),
+        occupancy_reference=np.array([2.5, 2.5]),
+        seats=np.array([300.0, 300.0]),
+    )
+    free = daily_accounting(car, other, **common)
+    assert free["arrivals"] + free["lost"] == pytest.approx(free["potential"])
+    assert free["shuttle_riders"] == pytest.approx([160.0, 300.0])  # 200 x 0.8; seats
+    assert free["vehicles"] == pytest.approx(car * 0.5 / 3.0)
+    assert free["vehicles_2025"] == pytest.approx(car / 2.5)
+    limited = daily_accounting(car, other, **common, car_limit=np.array([100.0, 100.0]))
+    assert limited["vehicles"] == pytest.approx(
+        [66.7, 100.0], abs=0.1
+    )  # 2nd day capped
+    assert limited["arrivals"] + limited["lost"] == pytest.approx(limited["potential"])
+    assert limited["lost"][1] > free["lost"][1]
+    assert limited["lost"][0] == pytest.approx(free["lost"][0])
+
+
+def test_kpis_follow_the_parameter_ranges():
+    """The KPIs come from the same draws as the field (A36, A39): more persons per vehicle
+    under the 2026 rules means more visitors kept, so more arrivals."""
+    from src.model.fazzon.fazzon_backend import FazzonBackend
+
+    backend = FazzonBackend()
+    c1 = {"parking price (euro per vehicle)": 15.0, "shuttle buses": 2.0}
+    low = backend.evaluate({**c1, "persons per vehicle at high price": (3.0, 3.1)})
+    high = backend.evaluate({**c1, "persons per vehicle at high price": (3.9, 4.0)})
+    assert high.kpis["arrivals mean"]["share"] > low.kpis["arrivals mean"]["share"]
+
+
+def test_parking_limit_turns_cars_away_on_peak_days():
+    """A40: with the limit the peak days lose vehicles and visitors, the average much less;
+    without it nothing changes at 5 euro."""
+    from src.model.fazzon.fazzon_backend import FazzonBackend
+
+    backend = FazzonBackend()
+    august = {"season": "august"}
+    free = backend.evaluate(august).kpis
+    limited = backend.evaluate(
+        {**august, "parking turns away cars above capacity": 1.0}
+    ).kpis
+    assert (
+        free["vehicles peak"]["share"] == 100 and free["arrivals peak"]["share"] == 100
+    )
+    assert limited["vehicles peak"]["share"] < limited["vehicles mean"]["share"] < 100
+    assert limited["arrivals peak"]["share"] < limited["arrivals mean"]["share"] < 100
 
 
 def test_kpis_order_model_kpis_first():

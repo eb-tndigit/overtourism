@@ -1,12 +1,12 @@
 """Presence statistics for the Altipiano di Fazzon (Val di Sole) overtourism model.
 
-Two presence variables are modelled:
+The presence variables (the axes of the field):
 
 ``pv_visitors_car``
     Daily visitors arriving by private car.
 
-``pv_visitors_other``
-    Daily visitors arriving by non-car modes (shuttle bus, on foot, bicycle).
+``pv_visitors_total``
+    Daily visitors arriving by any mode (car + shuttle bus, on foot, bicycle).
 
 Both are the **arrivals** at Fazzon, conditioned on the season, the weather class (good /
 cool / rainy, D7 in ``data_preparation/model/fazzon/ASSUMPTIONS.md``), the parking price
@@ -27,6 +27,10 @@ vehicle at the low and at the high price L, H (A2) and the vehicle response k (c
 expected at 5 euro on the 2026 regime days, measured; A23).  β and the shuttle and walk-up
 shares are derived from them on every draw (:func:`behaviour_for`), consistently with the
 2026 observations; at the point values they are the estimates of ``fazzon_modal_shift``.
+
+The scatter and the KPIs come instead from simulated days (A36): the demand of a day in 2025
+conditions (:func:`make_demand_factories`) and what happens on it
+(:func:`daily_accounting`).
 
 The data has ``P(weather | season)`` (climatology, A20); the model uses one weather
 distribution for all seasons, their weighted average (D13).
@@ -214,6 +218,40 @@ def price_response(price: float, behaviour: dict[str, float]) -> float:
     return float(np.exp(-behaviour["beta_per_euro"] * excess))
 
 
+def _gamma(mean: float, var: float):
+    """Gamma distribution with the given mean and variance (mean floored at 1)."""
+    mean = max(mean, 1.0)
+    var = max(var, 1e-6)
+    return stats.gamma(a=mean**2 / var, scale=var / mean)
+
+
+def _demand_scale(kwargs, behaviour: dict[str, float]) -> float:
+    """D x L / L0: the demand level and the persons per vehicle at 5 euro of a draw (A39); the
+    presence statistics count L0 persons per vehicle."""
+    low = float(kwargs.get(OCCUPANCY_LOW_NAME, behaviour["occupancy_low"]))
+    return float(kwargs.get(DEMAND_LEVEL_NAME, 1.0)) * low / behaviour["occupancy_low"]
+
+
+def make_demand_factories(stats_table: pd.DataFrame, behaviour: dict[str, float]):
+    """Return ``(car_demand_stats, other_demand_stats)``: the visitors of a day in 2025
+    conditions (5 euro, no shuttle), by private vehicle and by other means, as Gamma
+    distributions of the (season, weather) cell scaled by D x L / L0 (A39).  The days of the
+    backend are drawn from them (:func:`daily_accounting`)."""
+
+    def _demand(kwargs, mean_col: str, sd_col: str):
+        cell = stats_table.loc[(kwargs["season"], kwargs["weather"])]
+        scale = _demand_scale(kwargs, behaviour)
+        return _gamma(float(cell[mean_col]) * scale, (float(cell[sd_col]) * scale) ** 2)
+
+    def car_demand_stats(**kwargs):
+        return _demand(kwargs, "mean_car_visitors", "std_car_visitors")
+
+    def other_demand_stats(**kwargs):
+        return _demand(kwargs, "mean_other_visitors", "std_other_visitors")
+
+    return car_demand_stats, other_demand_stats
+
+
 def make_presence_factories(stats_table: pd.DataFrame, behaviour: dict[str, float]):
     """Return ``(car_arrivals_stats, other_arrivals_stats)`` closures.
 
@@ -234,13 +272,6 @@ def make_presence_factories(stats_table: pd.DataFrame, behaviour: dict[str, floa
     the Gamma parameters.
     """
 
-    def _gamma(mean: float, var: float):
-        mean = max(mean, 1.0)
-        var = max(var, 1e-6)
-        k = mean**2 / var
-        theta = var / mean
-        return stats.gamma(a=k, scale=theta)
-
     def _cell(kwargs):
         cell = stats_table.loc[(kwargs["season"], kwargs["weather"])]
         low = float(kwargs.get(OCCUPANCY_LOW_NAME, behaviour["occupancy_low"]))
@@ -250,9 +281,7 @@ def make_presence_factories(stats_table: pd.DataFrame, behaviour: dict[str, floa
             low=low,
             high=float(kwargs.get(OCCUPANCY_HIGH_NAME, behaviour["occupancy_high"])),
         )
-        scale = (
-            float(kwargs.get(DEMAND_LEVEL_NAME, 1.0)) * low / behaviour["occupancy_low"]
-        )
+        scale = _demand_scale(kwargs, behaviour)
         demand = {
             col: float(cell[col]) * scale
             for col in (
@@ -304,7 +333,8 @@ def make_presence_factories(stats_table: pd.DataFrame, behaviour: dict[str, floa
 
 def presence_inputs(data_dir: str | Path | None = None):
     """Return ``(season_weights, weather_weights, behaviour, car_arrivals_stats,
-    other_arrivals_stats)``.
+    other_arrivals_stats, demand_stats)``, ``demand_stats`` = ``(car_demand_stats,
+    other_demand_stats)`` (:func:`make_demand_factories`).
 
     * ``season_weights``: ``{season: P(season)}`` (A14);
     * ``weather_weights``: ``{weather: sum_s P(s) P(weather | s)}`` (A20, D13): the weather
@@ -330,7 +360,15 @@ def presence_inputs(data_dir: str | Path | None = None):
     total = sum(weather_weights.values())
     weather_weights = {w: p / total for w, p in weather_weights.items()}
     car_stats, other_stats = make_presence_factories(table, behaviour)
-    return season_weights, weather_weights, behaviour, car_stats, other_stats
+    demand_stats = make_demand_factories(table, behaviour)
+    return (
+        season_weights,
+        weather_weights,
+        behaviour,
+        car_stats,
+        other_stats,
+        demand_stats,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -402,78 +440,93 @@ def occupancy(price: float, behaviour: dict[str, float]) -> float:
     return float(min(max(linear, low), high))
 
 
-def policy_kpis(
-    stats_table: pd.DataFrame,
-    behaviour: dict[str, float],
-    cell_weights: dict[tuple[str, str], float],
-    price: float,
-    capacity: float,
-    n_days: int = 20_000,
-    seed: int = 0,
-) -> dict[str, dict[str, dict[str, float]]]:
-    """Arrivals and vehicles of the policy, over the season and on the peak days (A36).
+def daily_accounting(
+    car_demand: np.ndarray,
+    other_demand: np.ndarray,
+    *,
+    response: np.ndarray,
+    share_shuttle: np.ndarray,
+    share_walk_up: np.ndarray,
+    occupancy_price: np.ndarray,
+    occupancy_reference: np.ndarray,
+    seats: np.ndarray,
+    car_limit: np.ndarray | None = None,
+) -> dict[str, np.ndarray]:
+    """What happens on each simulated day (A36); every argument is an array over the days.
 
-    Days are drawn from the (season, weather) cells with *cell_weights*; on each day the car
-    demand in 2025 conditions is drawn from the cell's Gamma distribution, and
+    *car_demand*, *other_demand*: the visitors of the day in 2025 conditions by private
+    vehicle and by other means; *response*: R(price), the share of the car demand that still
+    comes by car; *occupancy_price*, *occupancy_reference*: persons per vehicle at the price
+    and at 5 euro; *seats*: usable shuttle seats of the day; *car_limit*: vehicles the
+    parking can take in the day (A40), ``None`` = no limit.
 
-        deterred  = demand × (1 - R(price))
-        riders    = min(deterred × shuttle share, capacity)     (cap per day)
-        lost      = deterred × (1 - walk-up share) - riders
-        arrivals  = potential visitors - lost
-        vehicles  = demand × R(price) / occupancy(price)
-        vehicles in 2025 rules = demand / occupancy(reference price)
+        deterred  = car demand x (1 - R)
+        riders    = min(deterred x shuttle share, seats)
+        walk-up   = deterred x walk-up share
+        lost      = deterred - riders - walk-up
+        vehicles  = car demand x R / occupancy(price)
 
-    i.e. the visitors deterred by the price who neither walk up nor find a seat on the
-    shuttle do not arrive (A28, A34).  The potential visitors of a day are its car demand
-    plus the cell's non-car demand in proportion (A3).  Peak days: the days at or above the
-    ``PEAK_QUANTILE`` of the potential visitors.
+    With *car_limit*, the vehicles above it are turned away: their persons take the
+    remaining shuttle seats, walk up or are lost with the same shares (A40).
+    """
+    deterred = car_demand * (1.0 - response)
+    riders = np.minimum(deterred * share_shuttle, seats)
+    walk = deterred * share_walk_up
+    lost = deterred - riders - walk
+    car_arrivals = car_demand * response
+    vehicles = car_arrivals / occupancy_price
+    if car_limit is not None:
+        turned_vehicles = np.maximum(vehicles - car_limit, 0.0)
+        turned = turned_vehicles * occupancy_price
+        more_riders = np.minimum(
+            turned * share_shuttle, np.maximum(seats - riders, 0.0)
+        )
+        more_walk = turned * share_walk_up
+        lost = lost + turned - more_riders - more_walk
+        riders, walk = riders + more_riders, walk + more_walk
+        vehicles = vehicles - turned_vehicles
+        car_arrivals = car_arrivals - turned
+    other_arrivals = other_demand + riders + walk
+    return {
+        "potential": car_demand + other_demand,
+        "car_arrivals": car_arrivals,
+        "other_arrivals": other_arrivals,
+        "arrivals": car_arrivals + other_arrivals,
+        "shuttle_riders": riders,
+        "walk_up": walk,
+        "lost": lost,
+        "vehicles": vehicles,
+        "vehicles_2025": car_demand / occupancy_reference,
+    }
+
+
+def policy_kpis(days: dict[str, np.ndarray]) -> dict[str, dict[str, dict[str, float]]]:
+    """Arrivals and vehicles over the simulated *days* (:func:`daily_accounting`), over the
+    season and on the peak days (the days at or above the ``PEAK_QUANTILE`` of the potential
+    visitors; A36).
 
     Returns ``{"arrivals" | "vehicles": {"mean" | "peak": {"value", "share"}}}``: ``value``
-    is the mean per day over the season or the peak days; ``share`` the ratio to the
-    potential visitors (arrivals) or to the vehicles in 2025 rules (vehicles) over the same
-    days, so that 1 = nobody lost / as many vehicles as in 2025.
+    is the mean per day; ``share`` the ratio to the potential visitors (arrivals) or to the
+    vehicles under the 2025 rules (vehicles) over the same days, so that 1 = nobody lost /
+    as many vehicles as in 2025.
     """
-    rng = np.random.default_rng(seed)
-    cells = list(cell_weights)
-    weights = np.array([cell_weights[c] for c in cells], dtype=float)
-    weights = weights / weights.sum()
-    picked = rng.choice(len(cells), size=n_days, p=weights)
-    demand = np.empty(n_days)
-    potential = np.empty(n_days)
-    for k, cell in enumerate(cells):
-        mask = picked == k
-        row = stats_table.loc[cell]
-        mean, sd = float(row["mean_car_visitors"]), float(row["std_car_visitors"])
-        shape, scale = (mean / sd) ** 2, sd**2 / mean
-        demand[mask] = rng.gamma(shape, scale, size=int(mask.sum()))
-        potential[mask] = demand[mask] * (
-            1.0 + float(row["mean_other_visitors"]) / mean
-        )
-    r = price_response(price, behaviour)
-    deterred = demand * (1.0 - r)
-    riders = np.minimum(deterred * behaviour["share_shuttle"], capacity)
-    lost = deterred * (1.0 - behaviour["share_walk_up"]) - riders
-    arrivals = potential - lost
-    vehicles = demand * r / occupancy(price, behaviour)
-    vehicles_2025 = demand / occupancy(behaviour["reference_price"], behaviour)
+    potential = days["potential"]
+    every = np.ones(potential.size, dtype=bool)
     peak = potential >= np.quantile(potential, PEAK_QUANTILE)
 
-    def kpi(
-        days: np.ndarray, value: np.ndarray, reference: np.ndarray
-    ) -> dict[str, float]:
+    def kpi(sel: np.ndarray, value: str, reference: str) -> dict[str, float]:
         return {
-            "value": float(value[days].mean()),
-            "share": float(value[days].sum() / reference[days].sum()),
+            "value": float(days[value][sel].mean()),
+            "share": float(days[value][sel].sum() / days[reference][sel].sum()),
         }
 
-    every = np.ones(n_days, dtype=bool)
     return {
         "arrivals": {
-            "mean": kpi(every, arrivals, potential),
-            "peak": kpi(peak, arrivals, potential),
+            "mean": kpi(every, "arrivals", "potential"),
+            "peak": kpi(peak, "arrivals", "potential"),
         },
         "vehicles": {
-            "mean": kpi(every, vehicles, vehicles_2025),
-            "peak": kpi(peak, vehicles, vehicles_2025),
+            "mean": kpi(every, "vehicles", "vehicles_2025"),
+            "peak": kpi(peak, "vehicles", "vehicles_2025"),
         },
     }
