@@ -20,7 +20,8 @@ Sub-models:
     under semaphore control.
 
 :class:`FoodModel`
-    Peak simultaneous diners vs. total seat capacity (4 venues, 520 seats).
+    Peak simultaneous diners vs. total seat capacity (4 venues, 520 seats); visitors by car
+    use the restaurants less than the others (picnic, A10).
 
 :class:`FazzonModel`
     Root model — owns the CVs, two PVs, all ``i_*`` defaults, and wires the
@@ -248,21 +249,25 @@ class FoodModel(Model):
     """Concern sub-model — daily restaurant demand at the 4 lake venues.
 
     Models peak simultaneous diners as a fraction of the visitors reaching the lake
-    (all arrivals, D19), divided by the daily seat turnover.  The constraint is peak
-    simultaneous demand ≤ total seats (520).
+    (all arrivals, D19), divided by the daily seat turnover.  The fraction differs between
+    the visitors arrived by car (who can bring a picnic) and the others (A10).  The
+    constraint is peak simultaneous demand ≤ total seats (520).
 
     Formula::
 
-        visitors_at_lake = pv_visitors_total
-        i_u_food = visitors_at_lake * i_u_food_fraction / i_xo_food_sittings
+        other    = max(pv_visitors_total - pv_visitors_car, 0)
+        i_u_food = (pv_visitors_car * i_u_food_fraction_car
+                    + other * i_u_food_fraction_other) / i_xo_food_sittings
     """
 
     @inputs
     class Inputs:
         """Contractual inputs of :class:`FoodModel`."""
 
+        pv_visitors_car: ConditionalDistributionIndex
         pv_visitors_total: ConditionalDistributionIndex
-        i_u_food_fraction: Index
+        i_u_food_fraction_car: Index
+        i_u_food_fraction_other: Index
         i_xo_food_sittings: Index
         i_c_seats: Index
 
@@ -274,11 +279,13 @@ class FoodModel(Model):
 
     def compute(self, inputs: Inputs) -> Outputs:
         """Compute peak simultaneous diners."""
-        visitors_at_lake = inputs.pv_visitors_total
-        i_u_food = Index(
-            "food usage",
-            visitors_at_lake * inputs.i_u_food_fraction / inputs.i_xo_food_sittings,
+        # above the diagonal (more car arrivals than arrivals) the field is not reachable
+        other = graph.maximum(inputs.pv_visitors_total - inputs.pv_visitors_car, 0.0)
+        diners = (
+            inputs.pv_visitors_car * inputs.i_u_food_fraction_car
+            + other * inputs.i_u_food_fraction_other
         )
+        i_u_food = Index("food usage", diners / inputs.i_xo_food_sittings)
         self.constraint = Constraint(
             name="food", usage=i_u_food, capacity=inputs.i_c_seats
         )
@@ -313,8 +320,9 @@ class FazzonModel(Model):
 
     Presence variables
     ------------------
-    pv_visitors_car   : daily arrivals by private vehicle   (axis x of the field)
-    pv_visitors_other : daily arrivals by other means       (axis y of the field)
+    pv_visitors_total : daily arrivals, all means           (axis x of the field)
+    pv_visitors_car   : daily arrivals by private vehicle   (axis y of the field)
+    pv_visitors_other : daily arrivals by other means       (scatter sampling only)
 
     Both depend on the season, the weather, the parking price level and whether the
     shuttle runs (D15): the access policy moves the arrivals on the field (modal shift),
@@ -356,7 +364,8 @@ class FazzonModel(Model):
         i_occupancy_ratio: Index
         i_xo_road_trips: Index
         # Food parameters
-        i_u_food_fraction: Index
+        i_u_food_fraction_car: Index
+        i_u_food_fraction_other: Index
         i_xo_food_sittings: Index
         # Capacity parameters
         i_c_parking: DistributionIndex
@@ -465,10 +474,14 @@ class FazzonModel(Model):
             i_xo_road_trips=Index(
                 "road round-trip multiplier", 2.0
             ),  # A9: in + out = 2 passages
-            # Food
-            i_u_food_fraction=Index(
-                "restaurant usage fraction", 0.55
-            ),  # A10: >50% (EETRA 2022)
+            # Food. A10: 0.55 of all visitors (EETRA 2022, >50 %) in 2025 conditions, where
+            # 31 % arrive by other means (A3): 0.69 x 0.50 + 0.31 x 0.66 = 0.55
+            i_u_food_fraction_car=Index(
+                "restaurant usage fraction, visitors by car", 0.50
+            ),
+            i_u_food_fraction_other=Index(
+                "restaurant usage fraction, visitors by other means", 0.66
+            ),
             i_xo_food_sittings=Index(
                 "food seat turnover", 2.0
             ),  # A11: ~2 sittings/seat/day
@@ -533,8 +546,10 @@ class FazzonModel(Model):
         )
         food = FoodModel(
             inputs=FoodModel.Inputs(
+                pv_visitors_car=inputs.pv_visitors_car,
                 pv_visitors_total=inputs.pv_visitors_total,
-                i_u_food_fraction=inputs.i_u_food_fraction,
+                i_u_food_fraction_car=inputs.i_u_food_fraction_car,
+                i_u_food_fraction_other=inputs.i_u_food_fraction_other,
                 i_xo_food_sittings=inputs.i_xo_food_sittings,
                 i_c_seats=inputs.i_c_seats,
             )

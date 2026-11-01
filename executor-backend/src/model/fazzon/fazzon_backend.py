@@ -35,8 +35,8 @@ from src.model.fazzon.fazzon_presence_stats import (
     PRICE_INDEX_NAME,
     PRICE_LEVELS,
     behaviour_params,
-    dropouts,
     load_presence_stats,
+    policy_kpis,
     shuttle_capacity_level,
     shuttle_usable_capacity,
 )
@@ -68,20 +68,23 @@ class FazzonBackend:
         "food": "Ristorazione",
     }
     # The axes are the arrivals under the access policy (D15): the policy moves the samples.
-    X_AXIS_NAME = "Visitatori arrivati in auto / giorno"
-    Y_AXIS_NAME = "Visitatori arrivati in totale / giorno"
+    # Total arrivals on the (wider) x axis, car arrivals on y.
+    X_AXIS_NAME = "Visitatori arrivati in totale / giorno"
+    Y_AXIS_NAME = "Visitatori arrivati in auto / giorno"
     # TODO: check: are thesepointers really needed?
-    # Model-specific KPIs (SustainabilityFieldOutput.extra_kpis) and their display names
+    # Model-specific KPIs (SustainabilityFieldOutput.extra_kpis) and their display names (D18)
     KPI_LABELS: ClassVar[dict[str, str]] = {
-        "dropouts mean": "Visitatori potenziali che non arrivano: media stagionale (persone/giorno)",
-        "dropouts peak": "Visitatori potenziali che non arrivano: giorni di picco (persone/giorno)",
+        "arrivals mean": "Arrivi rispetto ai visitatori potenziali: media stagionale (persone/giorno)",
+        "arrivals peak": "Arrivi rispetto ai visitatori potenziali: giorni di picco (persone/giorno)",
+        "vehicles mean": "Veicoli rispetto alle regole 2025: media stagionale (veicoli/giorno)",
+        "vehicles peak": "Veicoli rispetto alle regole 2025: giorni di picco (veicoli/giorno)",
     }
-    X_FIELD = "visitors_car"
-    Y_FIELD = "visitors_total"
+    X_FIELD = "visitors_total"
+    Y_FIELD = "visitors_car"
 
     def __init__(self) -> None:
         model = FazzonModel(inputs=FazzonModel.default_inputs())
-        # Demand statistics and behaviour parameters, for the dropout KPIs
+        # Demand statistics and behaviour parameters, for the policy KPIs
         self._presence_stats = load_presence_stats()
         self._behaviour = behaviour_params()
         self._model = model
@@ -91,9 +94,10 @@ class FazzonBackend:
             model.inputs.pv_visitors_car,
         ]
         # Grid-resolution: structural axis choices, not per-evaluation config.
-        # Non-car arrivals reach ~1600/day under a strong price policy (modal shift, D15).
-        self._c_max, self._o_max = 3000, 3000
-        self._c_sample, self._o_sample = 100, 100
+        # x: total arrivals, up to 3000/day; y: car arrivals, up to 2000/day (the busiest
+        # August days in 2025 conditions reach about 2500 in total and 2000 by car).
+        self._t_max, self._c_max = 3000, 2000
+        self._t_sample, self._c_sample = 100, 100
         self._config = OvertourismEvaluationConfig(
             ensemble_size=12,  # 4 seasons x 3 weather classes (D5, D7)
             ensemble_seed=0,
@@ -313,6 +317,36 @@ class FazzonBackend:
                 max_value=1.0,
                 step=0.05,
             ),
+            inp.i_u_food_fraction_car.name: OvertourismParameterMeta(
+                name=inp.i_u_food_fraction_car.name,
+                kind="scalar",
+                label="Ristorazione: quota visitatori in auto che usano i ristoranti",
+                description=(
+                    "Chi arriva in auto può portarsi il picnic. ASSUNZIONE: 0.50, con 0.66 per gli "
+                    "altri visitatori dà la quota 0.55 dell'indagine EETRA 2022 con le regole 2025."
+                ),
+                unit="",
+                category="Ristorazione",
+                default=0.50,
+                min_value=0.0,
+                max_value=1.0,
+                step=0.05,
+            ),
+            inp.i_u_food_fraction_other.name: OvertourismParameterMeta(
+                name=inp.i_u_food_fraction_other.name,
+                kind="scalar",
+                label="Ristorazione: quota altri visitatori che usano i ristoranti",
+                description=(
+                    "Visitatori arrivati in navetta, a piedi o in bici. ASSUNZIONE: 0.66 (vedi la "
+                    "quota dei visitatori in auto)."
+                ),
+                unit="",
+                category="Ristorazione",
+                default=0.66,
+                min_value=0.0,
+                max_value=1.0,
+                step=0.02,
+            ),
             inp.cv_season.name: OvertourismParameterMeta(
                 name=inp.cv_season.name,
                 kind="categorical",
@@ -346,10 +380,10 @@ class FazzonBackend:
         scenario = self._with_policy(scenario)
         model = self._model
         config = self._config
-        pv_car, pv_other = model.inputs.pv_visitors_car, model.inputs.pv_visitors_total
+        pv_car, pv_total = model.inputs.pv_visitors_car, model.inputs.pv_visitors_total
         pv_noncar = model.inputs.pv_visitors_other
+        tt = np.linspace(0, self._t_max, self._t_sample + 1)
         cc = np.linspace(0, self._c_max, self._c_sample + 1)
-        oo = np.linspace(0, self._o_max, self._o_sample + 1)
 
         # Presence samples for the scatter overlay — seeded independently of the field.
         sampling_overrides = {
@@ -361,7 +395,7 @@ class FazzonBackend:
             for idx, val in scenario.overrides.items()
         }
         sampling_scenario = Scenario(
-            model, overrides=sampling_overrides, parameter_axes=[pv_car, pv_other]
+            model, overrides=sampling_overrides, parameter_axes=[pv_total, pv_car]
         )
         sampling_ensemble = CrossProductEnsemble(
             sampling_scenario,
@@ -386,31 +420,32 @@ class FazzonBackend:
         )
         result = Evaluation(scenario).evaluate(
             ensemble=field_ensemble,
-            parameters={pv_car: cc, pv_other: oo},
+            parameters={pv_total: tt, pv_car: cc},
         )
         field, field_elements, usage_fields, capacity_distributions = (
             compute_sustainability_field(
-                model.constraints, result, pv_car, pv_other, scenario=scenario
+                model.constraints, result, pv_total, pv_car, scenario=scenario
             )
         )
 
         return SustainabilityFieldOutput(
             field=field,
             field_elements=field_elements,
-            x_values=cc,
-            y_values=oo,
-            samples_x=list(pv_samples[pv_car]),
+            x_values=tt,
+            y_values=cc,
             # total = car + non-car draws of the same day (aligned by sample_across)
-            samples_y=list(pv_samples[pv_car] + pv_samples[pv_noncar]),
+            samples_x=list(pv_samples[pv_car] + pv_samples[pv_noncar]),
+            samples_y=list(pv_samples[pv_car]),
             usage_fields=usage_fields,
             capacity_distributions=capacity_distributions,
             confidence=config.confidence,
-            extra_kpis=self._dropout_kpis(scenario),
+            extra_kpis=self._policy_kpis(scenario),
         )
 
-    def _dropout_kpis(self, scenario: Scenario) -> dict[str, dict[str, float]]:
-        """Potential visitors who do not arrive (A36), for the scenario's policy and for the
-        seasons / weather classes it allows (fixed or restricted categories)."""
+    def _policy_kpis(self, scenario: Scenario) -> dict[str, dict[str, float]]:
+        """Arrivals out of the potential visitors and vehicles out of the 2025-rules
+        vehicles (A36), for the scenario's policy and for the seasons / weather classes it
+        allows (fixed or restricted categories)."""
         inp = self._model.inputs
         overrides = scenario.overrides
 
@@ -426,7 +461,7 @@ class FazzonBackend:
         cell_weights = {
             (s, w): ps * pw for s, ps in seasons.items() for w, pw in weathers.items()
         }
-        result = dropouts(
+        result = policy_kpis(
             self._presence_stats,
             self._behaviour,
             cell_weights,
@@ -434,12 +469,10 @@ class FazzonBackend:
             capacity=float(overrides[inp.cv_shuttle]),
         )
         return {
-            "dropouts mean": {
-                "value": round(result["mean"], 1),
-                "share": round(result["share"] * 100, 2),
-            },
-            "dropouts peak": {
-                "value": round(result["peak"], 1),
-                "share": round(result["peak_share"] * 100, 2),
-            },
+            f"{quantity} {days}": {
+                "value": round(result[quantity][days]["value"], 1),
+                "share": round(result[quantity][days]["share"] * 100, 2),
+            }
+            for quantity in ("arrivals", "vehicles")
+            for days in ("mean", "peak")
         }

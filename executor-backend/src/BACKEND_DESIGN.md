@@ -298,15 +298,17 @@ constraint (its `sustainability_by_constraint` value) — each as `{"level",
 `1 - sustainability`, under an `overtourism_level` key.)
 
 A model can add its own KPIs (`SustainabilityFieldOutput.extra_kpis`), reported
-in `kpis` next to the standard ones. A `kpis` entry has one of two formats,
+in `kpis` before the standard ones (display order: model KPIs, sustainability level,
+per-constraint levels, critical constraint). A `kpis` entry has one of two formats,
 told apart by its fields (not by its key):
 
 - `{"level", "confidence"}` (plus `"name"` for `critical constraint`): a
   percentage with its confidence half-width — the sustainability KPIs above;
 - `{"value", "share"}`: a quantity, with its share in percent (0–100;
-  `share` optional) — e.g. Fazzon's `dropouts mean` and `dropouts peak`
-  (potential visitors who do not arrive, per day, and their share of the
-  potential visitors). The dashboards show them as `value (share%)`.
+  `share` optional) — e.g. Fazzon's `arrivals mean` / `arrivals peak` (arrivals
+  per day, and their share of the potential visitors) and `vehicles mean` /
+  `vehicles peak` (vehicles per day, and their share of the vehicles under the 2025
+  rules). The dashboards show them as `value (share%)`.
 
 The display names of all KPIs are in the schema's `kpi_mapper` (model-specific
 ones from the backend's `kpi_labels`).

@@ -306,13 +306,15 @@ def test_get_fazzon_schema_returns_fazzon_frontend_metadata() -> None:
         "kpi_mapper": {
             "title": "Indici",
             "area": "Area Totale",
+            "arrivals mean": "Arrivi rispetto ai visitatori potenziali: media stagionale (persone/giorno)",
+            "arrivals peak": "Arrivi rispetto ai visitatori potenziali: giorni di picco (persone/giorno)",
+            "vehicles mean": "Veicoli rispetto alle regole 2025: media stagionale (veicoli/giorno)",
+            "vehicles peak": "Veicoli rispetto alle regole 2025: giorni di picco (veicoli/giorno)",
             "sustainability_level": "Sostenibilità complessiva",
             "constraint level parking": "Sostenibilità Parcheggi",
             "constraint level road": "Sostenibilità Viabilità",
             "constraint level food": "Sostenibilità Ristorazione",
             "critical constraint": "Vincolo Critico",
-            "dropouts mean": "Visitatori potenziali che non arrivano: media stagionale (persone/giorno)",
-            "dropouts peak": "Visitatori potenziali che non arrivano: giorni di picco (persone/giorno)",
         },
         "plot_mapper": {
             "monodimensional": {
@@ -324,16 +326,24 @@ def test_get_fazzon_schema_returns_fazzon_frontend_metadata() -> None:
             },
             "bidimensional": {
                 "x": {
-                    "label": "Visitatori arrivati in auto / giorno",
-                    "field": "visitors_car",
-                },
-                "y": {
                     "label": "Visitatori arrivati in totale / giorno",
                     "field": "visitors_total",
+                },
+                "y": {
+                    "label": "Visitatori arrivati in auto / giorno",
+                    "field": "visitors_car",
                 },
             },
         },
     }
+    # display order: the model KPIs before the sustainability
+    assert list(response.json()["metadata"]["kpi_mapper"])[2:7] == [
+        "arrivals mean",
+        "arrivals peak",
+        "vehicles mean",
+        "vehicles peak",
+        "sustainability_level",
+    ]
 
 
 def test_download_data_refreshes_backend(monkeypatch, tmp_path) -> None:

@@ -299,13 +299,22 @@ def behaviour_params(data_dir: str | Path | None = None) -> dict[str, float]:
 
 
 # ---------------------------------------------------------------------------
-# Dropouts: potential visitors who do not arrive (KPI)
+# Policy KPIs: arrivals out of the potential visitors, vehicles out of the 2025 rules
 # ---------------------------------------------------------------------------
 
-DROPOUT_PEAK_QUANTILE = 0.95  # "maximum": the 95th percentile of the days (A36)
+PEAK_QUANTILE = 0.95  # peak days: the busiest 5 % of the days (A36)
 
 
-def dropouts(
+def occupancy(price: float, behaviour: dict[str, float]) -> float:
+    """Persons per vehicle at *price* (A2): linear between the two occupancy points, clipped
+    to them (as ``AccessModel``)."""
+    low_p, low = behaviour["occupancy_low_price"], behaviour["occupancy_low"]
+    high_p, high = behaviour["occupancy_high_price"], behaviour["occupancy_high"]
+    linear = low + (price - low_p) * (high - low) / (high_p - low_p)
+    return float(min(max(linear, low), high))
+
+
+def policy_kpis(
     stats_table: pd.DataFrame,
     behaviour: dict[str, float],
     cell_weights: dict[tuple[str, str], float],
@@ -313,22 +322,28 @@ def dropouts(
     capacity: float,
     n_days: int = 20_000,
     seed: int = 0,
-) -> dict[str, float]:
-    """Potential visitors who do not arrive, per day: season mean and peak (A36).
+) -> dict[str, dict[str, dict[str, float]]]:
+    """Arrivals and vehicles of the policy, over the season and on the peak days (A36).
 
     Days are drawn from the (season, weather) cells with *cell_weights*; on each day the car
     demand in 2025 conditions is drawn from the cell's Gamma distribution, and
 
         deterred  = demand × (1 - R(price))
         riders    = min(deterred × shuttle share, capacity)     (cap per day)
-        dropouts  = deterred × (1 - walk-up share) - riders
+        lost      = deterred × (1 - walk-up share) - riders
+        arrivals  = potential visitors - lost
+        vehicles  = demand × R(price) / occupancy(price)
+        vehicles in 2025 rules = demand / occupancy(reference price)
 
     i.e. the visitors deterred by the price who neither walk up nor find a seat on the
-    shuttle (A28, A34).  The potential visitors of a day are its car demand plus the
-    cell's non-car demand in proportion (A3).  Returns ``mean`` and ``share`` (mean
-    dropouts / mean potential visitors), ``peak`` (the ``DROPOUT_PEAK_QUANTILE`` of the
-    daily dropouts) and ``peak_share`` (dropouts / potential visitors over the days at or
-    above the peak).
+    shuttle do not arrive (A28, A34).  The potential visitors of a day are its car demand
+    plus the cell's non-car demand in proportion (A3).  Peak days: the days at or above the
+    ``PEAK_QUANTILE`` of the potential visitors.
+
+    Returns ``{"arrivals" | "vehicles": {"mean" | "peak": {"value", "share"}}}``: ``value``
+    is the mean per day over the season or the peak days; ``share`` the ratio to the
+    potential visitors (arrivals) or to the vehicles in 2025 rules (vehicles) over the same
+    days, so that 1 = nobody lost / as many vehicles as in 2025.
     """
     rng = np.random.default_rng(seed)
     cells = list(cell_weights)
@@ -346,14 +361,31 @@ def dropouts(
         potential[mask] = demand[mask] * (
             1.0 + float(row["mean_other_visitors"]) / mean
         )
-    deterred = demand * (1.0 - price_response(price, behaviour))
+    r = price_response(price, behaviour)
+    deterred = demand * (1.0 - r)
     riders = np.minimum(deterred * behaviour["share_shuttle"], capacity)
     lost = deterred * (1.0 - behaviour["share_walk_up"]) - riders
-    peak = float(np.quantile(lost, DROPOUT_PEAK_QUANTILE))
-    peak_days = lost >= peak
+    arrivals = potential - lost
+    vehicles = demand * r / occupancy(price, behaviour)
+    vehicles_2025 = demand / occupancy(behaviour["reference_price"], behaviour)
+    peak = potential >= np.quantile(potential, PEAK_QUANTILE)
+
+    def kpi(
+        days: np.ndarray, value: np.ndarray, reference: np.ndarray
+    ) -> dict[str, float]:
+        return {
+            "value": float(value[days].mean()),
+            "share": float(value[days].sum() / reference[days].sum()),
+        }
+
+    every = np.ones(n_days, dtype=bool)
     return {
-        "mean": float(lost.mean()),
-        "share": float(lost.mean() / potential.mean()),
-        "peak": peak,
-        "peak_share": float(lost[peak_days].sum() / potential[peak_days].sum()),
+        "arrivals": {
+            "mean": kpi(every, arrivals, potential),
+            "peak": kpi(peak, arrivals, potential),
+        },
+        "vehicles": {
+            "mean": kpi(every, vehicles, vehicles_2025),
+            "peak": kpi(peak, vehicles, vehicles_2025),
+        },
     }

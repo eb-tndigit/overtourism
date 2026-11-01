@@ -574,6 +574,8 @@ def run_dashboard(adapter: OvertourismAdapter) -> None:
 
     with col_kpi:
         st.subheader("Indicatori")
+        for label, value in output.extra_kpis.items():
+            st.metric(label, value)
         idx_val, idx_ci = output.sustainability_index
         st.metric(
             "Sostenibilità complessiva",
@@ -581,8 +583,6 @@ def run_dashboard(adapter: OvertourismAdapter) -> None:
             delta=f"CI ±{idx_ci * 100:.1f}%",
             delta_color="off",
         )
-        for label, value in output.extra_kpis.items():
-            st.metric(label, value)
         st.markdown("**Per vincolo:**")
         rows = [
             {

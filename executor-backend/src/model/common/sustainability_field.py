@@ -598,16 +598,22 @@ class SustainabilityFieldOutput(ModelOutput):
 
     @functools.cached_property
     def kpis(self) -> dict[str, Any]:
-        """KPI dict: sustainability level, critical constraint, per-constraint levels. English-only —
-        locale translation is a presentation-layer concern, not part of this computation.
+        """KPI dict, in display order: the model-specific KPIs, the sustainability level, the
+        per-constraint levels, the critical constraint. English-only — locale translation is a
+        presentation-layer concern, not part of this computation.
         """
         idx, ci = self.sustainability_index
         sbc = self.sustainability_by_constraint
-        kpis: dict[str, Any] = {}
+        kpis: dict[str, Any] = dict(self.extra_kpis)
         kpis["sustainability_level"] = {
             "level": round(idx * 100, 4),
             "confidence": round(ci * 100, 4),
         }
+        for name, (c_mean, c_ci) in sbc.items():
+            kpis["constraint level " + name] = {
+                "level": round(c_mean * 100, 4),
+                "confidence": round(c_ci * 100, 4),
+            }
         critical_name = min(sbc, key=lambda k: sbc[k][0])
         c_mean, c_ci = sbc[critical_name]
         kpis["critical constraint"] = {
@@ -615,12 +621,6 @@ class SustainabilityFieldOutput(ModelOutput):
             "level": round(c_mean * 100, 4),
             "confidence": round(c_ci * 100, 4),
         }
-        for name, (c_mean, c_ci) in sbc.items():
-            kpis["constraint level " + name] = {
-                "level": round(c_mean * 100, 4),
-                "confidence": round(c_ci * 100, 4),
-            }
-        kpis.update(self.extra_kpis)
         return kpis
 
     @functools.cached_property

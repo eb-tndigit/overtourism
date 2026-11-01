@@ -48,7 +48,8 @@ def test_presence_inputs_reads_files_at_every_call(tmp_path, monkeypatch):
 
 def test_arrivals_follow_the_modal_shift():
     """Car arrivals = demand x R(price); non-car arrivals gain the deterred visitors who walk
-    up and the shuttle riders, capped by the shuttle capacity; the rest goes elsewhere."""
+    up and the shuttle riders, capped by the shuttle capacity; the rest goes elsewhere.
+    """
     table = load_presence_stats()
     car, other = make_presence_factories(table, behaviour_params())
     cell = table.loc[("august", "good")]
@@ -100,8 +101,8 @@ def test_more_buses_help_only_up_to_the_shuttle_demand():
 
     backend = FazzonBackend()
     price = {"parking price (euro per vehicle)": 20.0}
-    other = [
-        np.mean(backend.evaluate({**price, "shuttle buses": float(b)}).samples_y)
+    other = [  # x = all visitors arriving
+        np.mean(backend.evaluate({**price, "shuttle buses": float(b)}).samples_x)
         for b in (0, 1, 2, 4, 6)
     ]
     assert (
@@ -247,26 +248,54 @@ def test_policy_moves_the_samples_and_scales_the_vehicles():
     policy = backend.evaluate(
         {"parking price (euro per vehicle)": 20.0, "shuttle buses": 2.0}
     )
-    assert np.mean(policy.samples_x) < 0.4 * np.mean(base.samples_x)
-    # y = all visitors arriving: never below the car arrivals of the same day
-    assert all(y >= x for x, y in zip(policy.samples_x, policy.samples_y))
-    assert np.mean(np.subtract(policy.samples_y, policy.samples_x)) > np.mean(
-        np.subtract(base.samples_y, base.samples_x)
+    # x = all visitors arriving, y = car arrivals: total never below the car arrivals
+    assert np.mean(policy.samples_y) < 0.4 * np.mean(base.samples_y)
+    assert all(t >= c for t, c in zip(policy.samples_x, policy.samples_y))
+    assert np.mean(np.subtract(policy.samples_x, policy.samples_y)) > np.mean(
+        np.subtract(base.samples_x, base.samples_y)
     )
     i = 10
     assert policy.usage_fields["parking"][i, i] / base.usage_fields["parking"][
         i, i
     ] == pytest.approx(2.5 / 3.5)
-    # food depends on the people at the lake only, whatever they paid
+    # food depends on how the people at the lake arrived, not on what they paid
     assert policy.usage_fields["food"][i, i] == pytest.approx(
         base.usage_fields["food"][i, i]
     )
 
 
-def test_dropout_kpis():
-    """Potential visitors who do not arrive: none in 2025 conditions; the shuttle brings
-    back part of the visitors deterred by the price (A36)."""
+def test_field_axes_and_food_usage_by_arrival_mode():
+    """x = all arrivals (0-3000), y = car arrivals (0-2000); at the same total, fewer car
+    arrivals mean more diners (A10): the restaurant boundary is not parallel to the x axis.
+    """
     from src.model.fazzon.fazzon_backend import FazzonBackend
+
+    backend = FazzonBackend()
+    out = backend.evaluate({})
+    assert out.x_values.max() == 3000 and out.y_values.max() == 2000
+    food = out.usage_fields["food"]
+    t, c = 50, 25  # 1500 arrivals, 500 by car
+    assert food[t, c] == pytest.approx((500 * 0.50 + 1000 * 0.66) / 2.0)
+    assert food[t, 0] > food[t, c] > food[t, 50]
+    same = backend.evaluate(
+        {
+            "restaurant usage fraction, visitors by car": 0.55,
+            "restaurant usage fraction, visitors by other means": 0.55,
+        }
+    ).usage_fields["food"]
+    assert same[t, 0] == pytest.approx(same[t, c])
+
+
+def test_policy_kpis():
+    """Arrivals out of the potential visitors: all in 2025 conditions; the shuttle brings
+    back part of the visitors deterred by the price. Vehicles out of the 2025 rules: R(price)
+    x persons per vehicle at 5 euro / at the price (A36)."""
+    from src.model.fazzon.fazzon_backend import FazzonBackend
+    from src.model.fazzon.fazzon_presence_stats import (
+        behaviour_params,
+        occupancy,
+        price_response,
+    )
 
     backend = FazzonBackend()
     price = {"parking price (euro per vehicle)": 20.0}
@@ -278,17 +307,49 @@ def test_dropout_kpis():
             ("lakebus", {**price, "shuttle buses": 2.0}),
         )
     }
-    assert kpis["2025"]["dropouts mean"]["value"] == 0
-    assert (
-        kpis["price"]["dropouts mean"]["value"]
-        > kpis["lakebus"]["dropouts mean"]["value"]
-        > 0
-    )
+    for days in ("mean", "peak"):
+        assert kpis["2025"][f"arrivals {days}"]["share"] == 100
+        assert kpis["2025"][f"vehicles {days}"]["share"] == 100
+        assert (
+            kpis["price"][f"arrivals {days}"]["share"]
+            < kpis["lakebus"][f"arrivals {days}"]["share"]
+            <= 100
+        )
     for k in kpis.values():
-        assert k["dropouts peak"]["value"] >= k["dropouts mean"]["value"]
-        assert 0 <= k["dropouts peak"]["share"] <= 100
+        assert k["arrivals peak"]["value"] >= k["arrivals mean"]["value"]
+        assert k["vehicles peak"]["value"] >= k["vehicles mean"]["value"]
+    behaviour = behaviour_params()
+    expected = (
+        price_response(20.0, behaviour)
+        * occupancy(5.0, behaviour)
+        / occupancy(20.0, behaviour)
+    )
+    assert kpis["price"]["vehicles mean"]["share"] == pytest.approx(
+        expected * 100, abs=0.01
+    )
+    # the shuttle does not change the vehicles
+    assert kpis["lakebus"]["vehicles mean"] == kpis["price"]["vehicles mean"]
     august = backend.evaluate({**price, "season": "august"}).kpis
-    assert august["dropouts mean"]["value"] > kpis["price"]["dropouts mean"]["value"]
+    assert august["vehicles mean"]["value"] > kpis["price"]["vehicles mean"]["value"]
+
+
+def test_kpis_order_model_kpis_first():
+    """Display order: the model KPIs, the sustainability level, the per-constraint levels,
+    the critical constraint."""
+    from src.model.fazzon.fazzon_backend import FazzonBackend
+
+    keys = list(FazzonBackend().evaluate({}).kpis)
+    assert keys == [
+        "arrivals mean",
+        "arrivals peak",
+        "vehicles mean",
+        "vehicles peak",
+        "sustainability_level",
+        "constraint level parking",
+        "constraint level road",
+        "constraint level food",
+        "critical constraint",
+    ]
 
 
 def test_price_slider_is_converted_to_its_level():
