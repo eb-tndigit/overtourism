@@ -9,7 +9,6 @@ import pytest
 import requests
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-
 from overtourism.backend.api.routes import executor as executor_api
 from overtourism.backend.auth.identity.authorization import require_global_admin
 from overtourism.backend.auth.identity.sql_repository import SQLUserRepository
@@ -143,6 +142,66 @@ def test_auth_me_returns_unauthenticated_context_when_auth_is_disabled(
     }
 
 
+def test_auth_me_links_user_using_configured_identifier_claim(
+    handler: Handler,
+) -> None:
+    user_manager = handler.user_manager
+    assert user_manager is not None
+    pending_user = user_manager.create_user(
+        identifier="CF123XYZ",
+        role=UserRole.VIEWER,
+        territories=["territory-alpha"],
+    )
+    app = create_app(handler)
+    app.dependency_overrides[get_auth_settings] = lambda: AuthSettings(
+        identifier_claim="tax_id",
+    )
+    app.dependency_overrides[get_auth_context] = lambda: AuthContext(
+        authenticated=True,
+        subject="cf-subject",
+        token="signed-token",
+        claims={"sub": "cf-subject", "tax_id": "CF123XYZ"},
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/auth/me")
+
+    assert response.status_code == 200
+    assert response.json()["user_id"] == pending_user.user_id
+    assert user_manager.get_active_user_by_subject("cf-subject") is not None
+
+
+@pytest.mark.parametrize("claim_value", [None, "", "   ", 123])
+def test_auth_me_rejects_missing_or_invalid_configured_identifier_claim(
+    handler: Handler,
+    claim_value: object,
+) -> None:
+    user_manager = handler.user_manager
+    assert user_manager is not None
+    user_manager.create_user(
+        identifier="CF123XYZ",
+        role=UserRole.VIEWER,
+        territories=["territory-alpha"],
+    )
+    claims = {} if claim_value is None else {"tax_id": claim_value}
+    app = create_app(handler)
+    app.dependency_overrides[get_auth_settings] = lambda: AuthSettings(
+        identifier_claim="tax_id",
+    )
+    app.dependency_overrides[get_auth_context] = lambda: AuthContext(
+        authenticated=True,
+        subject="cf-subject",
+        token="signed-token",
+        claims={"sub": "cf-subject", **claims},
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/auth/me")
+
+    assert response.status_code == 403
+    assert user_manager.get_active_user_by_subject("cf-subject") is None
+
+
 @pytest.mark.parametrize(
     ("app_factory", "auth_path"),
     [
@@ -215,7 +274,7 @@ def test_auth_me_returns_all_assigned_territories_without_singular_field(
         role=UserRole.VIEWER,
         territories=["territory-beta", "territory-alpha"],
     )
-    handler.user_manager.claim_user_by_email(user.identifier, "multi-viewer")
+    handler.user_manager.claim_user_by_identifier(user.identifier, "multi-viewer")
 
     app = create_app(handler)
     app.dependency_overrides[get_auth_settings] = lambda: AuthSettings(
@@ -710,6 +769,7 @@ def test_auth_settings_from_env_reads_configured_values(
     monkeypatch.setenv("AUTH_JWKS_URL", "https://example.com/.well-known/jwks.json")
     monkeypatch.setenv("AUTH_ALGORITHMS", "RS256, ES256")
     monkeypatch.setenv("AUTH_LEEWAY_SECONDS", "45")
+    monkeypatch.setenv("AUTH_IDENTIFIER_CLAIM", "tax_id")
 
     settings = AuthSettings.from_env()
 
@@ -720,7 +780,19 @@ def test_auth_settings_from_env_reads_configured_values(
         jwks_url="https://example.com/.well-known/jwks.json",
         algorithms=("RS256", "ES256"),
         leeway_seconds=45,
+        identifier_claim="tax_id",
     )
+
+
+def test_auth_settings_from_env_defaults_identifier_claim_to_email(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    monkeypatch.delenv("AUTH_IDENTIFIER_CLAIM", raising=False)
+
+    settings = AuthSettings.from_env()
+
+    assert settings.identifier_claim == "email"
 
 
 def test_create_app_rejects_incomplete_auth_configuration(

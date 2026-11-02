@@ -217,13 +217,15 @@ def _lock_user_registry(connection, dialect_name: str) -> None:
         raise RuntimeError(f"First-admin bootstrap is unsupported for {dialect_name}")
 
 
-def bootstrap_db(email: str | None = None, database_url: str | None = None) -> int:
-    normalized_email = None
-    if email is not None:
-        normalized_email = email.strip().casefold()
-        local_part, separator, domain = normalized_email.partition("@")
-        if not separator or not local_part or not domain or "@" in domain:
-            print("Provide a valid admin email address.", file=sys.stderr)
+def bootstrap_db(
+    identifier: str | None = None,
+    database_url: str | None = None,
+) -> int:
+    normalized_identifier = None
+    if identifier is not None:
+        normalized_identifier = identifier.strip().casefold()
+        if not normalized_identifier:
+            print("Provide a non-empty admin identifier.", file=sys.stderr)
             return 2
 
     try:
@@ -236,7 +238,7 @@ def bootstrap_db(email: str | None = None, database_url: str | None = None) -> i
 
     try:
         _DATABASE_SCHEMA.create_all(engine)
-        if normalized_email is None:
+        if normalized_identifier is None:
             print("Database schema initialized.")
             return 0
 
@@ -245,7 +247,7 @@ def bootstrap_db(email: str | None = None, database_url: str | None = None) -> i
             existing_user = (
                 connection.execute(
                     select(_USERS.c.role, _USERS.c.is_active).where(
-                        _USERS.c.identifier == normalized_email
+                        _USERS.c.identifier == normalized_identifier
                     )
                 )
                 .mappings()
@@ -254,10 +256,10 @@ def bootstrap_db(email: str | None = None, database_url: str | None = None) -> i
             if existing_user is not None:
                 connection.rollback()
                 if existing_user["role"] == "admin" and existing_user["is_active"]:
-                    print(f"Admin already provisioned: {normalized_email}")
+                    print(f"Admin already provisioned: {normalized_identifier}")
                     return 0
                 print(
-                    "The email already belongs to a non-admin or inactive user.",
+                    "The identifier already belongs to a non-admin or inactive user.",
                     file=sys.stderr,
                 )
                 return 1
@@ -274,7 +276,7 @@ def bootstrap_db(email: str | None = None, database_url: str | None = None) -> i
             connection.execute(
                 insert(_USERS).values(
                     user_id=uuid4().hex,
-                    identifier=normalized_email,
+                    identifier=normalized_identifier,
                     subject=None,
                     role="admin",
                     is_active=True,
@@ -285,8 +287,8 @@ def bootstrap_db(email: str | None = None, database_url: str | None = None) -> i
             connection.commit()
 
         print(
-            f"Pending admin created for {normalized_email}. "
-            "Its first login must use a token with a verified matching email."
+            f"Pending admin created for {normalized_identifier}. "
+            "Its first login must use a token with a matching configured identifier claim."
         )
         return 0
     except SQLAlchemyError:
@@ -304,12 +306,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         description="Create the SQL schema and optionally provision the first admin."
     )
     parser.add_argument(
-        "email",
+        "identifier",
         nargs="?",
-        help="Verified email address of the first admin",
+        help="Identifier claim value for the first admin",
     )
     args = parser.parse_args(argv)
-    return bootstrap_db(args.email)
+    return bootstrap_db(args.identifier)
 
 
 if __name__ == "__main__":

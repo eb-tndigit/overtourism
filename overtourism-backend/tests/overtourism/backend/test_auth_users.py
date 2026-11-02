@@ -214,7 +214,7 @@ def test_admin_user_api_mutations_refresh_cache(client, handler, manager) -> Non
     assert created["territories"] == ["fazzon", "molveno"]
     assert user_manager.get_active_user_by_subject("editor-sub") is None
 
-    linked_user = user_manager.claim_user_by_email(
+    linked_user = user_manager.claim_user_by_identifier(
         "editor@example.org",
         "editor-sub",
     )

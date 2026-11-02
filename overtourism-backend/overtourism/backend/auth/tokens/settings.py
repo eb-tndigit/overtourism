@@ -12,6 +12,7 @@ from overtourism.backend.auth.tokens.enums import (
 )
 
 _TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
+_DEFAULT_IDENTIFIER_CLAIM = "email"
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +23,7 @@ class AuthSettings:
     jwks_url: str | None = None
     algorithms: tuple[str, ...] = (JwtAlgorithm.RS256,)
     leeway_seconds: int = 30
+    identifier_claim: str = _DEFAULT_IDENTIFIER_CLAIM
 
     @classmethod
     def from_env(cls) -> AuthSettings:
@@ -45,6 +47,10 @@ class AuthSettings:
             ),
             leeway_seconds=(
                 int(leeway_value) if leeway_value and leeway_value.strip() else 30
+            ),
+            identifier_claim=(
+                (os.getenv(AuthEnvironmentVariable.IDENTIFIER_CLAIM) or "").strip()
+                or _DEFAULT_IDENTIFIER_CLAIM
             ),
         )
         if settings.enabled:

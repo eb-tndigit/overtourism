@@ -70,7 +70,7 @@ source .venv/bin/activate
 python bootstrap_db.py
 ```
 
-The script creates the schema and, for SQLite, the database file and parent directories. Pass an email to also provision the first admin, for example `python bootstrap_db.py admin@example.org`. It uses `OVERTOURISM_DATABASE` when set; otherwise it targets the same local SQLite file as the CRUD API.
+The script creates the schema and, for SQLite, the database file and parent directories. Pass the configured identifier claim value to also provision the first admin, for example `python bootstrap_db.py YOUR_IDENTIFIER`. It uses `OVERTOURISM_DATABASE` when set; otherwise it targets the same local SQLite file as the CRUD API.
 
 Run the services in separate terminals from the repository root. Start the Model API first:
 
@@ -103,7 +103,7 @@ MODEL_BACKEND_URL=http://127.0.0.1:8001 \
 
 The CRUD API does not provide a login page or authenticate user credentials. An external identity provider authenticates the user and issues a JWT access token. The frontend sends it to the CRUD API as `Authorization: Bearer <token>`; it does not send the user's token to the Model API.
 
-With `AUTH_ENABLED=true`, the CRUD API verifies the token signature using the identity provider's JWKS, checks the issuer and audience, and uses the `sub` claim to identify the user. The user's active status, role, and territory assignments are read from the backend database; territory claims in the token do not grant access. The first admin must be provisioned in that database, and users are linked to their identity-provider subject on their first request using a matching, verified email. See [Authentication setup](auth.md) for admin provisioning and authorization details.
+With `AUTH_ENABLED=true`, the CRUD API verifies the token signature using the identity provider's JWKS, checks the issuer and audience, and uses the `sub` claim to identify the user. The user's active status, role, and territory assignments are read from the backend database; territory claims in the token do not grant access. The first admin must be provisioned in that database, and users are linked to their identity-provider subject on their first request using the claim selected by `AUTH_IDENTIFIER_CLAIM` (default: `email`). When using the default, the email must also be verified. See [Authentication setup](auth.md) for admin provisioning and authorization details.
 
 ## Environment variables
 
@@ -116,6 +116,7 @@ Set `CORS_ALLOWED_ORIGINS` on both API processes. Set the other variables on the
 | `AUTH_JWKS_URL` | `AUTH_ENABLED=true` | Identity provider's JWKS endpoint. |
 | `AUTH_ISSUER` | `AUTH_ENABLED=true` | Expected JWT issuer. |
 | `AUTH_AUDIENCE` | `AUTH_ENABLED=true` | Expected JWT audience. |
+| `AUTH_IDENTIFIER_CLAIM` | Optional | JWT claim matched against the database `identifier`; defaults to `email`. |
 | `AUTH_ALGORITHMS` | Optional | Accepted JWT algorithms; defaults to `RS256`. |
 | `AUTH_LEEWAY_SECONDS` | Optional | JWT clock-skew allowance; defaults to `30` seconds. |
 | `MODEL_BACKEND_URL` | When the Model API is not at the local default. | Defaults to `http://localhost:8001`; for containers, use the Model API's private service address. |

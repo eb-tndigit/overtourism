@@ -36,8 +36,8 @@ class UserManager:
             user = self._users_by_subject.get(normalized_subject)
             return user if user is not None and user.is_active else None
 
-    def claim_user_by_email(self, email: str, subject: str) -> User | None:
-        normalized_identifier = email.strip().casefold()
+    def claim_user_by_identifier(self, identifier: str, subject: str) -> User | None:
+        normalized_identifier = identifier.strip().casefold()
         normalized_subject = subject.strip()
         if not normalized_identifier or not normalized_subject:
             return None

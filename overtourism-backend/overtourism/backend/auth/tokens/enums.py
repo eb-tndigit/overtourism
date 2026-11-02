@@ -18,6 +18,7 @@ class AuthEnvironmentVariable(StrEnum):
     JWKS_URL = "AUTH_JWKS_URL"
     ALGORITHMS = "AUTH_ALGORITHMS"
     LEEWAY_SECONDS = "AUTH_LEEWAY_SECONDS"
+    IDENTIFIER_CLAIM = "AUTH_IDENTIFIER_CLAIM"
 
 
 class AuthHeaderScheme(StrEnum):

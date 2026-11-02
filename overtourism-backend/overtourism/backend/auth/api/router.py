@@ -24,6 +24,7 @@ from overtourism.backend.auth.identity.user_manager import UserManager
 from overtourism.backend.auth.identity.users import User, UserRole
 from overtourism.backend.auth.tokens.context import AuthContext
 from overtourism.backend.auth.tokens.dependencies import get_auth_context
+from overtourism.backend.auth.tokens.settings import AuthSettings, get_auth_settings
 from overtourism.backend.handler import Handler, get_handler
 from overtourism.backend.utils.executor_utils import list_models
 
@@ -58,8 +59,9 @@ def _user_response(user: User) -> AuthUserResponse:
 async def read_auth_me(
     context: Annotated[AuthContext, Depends(get_auth_context)],
     handler: Annotated[Handler, Depends(get_handler)],
+    auth_settings: Annotated[AuthSettings, Depends(get_auth_settings)],
 ) -> AuthMeResponse:
-    user = resolve_current_user(context, handler)
+    user = resolve_current_user(context, handler, auth_settings)
     if user is None:
         territories = []
     elif user.role is UserRole.ADMIN:

@@ -231,7 +231,7 @@ def test_admin_cannot_read_or_delete_another_users_session(
     repository = SQLUserRepository(store.engine, store.session_factory)
     user_manager = UserManager(repository)
     admin = user_manager.create_first_admin("admin@example.org")
-    user_manager.claim_user_by_email(admin.identifier, "admin-sub")
+    user_manager.claim_user_by_identifier(admin.identifier, "admin-sub")
     handler.user_manager = user_manager
     client.app.dependency_overrides[get_auth_context] = lambda: AuthContext(
         authenticated=True,

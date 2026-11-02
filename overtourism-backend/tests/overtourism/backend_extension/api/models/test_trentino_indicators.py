@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 import pytest
-
 from overtourism.overtourism.backend_extension.api.models.trentino_indicators import (
     _REGISTRY,
     AvailableAccommodationBedsIndicator,

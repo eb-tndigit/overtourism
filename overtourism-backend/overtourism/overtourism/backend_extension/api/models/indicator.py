@@ -5,7 +5,9 @@ from collections.abc import Callable
 import numpy as np
 import pandas as pd
 from overtourism.overtourism.backend_extension.api.models.phenomenon import Phenomenon
-from overtourism.overtourism.backend_extension.api.utils.index_utils import get_chart_labels
+from overtourism.overtourism.backend_extension.api.utils.index_utils import (
+    get_chart_labels,
+)
 
 # ---------------------------------------------------------------------------
 # Indicator
@@ -348,9 +350,7 @@ class Indicator:
         region_id: str = "-1",
         **extra,
     ) -> list[dict]:
-        key = self._cache_key(
-            start_date, end_date, granularity, region_id, **extra
-        )
+        key = self._cache_key(start_date, end_date, granularity, region_id, **extra)
         if key in self._variation_cache:
             return self._variation_cache[key]
 
@@ -365,9 +365,7 @@ class Indicator:
         region_std_series: dict = {}
 
         for label, (sub_start, sub_end) in zip(labels, ranges):
-            metrics = self._compute_label_metrics(
-                sub_start, sub_end, **extra
-            )
+            metrics = self._compute_label_metrics(sub_start, sub_end, **extra)
             if metrics is None:
                 continue
             comune_result, std_by_comune, region_value, region_std = metrics
@@ -404,9 +402,7 @@ class Indicator:
         self._variation_cache[key] = series
         return series
 
-    def _compute_label_metrics(
-        self, start_date, end_date, **extra
-    ) -> tuple | None:
+    def _compute_label_metrics(self, start_date, end_date, **extra) -> tuple | None:
         """
         Single-pass computation for one time-label window.
 

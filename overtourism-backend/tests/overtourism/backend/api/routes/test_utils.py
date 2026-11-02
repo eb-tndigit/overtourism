@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 import requests
 from fastapi import HTTPException
-
 from overtourism.backend.api.utils.utils import (
     get_evaluation_or_404,
     get_problem_or_404,

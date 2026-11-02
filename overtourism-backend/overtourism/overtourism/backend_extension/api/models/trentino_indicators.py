@@ -77,11 +77,11 @@ _REGISTRY: dict[str, Callable[[], Indicator]] = {
     "densita-antropica": lambda: AnthropogenicDensityIndicator(
         PRESENCES_SOURCE, POPULATION_SOURCE, MAP_SHAPEFILE
     ),
-    "incidenza-alloggi-turistici-strutture": lambda: TouristAccommodationFacilitiesIndicator(
-        STRUCTURES_SOURCE
+    "incidenza-alloggi-turistici-strutture": lambda: (
+        TouristAccommodationFacilitiesIndicator(STRUCTURES_SOURCE)
     ),
-    "incidenza-alloggi-disposizione-strutture": lambda: AvailableAccommodationFacilitiesIndicator(
-        STRUCTURES_SOURCE
+    "incidenza-alloggi-disposizione-strutture": lambda: (
+        AvailableAccommodationFacilitiesIndicator(STRUCTURES_SOURCE)
     ),
     "incidenza-alloggi-turistici-letti": lambda: TouristAccommodationBedsIndicator(
         STRUCTURES_SOURCE
@@ -108,14 +108,14 @@ _REGISTRY: dict[str, Callable[[], Indicator]] = {
     "dipendenza-mercato-principale": lambda: MainMarketDependenceIndicator(
         PROVENIENZA_SOURCE
     ),
-    "impatto-turismo-consumi-elettrici": lambda: TourismElectricityConsumptionImpactIndicator(
-        CONSUMPTION_SOURCE
+    "impatto-turismo-consumi-elettrici": lambda: (
+        TourismElectricityConsumptionImpactIndicator(CONSUMPTION_SOURCE)
     ),
     "impatto-turismo-consumi-gas": lambda: TourismGasConsumptionImpactIndicator(
         CONSUMPTION_SOURCE
     ),
-    "quota-consumi-elettrici-attribuibili-turismo": lambda: TourismElectricityShareIndicator(
-        EE_TOURISM_SHARE_SOURCE
+    "quota-consumi-elettrici-attribuibili-turismo": lambda: (
+        TourismElectricityShareIndicator(EE_TOURISM_SHARE_SOURCE)
     ),
     "indice-stagionalita-presenze": lambda: SeasonalityOfPresencesIndicator(),
     "distanza-media-turisti": lambda: AverageTouristTravelTimeIndicator(),

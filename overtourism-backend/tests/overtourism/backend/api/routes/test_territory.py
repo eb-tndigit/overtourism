@@ -50,7 +50,7 @@ def test_list_territories_returns_all_model_keys_for_multieditor(
         role=UserRole.MULTIEDITOR,
         territories=["territory-alpha", "territory-beta"],
     )
-    user_manager.claim_user_by_email("user@example.org", "user-1")
+    user_manager.claim_user_by_identifier("user@example.org", "user-1")
 
     app = create_app(handler)
     app.dependency_overrides[get_auth_settings] = lambda: AuthSettings(
@@ -109,7 +109,7 @@ def test_list_territories_limits_editor_and_viewer_to_assignments(
         role=role,
         territories=assignments,
     )
-    user_manager.claim_user_by_email("user@example.org", "user-1")
+    user_manager.claim_user_by_identifier("user@example.org", "user-1")
 
     app = create_app(handler)
     app.dependency_overrides[get_auth_settings] = lambda: AuthSettings(
@@ -145,7 +145,7 @@ def test_list_territories_returns_all_model_keys_for_global_admin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     user_manager.create_first_admin("admin@example.org")
-    user_manager.claim_user_by_email("admin@example.org", "admin-1")
+    user_manager.claim_user_by_identifier("admin@example.org", "admin-1")
 
     app = create_app(handler)
     app.dependency_overrides[get_auth_settings] = lambda: AuthSettings(

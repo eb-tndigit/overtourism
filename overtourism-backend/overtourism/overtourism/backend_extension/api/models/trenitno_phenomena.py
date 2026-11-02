@@ -1,6 +1,5 @@
-import pandas as pd
 import geopandas as gpd
-
+import pandas as pd
 from overtourism.overtourism.backend_extension.api.models.phenomenon import Phenomenon
 
 # ---------------------------------------------------------------------------

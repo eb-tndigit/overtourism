@@ -156,6 +156,22 @@ def test_bootstrap_db_creates_normalized_first_admin(tmp_path: Path) -> None:
     assert admin["is_active"] is True
 
 
+def test_bootstrap_db_accepts_a_non_email_identifier(tmp_path: Path) -> None:
+    database_url = _sqlite_url(tmp_path / "overtourism.sqlite")
+
+    assert bootstrap_db.bootstrap_db(" CF123XYZ ", database_url) == 0
+
+    engine = create_engine(database_url)
+    users = Table("users", MetaData(), autoload_with=engine)
+    try:
+        with engine.connect() as connection:
+            admin = connection.execute(select(users)).mappings().one()
+    finally:
+        engine.dispose()
+
+    assert admin["identifier"] == "cf123xyz"
+
+
 def test_bootstrap_db_is_idempotent_for_existing_admin_and_rejects_another(
     tmp_path: Path,
 ) -> None:
@@ -182,12 +198,12 @@ def test_bootstrap_db_rejects_nonempty_user_registry(tmp_path: Path) -> None:
     assert bootstrap_db.bootstrap_db("admin@example.org", database_url) == 1
 
 
-def test_bootstrap_db_rejects_invalid_email_without_creating_database(
+def test_bootstrap_db_rejects_empty_identifier_without_creating_database(
     tmp_path: Path,
 ) -> None:
     database_path = tmp_path / "overtourism.sqlite"
 
-    assert bootstrap_db.bootstrap_db("invalid-email", _sqlite_url(database_path)) == 2
+    assert bootstrap_db.bootstrap_db("   ", _sqlite_url(database_path)) == 2
     assert not database_path.exists()
 
 
