@@ -94,7 +94,7 @@ from .molveno_presence_stats import (
     DAY_INDEX_NAME,
     ESTIMATOR_INDEX_NAME,
     ESTIMATORS,
-    WEEKDAYS,
+    DAY_TYPE_WEIGHTS,
     presence_inputs,
 )
 
@@ -154,7 +154,7 @@ class ParkingModel(Model):
         pv_excursionists: ConditionalDistributionIndex
         cv_weather: CategoricalIndex
         i_u_tourists_parking: Index
-        i_u_excursionists_parking: Index
+        i_u_excursionists_parking: DistributionIndex
         i_xa_tourists_per_vehicle: Index
         i_xa_excursionists_per_vehicle: Index
         i_xo_tourists_parking: Index
@@ -264,7 +264,7 @@ class AccommodationModel(Model):
         """Contractual inputs of :class:`AccommodationModel`."""
 
         pv_tourists: ConditionalDistributionIndex
-        i_u_tourists_accommodation: Index
+        i_u_tourists_accommodation: DistributionIndex
         i_xa_tourists_accommodation: Index
         i_c_accommodation: DistributionIndex
 
@@ -392,9 +392,10 @@ class MolvenoModel(Model):
         i_c_accommodation: DistributionIndex
         i_c_food: DistributionIndex
         i_xo_tourists_beach: DistributionIndex
+        i_u_excursionists_parking: DistributionIndex
         # Parking parameters
         i_u_tourists_parking: Index
-        i_u_excursionists_parking: Index
+        i_booked_parking_spaces: Index
         i_xa_tourists_per_vehicle: Index
         i_xa_excursionists_per_vehicle: Index
         i_xo_tourists_parking: Index
@@ -404,7 +405,7 @@ class MolvenoModel(Model):
         i_u_excursionists_beach: Index
         i_xo_excursionists_beach: Index
         # Accommodation parameters
-        i_u_tourists_accommodation: Index
+        i_u_tourists_accommodation: DistributionIndex
         i_xa_tourists_accommodation: Index
         # Food parameters
         i_u_tourists_food: Index
@@ -446,9 +447,8 @@ class MolvenoModel(Model):
         tables, weather, tourist_presences_stats, excursionist_presences_stats = (
             presence_inputs()
         )
-        cv_weekday = CategoricalIndex(
-            "weekday", {d: 1.0 / len(WEEKDAYS) for d in WEEKDAYS}
-        )
+        # A14: Monday-Friday, Saturday, Sunday, weighted by their days in the week
+        cv_weekday = CategoricalIndex("weekday", dict(DAY_TYPE_WEIGHTS))
         cv_weather = CategoricalIndex("weather", weather)
         # D9: the day of the summer, uniform over the period of the scenario (default: the
         # whole summer); the presence estimator is fixed by the backend.
@@ -473,30 +473,42 @@ class MolvenoModel(Model):
             pv_tourists=pv_tourists,
             pv_excursionists=pv_excursionists,
             # Distribution-backed uncertainty parameters
+            # A7: the public car parks of the comune, 713 car spaces, 529 paid (Comune di
+            # Molveno, 2024)
             i_c_parking=DistributionIndex(
-                "parking capacity", stats.uniform, {"loc": 350.0, "scale": 100.0}
+                "parking capacity", stats.uniform, {"loc": 683.0, "scale": 60.0}
             ),
+            # A10: no source; from the 2023 peak (4,676 at once, no saturation) upwards
             i_c_beach=DistributionIndex(
-                "beach capacity", stats.uniform, {"loc": 6000.0, "scale": 1000.0}
+                "beach capacity", stats.uniform, {"loc": 4700.0, "scale": 800.0}
             ),
+            # A11: hotel and extra-hotel beds of the comune, 3,429 (2023) - 3,503 (2025), ISPAT
             i_c_accommodation=DistributionIndex(
                 "accommodation capacity",
-                stats.lognorm,
-                {"s": 0.125, "loc": 0.0, "scale": 5000.0},
+                stats.uniform,
+                {"loc": 3429.0, "scale": 74.0},
             ),
+            # A12: seats of the restaurants and bars of the lake area, village and Pradel included
             i_c_food=DistributionIndex(
                 "food service capacity",
-                stats.triang,
-                {"loc": 2400.0, "scale": 800.0, "c": 0.5},
+                stats.uniform,
+                {"loc": 2768.0, "scale": 115.0},
             ),
+            # A10: beach entries / people at once, 1.6-2.4 (BS4 counters 2023)
             i_xo_tourists_beach=DistributionIndex(
                 "tourists on beach rotation factor",
                 stats.uniform,
-                {"loc": 1.0, "scale": 2.0},
+                {"loc": 1.6, "scale": 0.8},
+            ),
+            # A8: day visitors arriving by car, 0.78 (survey 2023; 0.31 cars per day visitor
+            # entering the beach area x 2.5 per car)
+            i_u_excursionists_parking=DistributionIndex(
+                "excursionist parking usage factor",
+                stats.uniform,
+                {"loc": 0.70, "scale": 0.16},
             ),
             # Parking parameters
             i_u_tourists_parking=Index("tourist parking usage factor", 0.02),
-            i_u_excursionists_parking=Index("excursionist parking usage factor", 0.80),
             i_xa_tourists_per_vehicle=Index(
                 "tourists per vehicle allocation factor", 2.5
             ),
@@ -504,21 +516,29 @@ class MolvenoModel(Model):
                 "excursionists per vehicle allocation factor", 2.5
             ),
             i_xo_tourists_parking=Index("tourists in parking rotation factor", 1.05),
+            # A9: paid stays of 5.1 h on the busy days of 2023, over the paid day 8-18
             i_xo_excursionists_parking=Index(
-                "excursionists in parking rotation factor", 3.5
+                "excursionists in parking rotation factor", 2.0
             ),
-            # Beach parameters
-            i_u_tourists_beach=Index("tourist beach usage factor", 0.50),
-            i_u_excursionists_beach=Index("excursionist beach usage factor", 0.80),
+            # D15: spaces under compulsory booking (one car per space and day); default: the
+            # Ischia car park, booking-only since 2025
+            i_booked_parking_spaces=Index("booked parking spaces", 195.0),
+            # Beach parameters (A10: BS4 counters 2023, entries per day ~ 0.35 x tourists +
+            # 0.78 x excursionists, 2.1 entries per place at once)
+            i_u_tourists_beach=Index("tourist beach usage factor", 0.35),
+            i_u_excursionists_beach=Index("excursionist beach usage factor", 0.78),
             i_xo_excursionists_beach=Index(
-                "excursionists on beach rotation factor", 1.05
+                "excursionists on beach rotation factor", 2.1
             ),
-            # Accommodation parameters
-            i_u_tourists_accommodation=Index(
-                "tourist accommodation usage factor", 0.90
+            # Accommodation parameters (A11: ISPAT overnight stays / Vodafone tourists, 10-90 %
+            # of the summer days 2023: 0.64-0.93)
+            i_u_tourists_accommodation=DistributionIndex(
+                "tourist accommodation usage factor",
+                stats.uniform,
+                {"loc": 0.65, "scale": 0.25},
             ),
             i_xa_tourists_accommodation=Index(
-                "tourists per accommodation allocation factor", 0.85
+                "tourists per accommodation allocation factor", 1.0
             ),
             # Food parameters
             i_u_tourists_food=Index("tourist food service usage factor", 0.20),

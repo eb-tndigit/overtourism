@@ -16,6 +16,7 @@ from src.dt_studio.dashboard.adapter import (
     OvertourismAdapter,
     PlotData,
     ScenarioDef,
+    format_extra_kpis,
 )
 from src.dt_studio.dashboard.app import run_dashboard
 from src.model.common.sustainability_field import (
@@ -66,13 +67,42 @@ _MOLVENO_SCENARIOS: list[dict[str, Any]] = [
         },
     },
     {
+        "key": "august_no_booking",
+        "label": "Agosto, nessun parcheggio su prenotazione",
+        "category": "Prenotazione dei parcheggi",
+        "description": (
+            "1–31 agosto senza posti su prenotazione (regole 2023–2024): chi non trova posto "
+            "nei parcheggi a pagamento sosta altrove."
+        ),
+        "overrides": {"day of summer": (61.0, 92.0), "booked parking spaces": 0.0},
+    },
+    {
+        "key": "august_booking_ischia",
+        "label": "Agosto, Ischia su prenotazione",
+        "category": "Prenotazione dei parcheggi",
+        "description": (
+            "1–31 agosto con il parcheggio Ischia (195 posti) solo su prenotazione, come dal 2025."
+        ),
+        "overrides": {"day of summer": (61.0, 92.0), "booked parking spaces": 195.0},
+    },
+    {
+        "key": "august_booking_all_paid",
+        "label": "Agosto, tutti i parcheggi a pagamento su prenotazione",
+        "category": "Prenotazione dei parcheggi",
+        "description": (
+            "1–31 agosto con tutti i 529 posti a pagamento solo su prenotazione: gli escursionisti "
+            "in auto oltre i posti disponibili rinunciano (ipotesi A13)."
+        ),
+        "overrides": {"day of summer": (61.0, 92.0), "booked parking spaces": 529.0},
+    },
+    {
         "key": "early_june_weekday",
         "label": "Giorno feriale di inizio giugno",
         "category": "Riferimento",
-        "description": "1–15 giugno, lunedì, meteo 'good': condizioni di bassa pressione.",
+        "description": "1–15 giugno, da lunedì a venerdì, meteo 'good': condizioni di bassa pressione.",
         "overrides": {
             "day of summer": (0.0, 15.0),
-            "weekday": "monday",
+            "weekday": "weekday",
             "weather": "good",
         },
     },
@@ -151,6 +181,7 @@ class MolvenoAdapter(OvertourismAdapter):
             sustainability_by_constraint=output.sustainability_by_constraint,
             modal_lines=output.modal_lines,
             constraint_labels=self._backend.MAPPER,
+            extra_kpis=format_extra_kpis(output.extra_kpis, self._backend.KPI_LABELS),
         )
 
 

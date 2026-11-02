@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from conftest import molveno_tables, write_molveno_stats
 from src.model.molveno import molveno_data
-from src.model.molveno.molveno_backend import MolvenoBackend
+from src.model.molveno.molveno_backend import MolvenoBackend, booking_losses
 from src.model.molveno.molveno_presence_stats import (
     DAY_INDEX_NAME,
     ESTIMATOR_INDEX_NAME,
@@ -19,7 +19,7 @@ from src.model.molveno.molveno_presence_stats import (
 )
 
 
-def _kwargs(day, weekday="wednesday", weather="good", estimator=ESTIMATOR_ML):
+def _kwargs(day, weekday="weekday", weather="good", estimator=ESTIMATOR_ML):
     return {
         DAY_INDEX_NAME: day,
         "weekday": weekday,
@@ -155,3 +155,36 @@ def test_startup_standalone_requires_files(tmp_path, monkeypatch):
     monkeypatch.setenv("DT_OVERTURISM_STANDALONE_MODE", "true")
     with pytest.raises(FileNotFoundError, match="molveno data files missing"):
         molveno_data.ensure_molveno_data()
+
+
+def test_booking_losses():
+    potential = np.array([1000.0, 8000.0])
+    kw = dict(capacity=np.array([500.0, 500.0]), usage=np.array([0.5, 0.5]), per_vehicle=2.5, rotation=2.0)
+    # no booked spaces: nobody gives up (the cars above the supply park elsewhere)
+    assert booking_losses(potential, booked=0.0, **kw).tolist() == [0.0, 0.0]
+    # all booked: 1,600 cars for 500 spaces, one car each; all the 1,100 cars above give up
+    assert booking_losses(potential, booked=500.0, **kw).tolist() == [0.0, 2750.0]
+    # 200 booked: supply 200 + 300 x 2 = 800 cars; 800 above, 200/500 of them give up
+    assert booking_losses(potential, booked=200.0, **kw)[1] == pytest.approx(800 * 0.4 * 2.5)
+    # more booked spaces than capacity: capped at the capacity
+    assert booking_losses(potential, booked=900.0, **kw).tolist() == [0.0, 2750.0]
+
+
+def test_day_types_merge_monday_to_friday():
+    from src.model.molveno.molveno_presence_stats import (
+        DAY_TYPE_WEIGHTS,
+        DAY_TYPES,
+        WEEKDAYS,
+        _day_types,
+    )
+
+    assert DAY_TYPE_WEIGHTS == pytest.approx({"weekday": 5 / 7, "saturday": 1 / 7, "sunday": 1 / 7})
+    # tourists mean 100 + 10 x weekday index, SD 10; excursionists constant 50, SD 5
+    cells = {(0, d, "good"): (100.0 + 10 * i, 10.0, 50.0, 5.0) for i, d in enumerate(WEEKDAYS)}
+    out = _day_types(cells)
+    assert set(out) == {(0, t, "good") for t in DAY_TYPES}
+    mean, std, exc_mean, exc_std = out[(0, "weekday", "good")]
+    assert mean == pytest.approx(120.0)  # Monday-Friday: 100 .. 140
+    assert std == pytest.approx(np.sqrt(100 + 200))  # mean variance + variance of the means
+    assert (exc_mean, exc_std) == pytest.approx((50.0, 5.0))
+    assert out[(0, "sunday", "good")] == cells[(0, "sunday", "good")]
