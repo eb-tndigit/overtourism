@@ -30,6 +30,7 @@ def download_index_data(overwrite: bool = False) -> None:
     artifacts = [
         "map_comuni_into_apt.json",
         "mapping_comuni_ISTAT.json",
+        "mapping_comuni_cluster_stagionalita.json",
         "Com01012026_g",
     ]
 

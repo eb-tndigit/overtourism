@@ -83,6 +83,10 @@ PHENOMENON_LABELS_IT: dict[str, str] = {
     "presenze_medie": "presenze turistiche medie giornaliere",
     "consumo_medio": "consumo elettrico medio giornaliero (kWh)",
     "affidabilita": "affidabilità della stima",
+    # Seasonality cluster of the comune (TouristPresenceGiniIndicator, read from a comune -> cluster mapping).
+    # The label has no "quota" / "PageRank": index_utils rounds it to an integer.
+    "cluster_stagionalita": "cluster stagionale",
+    "tipo_cluster": "tipo di cluster stagionale",  # text (e.g. "sci"): not rounded
     # Redistribution indicator (phen_ridistribuzione): persons, equivalent presences per day (window mean).
     # No "quota" in these labels on purpose: they are counts, index_utils rounds them to integers.
     "persone_gap": "presenze da attrarre (+) o da spostare (−)",
