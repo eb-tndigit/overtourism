@@ -890,12 +890,11 @@ def proximity_share(pairs: pd.DataFrame, threshold_minutes: float) -> float:
 
 class _TravelTimePairsIndicator(Indicator):
     """
-    Yearly index computed on the arrivals / travel time pairs of ``phen_tempo_medio_turisti``.
+    Index computed on the arrivals / travel time pairs of ``phen_tempo_medio_turisti``.
 
-    The file has one row per year, comune and origin market (``provenienza``) with its ``arrivi`` and
+    The file has one row per day, comune and origin market (``provenienza``) with its ``arrivi`` and
     ``tempo_di_percorrenza`` (minutes). The index is ``combinator_fn`` (pairs of a territory -> value) computed on all
-    the pairs of the years touched by the requested window. The phenomena/combinator pipeline of the base class is not
-    used: it would collapse the pairs of a comune-day.
+    the pairs of the days of the requested window: any period works, also shorter than a year. The phenomena/combinator pipeline of the base class is not used: it would collapse the pairs of a comune-day.
     """
 
     category = "Provenienza"
@@ -908,36 +907,30 @@ class _TravelTimePairsIndicator(Indicator):
         super().__init__(phenomena=[], combinator=combinator_fn)
         # not in `phenomena` (resolving it would collapse the pairs): only reads the file, with the shared file cache
         self.pairs_source = FlowIndicatorPhenomenon(source_file, "arrivi")
+        self._pairs: pd.DataFrame | None = None
 
     def _read_pairs(self) -> pd.DataFrame:
-        pairs = self.pairs_source._read_source()
-        pairs["ID_COMUNE"] = pairs["ID_COMUNE"].astype(str)
-        pairs["year"] = pairs["DATA"].astype(str).str[:4].astype(int)
-        return pairs
+        """All the pairs, with DATA as a date; read once (indicators are process-level singletons)."""
+        if self._pairs is None:
+            pairs = self.pairs_source._read_source()
+            pairs["ID_COMUNE"] = pairs["ID_COMUNE"].astype(str)
+            pairs["DATA"] = pd.to_datetime(pairs["DATA"])
+            self._pairs = pairs
+        return self._pairs
 
     @property
     def years_range(self) -> dict[str, int]:
-        years = self._read_pairs()["year"]
+        years = self._read_pairs()["DATA"].dt.year
         return {"min_year": int(years.min()), "max_year": int(years.max())}
 
     def _window_pairs(self, start_date, end_date) -> pd.DataFrame:
-        """The pairs of the years touched by [start_date, end_date] (the index is yearly)."""
+        """The pairs of the days in [start_date, end_date]."""
         pairs = self._read_pairs()
         if start_date is None or end_date is None:
             return pairs.iloc[0:0]
-        return pairs[
-            pairs["year"].between(pd.to_datetime(start_date).year, pd.to_datetime(end_date).year)
-        ]
+        return pairs[pairs["DATA"].between(pd.to_datetime(start_date), pd.to_datetime(end_date))]
 
-    def _compute_indicator(
-        self,
-        start_date: str | None = None,
-        end_date: str | None = None,
-        **extra,
-    ) -> pd.DataFrame | None:
-        pairs = self._window_pairs(start_date, end_date)
-        if pairs.empty:
-            return None
+    def _index_by_comune(self, pairs: pd.DataFrame) -> pd.DataFrame:
         by_comune = pairs.groupby("ID_COMUNE")
         return pd.DataFrame(
             {
@@ -946,14 +939,30 @@ class _TravelTimePairsIndicator(Indicator):
             }
         ).reset_index()
 
+    def _compute_indicator(
+        self,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        **extra,
+    ) -> pd.DataFrame | None:
+        pairs = self._window_pairs(start_date, end_date)
+        return None if pairs.empty else self._index_by_comune(pairs)
+
     def _compute_label_metrics(self, start_date, end_date, **extra) -> tuple | None:
-        """Yearly index: constant inside a label (std 0); the region value is the statistic on all the pairs."""
-        result = self._compute_indicator(start_date, end_date)
-        if result is None:
+        """Index of a label on all its pairs, per comune and for the region; the spread is the std of the daily values."""
+        pairs = self._window_pairs(start_date, end_date)
+        if pairs.empty:
             return None
-        std_by_comune = dict.fromkeys(result.loc[result["INDICE"].notna(), "ID_COMUNE"], 0.0)
-        region_value = self.combinator(self._window_pairs(start_date, end_date))
-        return result, std_by_comune, region_value, 0.0
+        columns = ["arrivi", "tempo_di_percorrenza"]
+        daily = pairs.groupby(["ID_COMUNE", "DATA"])[columns].apply(self.combinator)
+        std_by_comune = {comune: self._safe_std(values.std()) for comune, values in daily.groupby(level="ID_COMUNE")}
+        region_daily = pairs.groupby("DATA")[columns].apply(self.combinator)
+        return (
+            self._index_by_comune(pairs),
+            std_by_comune,
+            self.combinator(pairs),
+            self._safe_std(region_daily.std()),
+        )
 
 
 class MeanTouristTravelTimeIndicator(_TravelTimePairsIndicator):
@@ -964,8 +973,8 @@ class MeanTouristTravelTimeIndicator(_TravelTimePairsIndicator):
     description = (
         "Indica <strong>quante ore impiegano in media i turisti per raggiungere un comune</strong> (in ore "
         "decimali: 3.5 = 3 ore e mezza): valori "
-        "alti indicano turisti che arrivano da lontano. È una <strong>stima annuale</strong> sugli arrivi "
-        "Vodafone, che assume la partenza da una città di riferimento per gli italiani e dalla capitale per gli "
+        "alti indicano turisti che arrivano da lontano. È una <strong>stima sugli arrivi Vodafone del periodo "
+        "selezionato</strong> (anche più breve di un anno), che assume la partenza da una città di riferimento per gli italiani e dalla capitale per gli "
         "stranieri."
     )
     index_value_unit_description = "Tempo medio stimato di viaggio (ore)"
@@ -1231,8 +1240,8 @@ class ProximityDemandDependenceIndicator(_TravelTimePairsIndicator):
         hours, minutes = divmod(int(threshold_minutes), 60)
         self.description = (
             f"Indica <strong>quanta parte dei turisti arriva da vicino</strong>: la quota di arrivi con un tempo "
-            f"di viaggio entro <strong>{hours}:{minutes:02d} ore</strong>. È una <strong>stima annuale</strong> "
-            "sugli arrivi Vodafone, che assume la partenza da una città di riferimento per gli italiani e dalla "
+            f"di viaggio entro <strong>{hours}:{minutes:02d} ore</strong>. È una <strong>stima sugli arrivi "
+            "Vodafone del periodo selezionato</strong> (anche più breve di un anno), che assume la partenza da una città di riferimento per gli italiani e dalla "
             "capitale per gli stranieri."
         )
 

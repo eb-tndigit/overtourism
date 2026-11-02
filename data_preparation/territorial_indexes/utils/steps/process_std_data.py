@@ -94,7 +94,7 @@ from utils.disaggregation import (
     is_whole,
 )
 from utils.flows import build_area_comune, comune_flow_indicators
-from utils.main_market import comune_main_market, split_areas_to_comuni
+from utils.main_market import comune_main_market
 from utils.provenienza import comune_hhi
 from utils.stay_distribution import distribute_by_stay
 from utils.io import read_df, read_json, read_table, save_computed_dfs
@@ -432,21 +432,23 @@ def process_tempi_arrivi(
     travel_times=None,
     reference_city_italy=REFERENCE_CITY_ITALY,
 ):
-    """Standardized Vodafone arrivals -> pairs arrivals / route time: one row per YEAR, comune and origin market
+    """Standardized Vodafone arrivals -> pairs arrivals / route time: one row per DAY, comune and origin market
     (`provenienza`) with its arrivals and `tempo_di_percorrenza` (minutes). The statistic (arrival-weighted mean) is the
-    backend indicator. Countryless arrivals and origins without a route are not pairs. Areas with several comuni are
-    split by beds (`strutture`)."""
+    backend indicator, on the days of the requested window. Countryless arrivals and origins without a route are not
+    pairs. Areas with several comuni are split by the beds of the year (`strutture`) without rounding: the arrivals of a
+    comune are fractional, and the days of a year add up exactly to the yearly split."""
     df = _tourist_arrivals(df, window, "vodafone_tempi")
     countries = df["userCountry"].fillna("").astype(str).str.strip().str.upper()
     valid = countries.ne("") & df["value"].gt(0)
     by_area = pd.DataFrame(
         {
+            "DATA": df.loc[valid, "DATA"],
             "year": df.loc[valid, "DATA"].str[:4].astype(int),
             "areaId": df.loc[valid, "areaId"],
             "market": countries[valid],
             "value": df.loc[valid, "value"],
         }
-    ).groupby(["year", "areaId", "market"], as_index=False)["value"].sum()
+    ).groupby(["DATA", "year", "areaId", "market"], as_index=False)["value"].sum()
     out_cols = ["DATA", "ID_COMUNE", TEMPO_MEDIO_KEY_COL, *TEMPO_MEDIO_VALUE_COLS]
     if by_area.empty:
         return pd.DataFrame(columns=out_cols)
@@ -475,7 +477,29 @@ def process_tempi_arrivi(
     routes["tempo_di_percorrenza"] = pd.to_numeric(routes["tempo_di_percorrenza"], errors="coerce")
     routes = routes.dropna(subset=["tempo_di_percorrenza"]).drop_duplicates(["market", "ID_COMUNE"])
 
-    comune_arrivals = split_areas_to_comuni(by_area, area_comune, strutture)
+    # areas with several comuni: every day split by the beds of its year, as the Vodafone presences, without rounding
+    # (fractional arrivals), so the days of a year add up exactly to the yearly split
+    ids = area_comune.groupby("areaId")["ID_COMUNE"].agg(lambda s: tuple(dict.fromkeys(s)))
+    unmapped = sorted(set(by_area["areaId"]) - set(ids.index))
+    if unmapped:
+        logger.warning("[tempo_medio_turisti] areas with no comune, dropped: %s", unmapped)
+    by_area = by_area[by_area["areaId"].isin(ids.index)].copy()
+    if by_area.empty:
+        return pd.DataFrame(columns=out_cols)
+    by_area["ID_COMUNE"] = by_area["areaId"].map(ids)
+    split_kwargs = {}
+    if strutture is not None:
+        split_kwargs = dict(
+            space_weights=beds_weights(strutture, by_area["year"].unique(), "tot_postiletto"),
+            space_weight_col="tot_postiletto",
+            space_time_freq="Y",  # beds are yearly
+        )
+    else:
+        logger.warning("[tempo_medio_turisti] no strutture given: uniform split among the comuni of an area")
+    comune_arrivals = disaggregate(by_area, cols=["value"], axis="space", integer=False, **split_kwargs)
+    assert_sums_match(
+        by_area, comune_arrivals, ["value"], ["DATA", "areaId", "market"], name="tempo_medio_turisti arrivals"
+    )
     comune_arrivals["ID_COMUNE"] = comune_arrivals["ID_COMUNE"].astype(str).str.zfill(6)
     matched = comune_arrivals.merge(
         routes, on=["market", "ID_COMUNE"], how="left", validate="many_to_one"
@@ -487,10 +511,10 @@ def process_tempi_arrivi(
             sorted(missing["market"].unique()),
         )
     matched = matched.dropna(subset=["tempo_di_percorrenza"])
-    out = matched.groupby(["year", "ID_COMUNE", "market"], as_index=False).agg(
+    out = matched.groupby(["DATA", "ID_COMUNE", "market"], as_index=False).agg(
         arrivi=("value", "sum"), tempo_di_percorrenza=("tempo_di_percorrenza", "first")
     )
-    out = out.rename(columns={"year": "DATA", "market": TEMPO_MEDIO_KEY_COL})
+    out = out[out["arrivi"] > 0].rename(columns={"market": TEMPO_MEDIO_KEY_COL})
     return out[out_cols].sort_values(["DATA", "ID_COMUNE", TEMPO_MEDIO_KEY_COL]).reset_index(drop=True)
 
 

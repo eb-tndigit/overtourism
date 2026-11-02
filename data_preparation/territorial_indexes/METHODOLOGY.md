@@ -15,21 +15,23 @@ columns below. `DATA` is `YYYY` for yearly phenomena (`phen_popolazione`, `phen_
 | `phen_consumption` | comune × day | monthly electricity and gas withdrawals | disaggregated in time only: each month spread evenly over its days |
 | `phen_flussi_od` | comune × year | Vodafone OD co-visits | only the total rows are used (the country breakdown is anonymized and does not add up); indicators computed per area, then passed to comuni (not split); visitors weigh 0.5 |
 | `phen_provenienza` | comune × year | Vodafone presences (HHI) and arrivals (main market) by country of origin | normalized HHI of tourist user-days; main market from tourist arrivals (areas split by beds); small areas left empty (HHI) |
-| `phen_tempo_medio_turisti` | comune × year × origin market | Vodafone tourist arrivals by origin country + route-time matrix | pairs arrivals / journey time (the backend computes the arrival-weighted statistic); Italy uses one configurable reference city, foreign origins use their capitals (by car under 1000 km, otherwise plane to BGY + car) |
+| `phen_tempo_medio_turisti` | comune × day × origin market | Vodafone tourist arrivals by origin country + route-time matrix | pairs arrivals / journey time (the backend computes the arrival-weighted statistic); Italy uses one configurable reference city, foreign origins use their capitals (by car under 1000 km, otherwise plane to BGY + car) |
 
-## `phen_tempo_medio_turisti` (comune × year × origin market)
+## `phen_tempo_medio_turisti` (comune × day × origin market)
 
 Columns: `provenienza` (origin market, ISO3; `ITA` = the Italian reference city), `arrivi` (arrivals of that market in
-the comune and year: the weights) and `tempo_di_percorrenza` (route minutes from that origin). One row per year, comune
+the comune and day: the weights) and `tempo_di_percorrenza` (route minutes from that origin). One row per day, comune
 and market: the travel time statistic is NOT in the phenomenon. The backend indicator computes it, for every comune, on
-all the pairs of the requested years, weighted by the arrivals: the mean by default, and the statistic (e.g. a median)
+all the pairs of the days of the requested window (any period, also shorter than a year),
+weighted by the arrivals: the mean by default, and the statistic (e.g. a median)
 can be changed in the backend without touching this phenomenon. The sum of `arrivi` can be lower than `phen_provenienza.volume_totale`, which also
 counts the countryless arrivals. The pairs come from the same Vodafone arrivals as `phen_provenienza` (dataset
-`vodafone_tempi`, derived from `vodafone_arrivi`); in the yearly update a recomputed comune-year replaces all its pairs.
+`vodafone_tempi`, derived from `vodafone_arrivi`); in the yearly update a recomputed comune-day replaces all its pairs.
 
-* **Starting data**: `vodafone_arrivals.csv`, tourist profile, municipality-area level, grouped by year, destination area
-  and `userCountry`. Area arrivals are allocated to comuni proportionally to yearly `tot_postiletto`, using the same
-  largest-remainder split as the main-market volumes.
+* **Starting data**: `vodafone_arrivals.csv`, tourist profile, municipality-area level, grouped by day, destination area
+  and `userCountry`. Area arrivals are allocated to comuni proportionally to the `tot_postiletto` of the year, without
+  rounding (fractional arrivals): the days of a year add up exactly to the yearly split, so a whole year gives the same
+  result as a yearly computation (up to the integer rounding of the main-market volumes).
 * **Travel times**: `matrice_tempi_verso_trentino.csv` (`references.travel_times`, downloaded into `Output/mapping/`),
   generated once by `data_download/trentino_travel_times.py` and uploaded to the data lake. Each origin-destination duration is joined to the destination comune. Countries
   outside Italy use their ISO3 capital-origin row. `ITA` uses the origin municipality configured as
@@ -41,14 +43,14 @@ counts the countryless arrivals. The pairs come from the same Vodafone arrivals 
   capital: if it is less than 1000 km from Trento they drive all the way, otherwise they fly to Bergamo airport and
   drive from there to the comune. The flight time is estimated from the straight-line distance at a constant speed,
   plus a fixed time for take-off and landing.
-* **Computation**: one pair per destination comune, year and country with a matching route; the backend statistic
+* **Computation**: one pair per destination comune, day and country with a matching route; the backend statistic
   (default: `Σ(arrivals × travel_time_minutes) / Σ(arrivals)`) is computed on the pairs. Countryless arrivals remain part of `phen_provenienza.volume_totale`, but cannot be
   included in this index. Missing routes are logged and excluded from both numerator and denominator.
 * **Interpretation and limits**: this is an estimate of average travel time from an assumed origin, not a measured
   journey. Every Italian arrival is represented by the configured Italian municipality; every foreign arrival by the
   capital. The transport mode follows the distance rule, not the travellers' actual choice, and flight times leave out
-  check-in and airport waits. The result does not model the actual starting city or individual route. It is yearly
-  and arrival-weighted (people arriving), not weighted by days of stay.
+  check-in and airport waits. The result does not model the actual starting city or individual route. It is
+  computed on the days of the window and arrival-weighted (people arriving), not weighted by days of stay.
 
 ## Common rules
 

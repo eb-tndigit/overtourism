@@ -66,8 +66,8 @@ ARRIVI_VALUE_COLS = ["volume_totale"] + [
 ]
 ARRIVI_FULL_YEAR_DAYS = 360  # fewer days with data: the year is partial (warning)
 
-# Travel time of the tourists (phen_tempo_medio_turisti), from the same arrivals: one row per year, comune and origin
-# market (`provenienza`, ISO3) with its arrivals and route minutes. The statistic (arrival-weighted mean) is computed by
+# Travel time of the tourists (phen_tempo_medio_turisti), from the same arrivals: one row per day, comune and origin
+# market (`provenienza`, ISO3) with its arrivals (fractional where an area is split among comuni) and route minutes. The statistic (arrival-weighted mean) is computed by
 # the backend indicator. Countryless arrivals and origins without a route are not pairs.
 TEMPO_MEDIO_KEY_COL = "provenienza"
 TEMPO_MEDIO_VALUE_COLS = ["arrivi", "tempo_di_percorrenza"]

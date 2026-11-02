@@ -68,7 +68,8 @@ PHENOMENON_LABELS_IT: dict[str, str] = {
     # The label contains "quota" on purpose: index_utils rounds the columns with "quota" / "PageRank" in their
     # label to decimals (an index in [0, 1] must not be rounded to an integer).
     "hhi_provenienza": "quota di concentrazione dei mercati (HHI normalizzato)",
-    # Travel time of the tourists (phen_tempo_medio_turisti): the arrivals that weigh the travel times (integers)
+    # Travel time of the tourists (phen_tempo_medio_turisti): the arrivals that weigh the travel times (fractional in the
+    # file where an area is split among comuni; index_utils rounds the column to an integer)
     "arrivi": "arrivi totali turisti",
     # Main source market (phen_provenienza): yearly arrivals of the main market and of all the markets (integers)
     "volume_mercato_1": "arrivi dal mercato principale",
