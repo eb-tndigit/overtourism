@@ -15,7 +15,7 @@ columns below. `DATA` is `YYYY` for yearly phenomena (`phen_popolazione`, `phen_
 | `phen_consumption` | comune × day | monthly electricity and gas withdrawals | disaggregated in time only: each month spread evenly over its days |
 | `phen_flussi_od` | comune × year | Vodafone OD co-visits | only the total rows are used (the country breakdown is anonymized and does not add up); indicators computed per area, then passed to comuni (not split); visitors weigh 0.5 |
 | `phen_provenienza` | comune × year | Vodafone presences (HHI) and arrivals (main market) by country of origin | normalized HHI of tourist user-days; main market from tourist arrivals (areas split by beds); small areas left empty (HHI) |
-| `phen_tempo_medio_turisti` | comune × year × origin market | Vodafone tourist arrivals by origin country + route-time matrix | pairs arrivals / journey time (the backend computes the arrival-weighted statistic); Italy uses one configurable reference city, foreign origins use their capitals |
+| `phen_tempo_medio_turisti` | comune × year × origin market | Vodafone tourist arrivals by origin country + route-time matrix | pairs arrivals / journey time (the backend computes the arrival-weighted statistic); Italy uses one configurable reference city, foreign origins use their capitals (by car under 1000 km, otherwise plane to BGY + car) |
 
 ## `phen_tempo_medio_turisti` (comune × year × origin market)
 
@@ -33,14 +33,21 @@ counts the countryless arrivals. The pairs come from the same Vodafone arrivals 
 * **Travel times**: `matrice_tempi_verso_trentino.csv` (`references.travel_times`, downloaded into `Output/mapping/`),
   generated once by `data_download/trentino_travel_times.py` and uploaded to the data lake. Each origin-destination duration is joined to the destination comune. Countries
   outside Italy use their ISO3 capital-origin row. `ITA` uses the origin municipality configured as
-  `travel_times.reference_city_italy` in `config/settings.yaml` (default `Milano`); the script routes only this
-  municipality, so after changing it the matrix must be generated and uploaded again.
+  `travel_times.reference_city_italy` in `config/settings.yaml` (currently `Firenze`; `Milano` if not set); the script
+  routes only this municipality, so after changing it the matrix must be generated and uploaded again.
+* **Routes**: each Trentino comune is reached at its main town (the capoluogo from OpenStreetMap, not the centre of
+  the polygon, which in the mountains often falls far from the houses). Road times are the fastest car route without
+  traffic, computed with OSRM. Italian tourists drive from the reference city. Foreign tourists start from their
+  capital: if it is less than 1000 km from Trento they drive all the way, otherwise they fly to Bergamo airport and
+  drive from there to the comune. The flight time is estimated from the straight-line distance at a constant speed,
+  plus a fixed time for take-off and landing.
 * **Computation**: one pair per destination comune, year and country with a matching route; the backend statistic
   (default: `Σ(arrivals × travel_time_minutes) / Σ(arrivals)`) is computed on the pairs. Countryless arrivals remain part of `phen_provenienza.volume_totale`, but cannot be
   included in this index. Missing routes are logged and excluded from both numerator and denominator.
 * **Interpretation and limits**: this is an estimate of average travel time from an assumed origin, not a measured
   journey. Every Italian arrival is represented by the configured Italian municipality; every foreign arrival by the
-  capital. The result does not model the actual starting city, transport mode choice, or individual route. It is yearly
+  capital. The transport mode follows the distance rule, not the travellers' actual choice, and flight times leave out
+  check-in and airport waits. The result does not model the actual starting city or individual route. It is yearly
   and arrival-weighted (people arriving), not weighted by days of stay.
 
 ## Common rules
