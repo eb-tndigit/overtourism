@@ -331,7 +331,7 @@ def get_index_data(
 
         else:
             result = tc.apply(computed_index)
-            # text columns for the map (e.g. minutes as hours:minutes): added after the territorial aggregation,
+            # text columns for the map: added after the territorial aggregation,
             # which drops the non-numeric columns
             if hasattr(indicator, "add_display_columns"):
                 result = indicator.add_display_columns(result)

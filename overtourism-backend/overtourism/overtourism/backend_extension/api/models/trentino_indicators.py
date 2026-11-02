@@ -874,10 +874,10 @@ class SourceMarketsConcentrationIndicator(Indicator):
 
 
 def weighted_mean_travel_time(pairs: pd.DataFrame) -> float:
-    """Mean of the travel times weighted by the arrivals."""
+    """Mean of the travel times weighted by the arrivals, in decimal hours (the pairs are in minutes: 210 -> 3.5)."""
     if pairs["arrivi"].sum() <= 0:
         return np.nan
-    return float(np.average(pairs["tempo_di_percorrenza"], weights=pairs["arrivi"]))
+    return float(np.average(pairs["tempo_di_percorrenza"], weights=pairs["arrivi"])) / 60
 
 
 def proximity_share(pairs: pd.DataFrame, threshold_minutes: float) -> float:
@@ -962,12 +962,13 @@ class MeanTouristTravelTimeIndicator(_TravelTimePairsIndicator):
 
     name = "Tempo medio di viaggio dei turisti"
     description = (
-        "Indica <strong>quanti minuti impiegano in media i turisti per raggiungere un comune</strong>: valori "
+        "Indica <strong>quante ore impiegano in media i turisti per raggiungere un comune</strong> (in ore "
+        "decimali: 3.5 = 3 ore e mezza): valori "
         "alti indicano turisti che arrivano da lontano. È una <strong>stima annuale</strong> sugli arrivi "
         "Vodafone, che assume la partenza da una città di riferimento per gli italiani e dalla capitale per gli "
         "stranieri."
     )
-    index_value_unit_description = "Tempo medio stimato di viaggio (minuti)"
+    index_value_unit_description = "Tempo medio stimato di viaggio (ore)"
     # year_only = True
 
     def __init__(
@@ -976,15 +977,6 @@ class MeanTouristTravelTimeIndicator(_TravelTimePairsIndicator):
         combinator_fn: Callable[[pd.DataFrame], float] = weighted_mean_travel_time,
     ):
         super().__init__(source_file, combinator_fn)
-
-    @staticmethod
-    def add_display_columns(result: pd.DataFrame) -> pd.DataFrame:
-        """INDICE (minutes) also as hours:minutes text for the map, e.g. 98 -> "1:38"."""
-        minutes = result["INDICE"].round()
-        result["tempo_ore_minuti"] = minutes.map(
-            lambda m: f"{int(m) // 60}:{int(m) % 60:02d}" if pd.notna(m) else None
-        )
-        return result
 
 
 class MainMarketDependenceIndicator(Indicator):

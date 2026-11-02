@@ -70,8 +70,6 @@ PHENOMENON_LABELS_IT: dict[str, str] = {
     "hhi_provenienza": "quota di concentrazione dei mercati (HHI normalizzato)",
     # Travel time of the tourists (phen_tempo_medio_turisti): the arrivals that weigh the travel times (integers)
     "arrivi": "arrivi totali turisti",
-    # the index in minutes as hours:minutes text (MeanTouristTravelTimeIndicator.add_display_columns)
-    "tempo_ore_minuti": "tempo medio di viaggio (ore:minuti)",
     # Main source market (phen_provenienza): yearly arrivals of the main market and of all the markets (integers)
     "volume_mercato_1": "arrivi dal mercato principale",
     "volume_totale": "arrivi totali",
