@@ -217,19 +217,20 @@ class TouristDensityIndicator(Indicator):
     index_value_unit_description = "Presenze turistiche per km²"
 
     def __init__(self, presences_source, surface_source):
+        presences = PresencesPhenomenon(
+            presences_source,
+            col="presenze_vodafone",
+            name="presenze_vodafone",
+        )
         super().__init__(
             phenomena=[
-                PresencesPhenomenon(
-                    presences_source,
-                    col="presenze_vodafone",
-                    name="presenze_vodafone",
-                ),
+                presences,
                 PresencesPhenomenon(
                     presences_source,
                     col="presenze_escursionisti_vodafone",
                     name="presenze_escursionisti_vodafone",
                 ),
-                SurfacePhenomenon(surface_source),
+                SurfacePhenomenon(surface_source, dates_from=presences),
             ],
             combinator=self.compute_density,
         )
@@ -255,20 +256,21 @@ class AnthropogenicDensityIndicator(Indicator):
     index_value_unit_description = "Abitanti e presenze turistiche per km²"
 
     def __init__(self, presences_source, population_source, surface_source):
+        presences = PresencesPhenomenon(
+            presences_source,
+            col="presenze_vodafone",
+            name="presenze_vodafone",
+        )
         super().__init__(
             phenomena=[
-                PresencesPhenomenon(
-                    presences_source,
-                    col="presenze_vodafone",
-                    name="presenze_vodafone",
-                ),
+                presences,
                 PresencesPhenomenon(
                     presences_source,
                     col="presenze_escursionisti_vodafone",
                     name="presenze_escursionisti_vodafone",
                 ),
                 PopulationPhenomenon(population_source),
-                SurfacePhenomenon(surface_source),
+                SurfacePhenomenon(surface_source, dates_from=presences),
             ],
             combinator=self.compute_density_anthropogenic,
         )

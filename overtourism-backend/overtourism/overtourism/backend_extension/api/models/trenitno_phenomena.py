@@ -238,7 +238,11 @@ class PopulationPhenomenon(Phenomenon):
 
 
 class SurfacePhenomenon(Phenomenon):
-    """Comune surface in km² (ISTAT shapefile), constant over time."""
+    """Comune surface in km² (ISTAT shapefile), constant over time.
+
+    The shapefile has no dates: the surface is repeated on every day covered by ``dates_from`` (the
+    presences of the same indicator), so the panel is daily like the one of any other phenomenon.
+    """
 
     name = "superficie"
     temporal_resolution = "yearly"
@@ -246,8 +250,9 @@ class SurfacePhenomenon(Phenomenon):
     spatial_resolution = "comune"
     spatial_strategy = "identity"
 
-    def __init__(self, source, col="Shape_Area", name=None, province_code=22):
+    def __init__(self, source, dates_from: Phenomenon, col="Shape_Area", name=None, province_code=22):
         super().__init__(source, col, agg="mean", municipality_id_col="PRO_COM_T")
+        self.dates_from = dates_from
         self.province_code = province_code
         if name is not None:
             self.name = name
@@ -258,31 +263,15 @@ class SurfacePhenomenon(Phenomenon):
 
         raw = gpd.read_file(self.source, ignore_geometry=True)
         raw = raw[raw["COD_PROV"] == self.province_code]
-        self._panel = pd.DataFrame(
+        surface = pd.DataFrame(
             {
                 "ID_COMUNE": raw[self.municipality_id_col].astype(str),
                 self.name: pd.to_numeric(raw[self.col], errors="coerce") / 1e6,
             }
-        ).reset_index(drop=True)
+        )
+        dates = pd.DataFrame({"DATA": pd.date_range(*self.dates_from.date_bounds(), freq="D")})
+        self._panel = surface.merge(dates, how="cross")[["ID_COMUNE", "DATA", self.name]]
         return self
-
-    def _filter_by_date(
-        self,
-        start_date=None,
-        end_date: str | None = None,
-    ) -> pd.DataFrame:
-        if self._panel is None:
-            raise RuntimeError(
-                f"{self.__class__.__name__}.resolve() must be called before _filter_by_date()"
-            )
-        if start_date is None or end_date is None:
-            return pd.DataFrame(columns=["ID_COMUNE", "DATA", self.name])
-
-        dates = pd.DataFrame({"DATA": pd.date_range(start_date, end_date, freq="D")})
-        return self._panel.merge(dates, how="cross")[["ID_COMUNE", "DATA", self.name]]
-
-    def date_bounds(self) -> tuple[pd.Timestamp, pd.Timestamp]:
-        return pd.Timestamp.min, pd.Timestamp.max
 
 
 class FlowIndicatorPhenomenon(Phenomenon):
