@@ -80,7 +80,7 @@ MACRO_PRESSURE_COMPONENTS = (
     "carico-antropico",
     "densita-turistica",
     "concentrazione-mercati-provenienza",
-    "quota-consumi-elettrici-attribuibili-turismo",  # 2022 - 2024
+    "impatto-turismo-consumi-elettrici",  # 2022 - 2024
     "squilibrio-ridistribuzione",
 )
 
@@ -1391,8 +1391,8 @@ class TerritorialUnsustainabilityIndicator(Indicator):
     name = "Macro-indice di pressione turistica"
     description = (
         "Indice giornaliero relativo ai comuni del Trentino: carico antropico, densità "
-        "turistica, concentrazione dei mercati, quota dei consumi elettrici attribuibile "
-        "al turismo e squilibrio di ridistribuzione sono normalizzati tra 0 e 1 per "
+        "turistica, concentrazione dei mercati, impatto del turismo sui consumi elettrici "
+        "(quota giornaliera del settore servizi) e squilibrio di ridistribuzione sono normalizzati tra 0 e 1 per "
         "ciascun giorno e poi mediati con pesi uguali. Per lo squilibrio, i valori più "
         "negativi (aree sovraccariche) indicano maggiore pressione. Gli indicatori "
         "annuali sono mantenuti costanti nei giorni del rispettivo anno; i dati mancanti "
@@ -1407,6 +1407,9 @@ class TerritorialUnsustainabilityIndicator(Indicator):
     order = 100
 
     PRESSURE_INDEX = "macro_indice_pressione_turistica"
+    # Read by the map route: every numeric column is sent with 2 decimals instead of being rounded to an
+    # integer (several components are 0-1 ratios, an integer would show only 0 / 1)
+    map_decimals = 2
 
     def __init__(self):
         components = [
@@ -1423,8 +1426,8 @@ class TerritorialUnsustainabilityIndicator(Indicator):
                 SourceMarketsConcentrationIndicator(PROVENIENZA_SOURCE),
             ),
             (
-                "quota-consumi-elettrici-attribuibili-turismo",
-                TourismElectricityShareIndicator(EE_TOURISM_SHARE_SOURCE),
+                "impatto-turismo-consumi-elettrici",
+                TourismElectricityConsumptionImpactIndicator(CONSUMPTION_SOURCE),
             ),
             (
                 "squilibrio-ridistribuzione",
