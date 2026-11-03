@@ -7,7 +7,8 @@ Input : Output/data/normalized/   (+ mapping json files, read from Output/mappin
 Output: Output/data/data_processed/   (popolazione_pr, strutture_pr, vodafone_pr,
                                        presenze_alb_pr, presenze_extralb_pr,
                                        ee_prelievi_pr, gas_prelievi_pr, ee_totale_pr, gas_totale_pr,
-                                       vodafone_covisits_pr, vodafone_provenienza_pr, vodafone_arrivi_pr)
+                                       vodafone_covisits_pr, vodafone_provenienza_pr, vodafone_arrivi_pr,
+                                       vodafone_tempi_pr)
 
 Transformations: ID_COMUNE resolution, filtering, selection of the columns, computation of
 aggregated columns, disaggregation of the presences to comune x day (vodafone: areas -> comuni by beds;
@@ -45,8 +46,10 @@ from utils.config import (
     PRESENZE_TAGS,
     PROCESSED_DIR,
     RAW_DIR,
+    REFERENCE_CITY_ITALY,
     REFERENCES,
     STD_SUFFIX,
+    TRAVEL_TIMES_MATRIX_FILE,
     TYPE_FORMAT,
     setup_logging,
 )
@@ -77,6 +80,8 @@ from utils.datasets import (  # noqa: F401  (re-exported for convenience)
     EE_TOTALE_VALUE_COLS,
     GAS_TOTALE_VALUE_COLS,
     STRUTTURE_VALUE_COLS,
+    TEMPO_MEDIO_KEY_COL,
+    TEMPO_MEDIO_VALUE_COLS,
     VODAFONE_VALUE_COLS,
 )
 from utils.steps.standardize_raw_data import ENERGY_MONTHS
@@ -360,21 +365,43 @@ def process_provenienza(df, area_comune, window=BASE_WINDOW):
     return out
 
 
-def process_provenienza_arrivi(df, area_comune, strutture=None, window=BASE_WINDOW):
-    """Standardized Vodafone arrivals -> comune x YEAR total and top-country volumes/names.
-    Countryless arrivals contribute to `volume_totale` but cannot be assigned a country. Areas with several
-    comuni are split by beds (`strutture`). Partial years are kept, with a warning."""
+def _read_travel_time_routes(path, countries, reference_city_italy):
+    """Read only the reference-city and required country rows from the route matrix."""
+    if not Path(path).exists():
+        raise FileNotFoundError(
+            f"Travel-time matrix not found: {path}. It is downloaded with the references (step 0): generate it with "
+            "data_download/trentino_travel_times.py and upload it to the data lake (`references.travel_times`)."
+        )
+    columns = [
+        "istat_origine",
+        "provenienza",
+        "istat_destinazione",
+        "tempo_di_percorrenza",
+    ]
+    wanted_countries = {str(country).strip().upper() for country in countries}
+    chunks = []
+    for chunk in pd.read_csv(path, usecols=columns, dtype=str, chunksize=250_000):
+        country_origin = (chunk["istat_origine"] == "*") & chunk["provenienza"].str.upper().isin(wanted_countries)
+        city_origin = (
+            (chunk["istat_origine"] != "*")
+            & (chunk["provenienza"].str.casefold() == reference_city_italy.casefold())
+        )
+        selected = chunk.loc[country_origin | city_origin]
+        if not selected.empty:
+            chunks.append(selected)
+    if not chunks:
+        return pd.DataFrame(columns=columns)
+    return pd.concat(chunks, ignore_index=True)
+
+
+def _tourist_arrivals(df, window, name):
+    """Standardized Vodafone arrivals -> tourist arrivals per day and area: DATA, areaId, userCountry, value."""
     df = df[
         (df["userProfile"] == PROVENIENZA_PROFILE) & (df["locType"] == PROVENIENZA_LOC_TYPE)
     ]
-    df = clip(df, window, name="vodafone_arrivi")
-    days = df.assign(year=df["DATA"].astype(str).str[:4].astype(int)).groupby("year")["DATA"].nunique()
-    for year, n in days[days < ARRIVI_FULL_YEAR_DAYS].items():
-        logger.warning(
-            "[process_provenienza_arrivi] %s is a partial year (%d days): compare it with care", year, n
-        )
+    df = clip(df, window, name=name)
     countries = df["userCountry"] if "userCountry" in df.columns else pd.Series(None, index=df.index)
-    df = pd.DataFrame(
+    return pd.DataFrame(
         {
             "DATA": df["DATA"].astype(str).str[:10],
             "areaId": df["locId"].astype(str).str.replace(r"\.0$", "", regex=True),
@@ -382,7 +409,113 @@ def process_provenienza_arrivi(df, area_comune, strutture=None, window=BASE_WIND
             "value": pd.to_numeric(df[ARRIVI_VALUE_COL], errors="coerce").fillna(0.0),
         }
     )
+
+
+def process_provenienza_arrivi(df, area_comune, strutture=None, window=BASE_WINDOW):
+    """Standardized Vodafone arrivals -> comune x YEAR total and top-country volumes/names.
+    Countryless arrivals contribute to `volume_totale` but cannot be assigned a country. Areas with several
+    comuni are split by beds (`strutture`). Partial years are kept, with a warning."""
+    df = _tourist_arrivals(df, window, "vodafone_arrivi")
+    days = df.assign(year=df["DATA"].str[:4].astype(int)).groupby("year")["DATA"].nunique()
+    for year, n in days[days < ARRIVI_FULL_YEAR_DAYS].items():
+        logger.warning(
+            "[process_provenienza_arrivi] %s is a partial year (%d days): compare it with care", year, n
+        )
     return standard_ordering_cols(comune_main_market(df, area_comune, strutture))
+
+
+def process_tempi_arrivi(
+    df,
+    area_comune,
+    strutture=None,
+    window=BASE_WINDOW,
+    travel_times=None,
+    reference_city_italy=REFERENCE_CITY_ITALY,
+):
+    """Standardized Vodafone arrivals -> pairs arrivals / route time: one row per DAY, comune and origin market
+    (`provenienza`) with its arrivals and `tempo_di_percorrenza` (minutes). The statistic (arrival-weighted mean) is the
+    backend indicator, on the days of the requested window. Countryless arrivals and origins without a route are not
+    pairs. Areas with several comuni are split by the beds of the year (`strutture`) without rounding: the arrivals of a
+    comune are fractional, and the days of a year add up exactly to the yearly split."""
+    df = _tourist_arrivals(df, window, "vodafone_tempi")
+    countries = df["userCountry"].fillna("").astype(str).str.strip().str.upper()
+    valid = countries.ne("") & df["value"].gt(0)
+    by_area = pd.DataFrame(
+        {
+            "DATA": df.loc[valid, "DATA"],
+            "year": df.loc[valid, "DATA"].str[:4].astype(int),
+            "areaId": df.loc[valid, "areaId"],
+            "market": countries[valid],
+            "value": df.loc[valid, "value"],
+        }
+    ).groupby(["DATA", "year", "areaId", "market"], as_index=False)["value"].sum()
+    out_cols = ["DATA", "ID_COMUNE", TEMPO_MEDIO_KEY_COL, *TEMPO_MEDIO_VALUE_COLS]
+    if by_area.empty:
+        return pd.DataFrame(columns=out_cols)
+
+    matrix = travel_times
+    if matrix is None:
+        matrix = _read_travel_time_routes(
+            TRAVEL_TIMES_MATRIX_FILE, by_area["market"].unique(), reference_city_italy
+        )
+    city_routes = matrix.loc[
+        (matrix["istat_origine"].astype(str) != "*")
+        & (matrix["provenienza"].astype(str).str.casefold() == reference_city_italy.casefold())
+    ].copy()
+    city_ids = city_routes["istat_origine"].astype(str).unique()
+    if len(city_ids) != 1:
+        raise ValueError(
+            f"[tempo_medio_turisti] reference city {reference_city_italy!r} resolves to {len(city_ids)} origins in the route matrix"
+        )
+    city_routes["market"] = "ITA"
+    foreign_routes = matrix.loc[matrix["istat_origine"].astype(str) == "*"].copy()
+    foreign_routes["market"] = foreign_routes["provenienza"].astype(str).str.upper()
+    routes = pd.concat([city_routes, foreign_routes], ignore_index=True).rename(
+        columns={"istat_destinazione": "ID_COMUNE"}
+    )[["market", "ID_COMUNE", "tempo_di_percorrenza"]]
+    routes["ID_COMUNE"] = routes["ID_COMUNE"].astype(str).str.zfill(6)
+    routes["tempo_di_percorrenza"] = pd.to_numeric(routes["tempo_di_percorrenza"], errors="coerce")
+    routes = routes.dropna(subset=["tempo_di_percorrenza"]).drop_duplicates(["market", "ID_COMUNE"])
+
+    # areas with several comuni: every day split by the beds of its year, as the Vodafone presences, without rounding
+    # (fractional arrivals), so the days of a year add up exactly to the yearly split
+    ids = area_comune.groupby("areaId")["ID_COMUNE"].agg(lambda s: tuple(dict.fromkeys(s)))
+    unmapped = sorted(set(by_area["areaId"]) - set(ids.index))
+    if unmapped:
+        logger.warning("[tempo_medio_turisti] areas with no comune, dropped: %s", unmapped)
+    by_area = by_area[by_area["areaId"].isin(ids.index)].copy()
+    if by_area.empty:
+        return pd.DataFrame(columns=out_cols)
+    by_area["ID_COMUNE"] = by_area["areaId"].map(ids)
+    split_kwargs = {}
+    if strutture is not None:
+        split_kwargs = dict(
+            space_weights=beds_weights(strutture, by_area["year"].unique(), "tot_postiletto"),
+            space_weight_col="tot_postiletto",
+            space_time_freq="Y",  # beds are yearly
+        )
+    else:
+        logger.warning("[tempo_medio_turisti] no strutture given: uniform split among the comuni of an area")
+    comune_arrivals = disaggregate(by_area, cols=["value"], axis="space", integer=False, **split_kwargs)
+    assert_sums_match(
+        by_area, comune_arrivals, ["value"], ["DATA", "areaId", "market"], name="tempo_medio_turisti arrivals"
+    )
+    comune_arrivals["ID_COMUNE"] = comune_arrivals["ID_COMUNE"].astype(str).str.zfill(6)
+    matched = comune_arrivals.merge(
+        routes, on=["market", "ID_COMUNE"], how="left", validate="many_to_one"
+    )
+    missing = matched[matched["tempo_di_percorrenza"].isna()]
+    if not missing.empty:
+        logger.warning(
+            "[tempo_medio_turisti] arrivals excluded because no route exists for origins: %s",
+            sorted(missing["market"].unique()),
+        )
+    matched = matched.dropna(subset=["tempo_di_percorrenza"])
+    out = matched.groupby(["DATA", "ID_COMUNE", "market"], as_index=False).agg(
+        arrivi=("value", "sum"), tempo_di_percorrenza=("tempo_di_percorrenza", "first")
+    )
+    out = out[out["arrivi"] > 0].rename(columns={"market": TEMPO_MEDIO_KEY_COL})
+    return out[out_cols].sort_values(["DATA", "ID_COMUNE", TEMPO_MEDIO_KEY_COL]).reset_index(drop=True)
 
 
 def stack_covisits(frames):
@@ -832,6 +965,7 @@ def process_data(
     arrivi_pr = process_provenienza_arrivi(
         std["vodafone_arrivi"], area_comune, strutture_pr, window
     )
+    tempi_pr = process_tempi_arrivi(std["vodafone_arrivi"], area_comune, strutture_pr, window)
     dict_processed = {
         DATASETS["popolazione"].processed_name: popolazione_pr,
         DATASETS["strutture"].processed_name: strutture_pr,
@@ -846,6 +980,7 @@ def process_data(
         DATASETS["vodafone_covisits"].processed_name: covisits_pr,
         DATASETS["vodafone_provenienza"].processed_name: provenienza_pr,
         DATASETS["vodafone_arrivi"].processed_name: arrivi_pr,
+        DATASETS["vodafone_tempi"].processed_name: tempi_pr,
     }
 
     save_computed_dfs(

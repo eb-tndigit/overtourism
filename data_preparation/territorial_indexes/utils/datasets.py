@@ -66,6 +66,12 @@ ARRIVI_VALUE_COLS = ["volume_totale"] + [
 ]
 ARRIVI_FULL_YEAR_DAYS = 360  # fewer days with data: the year is partial (warning)
 
+# Travel time of the tourists (phen_tempo_medio_turisti), from the same arrivals: one row per day, comune and origin
+# market (`provenienza`, ISO3) with its arrivals (fractional where an area is split among comuni) and route minutes. The statistic (arrival-weighted mean) is computed by
+# the backend indicator. Countryless arrivals and origins without a route are not pairs.
+TEMPO_MEDIO_KEY_COL = "provenienza"
+TEMPO_MEDIO_VALUE_COLS = ["arrivi", "tempo_di_percorrenza"]
+
 # Vodafone OD co-visits (flows between areas) -> yearly flow indicators per comune, see utils/flows.py.
 # One column per metric and profile (`<metric>_<profile in lower case>`), plus the days covered by the year
 # Raw file of the base build: settings.yaml, `files.vodafone_covisits`
@@ -166,6 +172,8 @@ DATASETS = {
         ),
         # Vodafone arrivals -> top source countries (normalized like the presences, value column `arrivi`)
         _spec("vodafone_arrivi", ARRIVI_VALUE_COLS, [REF_MAPPING_VODAFONE, REF_GEOJSON]),
+        # same arrivals -> pairs arrivals / travel time per origin market (base build: derived from vodafone_arrivi_std)
+        _spec("vodafone_tempi", TEMPO_MEDIO_VALUE_COLS, [REF_MAPPING_VODAFONE, REF_GEOJSON]),
         _spec("ee_prelievi", EE_PRELIEVI_VALUE_COLS, [REF_MAPPING_COMUNI]),
         _spec("gas_prelievi", GAS_PRELIEVI_VALUE_COLS, [REF_MAPPING_COMUNI]),
         _spec("ee_totale", EE_TOTALE_VALUE_COLS, [REF_MAPPING_COMUNI]),
@@ -190,6 +198,9 @@ DATASETS = {
     )
 }
 ALL_DATASETS = tuple(DATASETS)
+# several rows per DATA + ID_COMUNE (one per origin market): a newer version replaces ALL the rows of a key
+MULTI_ROW_DATASETS = {"vodafone_tempi"}
+MULTI_ROW_PHENOMENA = {"phen_tempo_medio_turisti"}
 
 # final phenomenon -> datasets that must ALL be updated for it to be recomputed
 PHENOMENA = {name: frozenset(deps) for name, deps in PHENOMENA_FILES.items()}

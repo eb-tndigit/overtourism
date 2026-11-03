@@ -99,15 +99,16 @@ def test_arrivals_count_countryless_rows_and_report_top_country_shares():
         ]
     ]
     out = process_provenienza_arrivi(
-        pd.DataFrame(rows), pd.DataFrame({"areaId": ["7"], "ID_COMUNE": ["022007"]})
+        pd.DataFrame(rows),
+        pd.DataFrame({"areaId": ["7"], "ID_COMUNE": ["022007"]}),
     )
 
     row = out.iloc[0]
     assert row["volume_totale"] == 100
     assert [row[f"nome_mercato_{rank}"] for rank in range(1, 4)] == [
-        "Italy",
-        "Germany",
-        "France",
+        "Italia",
+        "Germania",
+        "Francia",
     ]
     assert [row[f"volume_mercato_{rank}"] for rank in range(1, 4)] == [50, 30, 10]
     assert list(out.columns) == ["DATA", "ID_COMUNE", *ARRIVI_VALUE_COLS]
@@ -144,9 +145,7 @@ def test_arrivals_without_country_column_still_count_in_total():
             }
         ]
     )
-    out = process_provenienza_arrivi(
-        df, pd.DataFrame({"areaId": ["7"], "ID_COMUNE": ["022007"]})
-    )
+    out = process_provenienza_arrivi(df, pd.DataFrame({"areaId": ["7"], "ID_COMUNE": ["022007"]}))
 
     assert out["volume_totale"].tolist() == [17]
     assert out[[f"nome_mercato_{rank}" for rank in range(1, 4)]].isna().all().all()

@@ -47,6 +47,13 @@ datasets:
         reader: csv
         adapter: vodafone_raw
 
+  vodafone_tempi:
+    enabled: true
+    sources:
+      - file: vodafone_arrivals.csv
+        reader: csv
+        adapter: vodafone_raw
+
   presenze_alb:
     enabled: true
     sources:                                  # arrivals + presences of 2025, used as downloaded (no normalization); the 2024 files of the base build

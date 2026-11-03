@@ -20,7 +20,7 @@ from pathlib import Path
 import pandas as pd
 
 from utils.adapters import KIND_DATASETS
-from utils.cleaning import concat_keep_last
+from utils.cleaning import concat_keep_last, concat_replace_groups
 from utils.config import (
     DATA_START,
     MAPPING_DIR,
@@ -32,7 +32,7 @@ from utils.config import (
     TYPE_FORMAT,
     setup_logging,
 )
-from utils.datasets import DATASETS
+from utils.datasets import DATASETS, MULTI_ROW_DATASETS
 from utils.io import ensure_dir, raw_path, read_df, save_computed_dfs
 from utils.steps.process_std_data import (
     BEDS_ALB_COL,
@@ -48,6 +48,7 @@ from utils.steps.process_std_data import (
     process_meteo,
     process_provenienza,
     process_provenienza_arrivi,
+    process_tempi_arrivi,
     process_popolazione,
     process_presenze_stay,
     process_strutture,
@@ -90,6 +91,10 @@ DATASET_PROCESSORS = {
     "vodafone_arrivi": lambda df, maps, strutture, window, dataset: process_provenienza_arrivi(
         df, maps["area_comune"], strutture, window
     ),
+    # arrivals -> pairs arrivals / travel time per origin market (areas split by beds as above)
+    "vodafone_tempi": lambda df, maps, strutture, window, dataset: process_tempi_arrivi(
+        df, maps["area_comune"], strutture, window
+    ),
 }
 # not processed part by part, see below: the ISPAT presences (alb / extralb) and the weather are not normalized and are
 # processed from the raw files; the OD co-visits are yearly indicators, computed on all the days of a year
@@ -102,6 +107,7 @@ PROCESS_ORDER = (
     "vodafone",
     "vodafone_provenienza",
     "vodafone_arrivi",
+    "vodafone_tempi",
     "presenze_alb",
     "presenze_extralb",
     "vodafone_covisits",
@@ -206,7 +212,7 @@ def process_update_std_data(
     logger.info("Time window of the update: %s", window)
 
     maps = load_mappings(mapping_dir)
-    if {"vodafone_provenienza", "vodafone_arrivi"} & set(
+    if {"vodafone_provenienza", "vodafone_arrivi", "vodafone_tempi"} & set(
         config.datasets
     ):  # areaId -> ID_COMUNE (as for the OD flows)
         maps = {
@@ -262,7 +268,7 @@ def process_update_std_data(
             std = read_df(normalized_dir, part.std_name, type_format)
             strutture = (
                 _processed_reference("strutture", done, out_dir, type_format)
-                if dataset in ("vodafone", "vodafone_arrivi")
+                if dataset in ("vodafone", "vodafone_arrivi", "vodafone_tempi")
                 else None
             )
             if dataset == "vodafone":
@@ -282,7 +288,8 @@ def process_update_std_data(
             processor = DATASET_PROCESSORS.get(dataset) or PROCESSORS[part.kind]
             frames.append(processor(std, maps, strutture, window, part.dataset))
         if frames:
-            done[dataset] = concat_keep_last(frames, name=dataset)
+            stack = concat_replace_groups if dataset in MULTI_ROW_DATASETS else concat_keep_last
+            done[dataset] = stack(frames, name=dataset)
 
     empty = sorted(d for d, df in done.items() if df.empty)
     if empty:

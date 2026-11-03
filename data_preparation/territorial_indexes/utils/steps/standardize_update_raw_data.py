@@ -63,6 +63,8 @@ DATASET_STANDARDIZERS = {
         df, geojson, value_name=ARRIVI_VALUE_COL
     ),
 }
+# arrivals x travel time: the same arrivals file, standardized in the same way
+DATASET_STANDARDIZERS["vodafone_tempi"] = DATASET_STANDARDIZERS["vodafone_arrivi"]
 # kinds used as downloaded (no normalization): ISPAT arrivals / presences, weather
 RAW_KINDS = {"presenze_raw", "meteo_raw"}
 assert set(STANDARDIZERS) | RAW_KINDS == set(KIND_DATASETS)
@@ -96,7 +98,7 @@ def standardize_update_raw_data(
     raw_dir, mapping_dir = Path(raw_dir), Path(mapping_dir)
 
     geojson = None
-    if {"vodafone", "vodafone_provenienza", "vodafone_arrivi"} & set(config.datasets):
+    if {"vodafone", "vodafone_provenienza", "vodafone_arrivi", "vodafone_tempi"} & set(config.datasets):
         from utils.readers import read_geojson
 
         geojson = read_geojson(mapping_dir / Path(REFERENCES["geojson"]).name)

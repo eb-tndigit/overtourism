@@ -176,3 +176,21 @@ def concat_keep_last(frames, name="dataset", key=("DATA", "ID_COMUNE")):
             n_before - len(merged),
         )
     return standard_ordering_cols(merged)
+
+
+def concat_replace_groups(frames, name="dataset"):
+    """concat_keep_last for data with several rows per DATA + ID_COMUNE (e.g. one per origin market): where a key is in
+    several frames, ALL its rows come from the LAST one (a row missing from it does not survive)."""
+    merged = pd.concat([f.assign(_FRAME=i) for i, f in enumerate(frames)], ignore_index=True)
+    merged["_ID_KEY"] = merged["ID_COMUNE"].map(make_hashable)
+    last = merged.groupby(["DATA", "_ID_KEY"], dropna=False)["_FRAME"].transform("max")
+    n_before = len(merged)
+    merged = (
+        merged[merged["_FRAME"] == last]
+        .sort_values(["DATA", "_ID_KEY"], kind="stable")
+        .drop(columns=["_FRAME", "_ID_KEY"])
+        .reset_index(drop=True)
+    )
+    if n_before != len(merged):
+        logger.info("[%s] %d rows of a DATA + ID_COMUNE replaced by the last version", name, n_before - len(merged))
+    return standard_ordering_cols(merged)

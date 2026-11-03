@@ -71,6 +71,10 @@ PHENOMENON_LABELS_IT: dict[str, str] = {
     "volume_mercato_1": "arrivi dal mercato principale",
     "volume_totale": "arrivi totali",
     "main_markets": "Mercati principali",
+    # Travel time of the tourists (phen_tempo_medio_turisti): daily arrivals, as counts (integers).
+    # No "quota" in the labels on purpose: index_utils rounds these columns to integers.
+    "tourist_arrivals": "arrivi turisti",
+    "arrivals_within": "arrivi da località entro tempo limite",
     # Consumption indicators (phen_consumption): daily electricity / gas consumption, services vs total
     "ee_services": "consumi elettrici servizi",
     "ee_total": "consumi elettrici totali",
@@ -336,6 +340,86 @@ class ProvenienzaVolumePhenomenon(FlowIndicatorPhenomenon):
             raw.loc[df.index, "volume_totale"] >= self.min_total
         )
         return df[keep]
+
+
+class TravelTimeArrivalsPhenomenon(Phenomenon):
+    """
+    Daily tourist arrivals per comune from ``phen_tempo_medio_turisti``.
+
+    The source has one row per (day, comune, provenienza) with ``arrivi`` (the arrivals from that origin) and
+    ``tempo_di_percorrenza`` (the minutes that each of those tourists takes to reach the comune: it is a value of the
+    origin, not an aggregate). Averages and shares of the travel time have to be weighted by the arrivals, and a
+    weighted mean over a window is a ratio of *sums*, so every measure here is a daily SUM per comune, to be divided
+    by the indicator's combinator:
+
+    ``arrivals``          arrivals of the day (the weights)
+    ``arrival_minutes``   arrivals * travel time (numerator of the weighted mean travel time)
+    ``arrivals_within``   arrivals coming from origins within ``max_minutes`` (0 for the other origins)
+
+    Only the rows with both ``arrivi`` > 0 and a travel time are used, by every measure: this way the numerators
+    and the denominator of an indicator always refer to the same tourists. ``arrivals_within`` keeps the comune-days
+    with only far origins (value 0), so that they get a share of 0 and not "no data".
+    """
+
+    temporal_resolution = "daily"
+    temporal_strategy = "identity"
+    spatial_resolution = "comune"
+    spatial_strategy = "identity"
+
+    MEASURES = ("arrivals", "arrival_minutes", "arrivals_within")
+    ARRIVALS_COLUMN = "arrivi"
+    MINUTES_COLUMN = "tempo_di_percorrenza"
+
+    def __init__(
+        self,
+        source,
+        name: str,
+        measure: str = "arrivals",
+        max_minutes: float | None = None,
+    ):
+        if measure not in self.MEASURES:
+            raise ValueError(
+                f"Unknown measure={measure!r}. Expected one of {list(self.MEASURES)}."
+            )
+        if (measure == "arrivals_within") != (max_minutes is not None):
+            raise ValueError(
+                "max_minutes is required by (and only by) measure='arrivals_within'"
+            )
+        super().__init__(
+            source, self.ARRIVALS_COLUMN, agg="sum", municipality_id_col="ID_COMUNE"
+        )
+        self.name = name
+        self.measure = measure
+        self.max_minutes = max_minutes
+
+    def _normalise_columns(self, raw: pd.DataFrame) -> pd.DataFrame:
+        needed = [
+            self.municipality_id_col,
+            self.date_col,
+            self.ARRIVALS_COLUMN,
+            self.MINUTES_COLUMN,
+        ]
+        missing = [c for c in needed if c not in raw.columns]
+        if missing:
+            raise KeyError(
+                f"{self.__class__.__name__}: columns {missing} not found. "
+                f"Available: {list(raw.columns)}"
+            )
+
+        arrivals = pd.to_numeric(raw[self.ARRIVALS_COLUMN], errors="coerce")
+        minutes = pd.to_numeric(raw[self.MINUTES_COLUMN], errors="coerce")
+        valid = arrivals.notna() & minutes.notna() & (arrivals > 0)
+
+        if self.measure == "arrivals":
+            value = arrivals
+        elif self.measure == "arrival_minutes":
+            value = arrivals * minutes
+        else:  # arrivals_within
+            value = arrivals.where(minutes <= self.max_minutes, 0.0)
+
+        df = raw.loc[valid, [self.municipality_id_col, self.date_col]].copy()
+        df[self.name] = value[valid]
+        return df
 
 
 class ElectricityTourismSharePhenomenon(Phenomenon):

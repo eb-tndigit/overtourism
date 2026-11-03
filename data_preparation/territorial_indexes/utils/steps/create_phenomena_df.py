@@ -30,7 +30,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from utils.cleaning import concat_keep_last
+from utils.cleaning import concat_keep_last, concat_replace_groups
 from utils.config import (
     BASE_WINDOW,
     DATA_START,
@@ -46,6 +46,7 @@ from utils.datasets import (
     DATASETS,
     DERIVED_PHENOMENA,
     EE_TOURISM_SHARE_VALUE_COLS,
+    MULTI_ROW_PHENOMENA,
     PHENOMENA,
     PROVENIENZA_VALUE_COLS,
     phenomena_to_recompute,
@@ -175,6 +176,8 @@ BUILDERS = {
     "phen_flussi_od": lambda pr: pr["vodafone_covisits"],
     # yearly concentration (normalized HHI) of the source markets + top source countries (arrivals), per comune
     "phen_provenienza": lambda pr: compute_provenienza(pr["vodafone_provenienza"], pr["vodafone_arrivi"]),
+    # pairs arrivals / travel time per year, comune and origin market: the backend computes the statistic on them
+    "phen_tempo_medio_turisti": lambda pr: pr["vodafone_tempi"],
     # daily temperature / heating degree days per comune (nearest Meteotrentino station)
     "phen_meteo": lambda pr: pr["meteo"],
 }
@@ -190,7 +193,8 @@ assert set(DERIVED_BUILDERS) == set(DERIVED_PHENOMENA)
 
 
 def append_to_existing(df_old, df_new, name):
-    """df_old + df_new on DATA + ID_COMUNE: where the key is in both, df_new is correct."""
+    """df_old + df_new on DATA + ID_COMUNE: where the key is in both, df_new is correct (for a phenomenon with several
+    rows per key, MULTI_ROW_PHENOMENA, df_new replaces all the rows of that key)."""
     df_new = df_new.copy()
     if df_new["DATA"].dtype != df_old["DATA"].dtype:  # e.g. year as int vs str
         df_new["DATA"] = df_new["DATA"].astype(df_old["DATA"].dtype)
@@ -201,7 +205,8 @@ def append_to_existing(df_old, df_new, name):
         )
     df_new = df_new[df_old.columns]
     n_old = len(df_old)
-    out = concat_keep_last([df_old, df_new], name=name)
+    stack = concat_replace_groups if name in MULTI_ROW_PHENOMENA else concat_keep_last
+    out = stack([df_old, df_new], name=name)
     logger.info(
         "[%s] %d existing rows + %d update rows -> %d rows (%d new keys)",
         name,

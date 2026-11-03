@@ -17,6 +17,7 @@ from overtourism.overtourism.backend_extension.api.models.trenitno_phenomena imp
     ProvenienzaVolumePhenomenon,
     RedistributionPhenomenon,
     SurfacePhenomenon,
+    TravelTimeArrivalsPhenomenon,
 )
 from overtourism.overtourism.backend_extension.api.utils.index_utils_trentino import (
     get_comuni_clusters,
@@ -38,6 +39,9 @@ FLOWS_OD_SOURCE = (
 PROVENIENZA_SOURCE = (
     index_data_path / "phen_provenienza.parquet"
 )  # yearly concentration (normalized HHI) of the source markets per comune
+TRAVEL_TIME_SOURCE = (
+    index_data_path / "phen_tempo_medio_turisti.parquet"
+)  # daily arrivals and travel time (minutes) of the tourists per comune and provenienza
 CONSUMPTION_SOURCE = (
     index_data_path / "phen_consumption.parquet"
 )  # daily electricity / gas consumption per comune (services and total)
@@ -66,6 +70,11 @@ SEASONALITY_CLUSTERS_FILE = (
 # Number of classes of the discretized PageRank map (quantiles, 1 = lowest ... N = highest)
 PAGERANK_N_CLASSES = 5
 MAIN_MARKET_MIN_ARRIVALS = 100
+# Travel time of the tourists: a tourist is a "proximity" one when the origin is within this many hours
+PROXIMITY_MAX_TRAVEL_TIME = 5
+# Step (minutes) of the optional rounding of the average travel time
+TRAVEL_TIME_ROUNDING_STEP_MINUTES = 30
+MINUTES_PER_HOUR = 60
 
 
 _VARIATION_RATE_KEY = "tasso-variazione"
@@ -126,9 +135,12 @@ _REGISTRY: dict[str, Callable[[], Indicator]] = {
     "quota-consumi-elettrici-attribuibili-turismo": lambda: (
         TourismElectricityShareIndicator(EE_TOURISM_SHARE_SOURCE)
     ),
-    "distanza-media-turisti": lambda: AverageTouristTravelTimeIndicator(),
-    "dipendenza-domanda-prossimita": lambda: ProximityDemandDependenceIndicator(),
-    "affollamento-turistico": lambda: TouristCrowdingIndicator(),
+    "distanza-media-turisti": lambda: AverageTouristTravelTimeIndicator(
+        TRAVEL_TIME_SOURCE
+    ),
+    "dipendenza-domanda-prossimita": lambda: ProximityDemandDependenceIndicator(
+        TRAVEL_TIME_SOURCE
+    ),
     "sostenibilita-territoriale": lambda: TerritorialSustainabilityIndicator(),
     _VARIATION_RATE_KEY: lambda: VariationRateIndicator(),
 }
@@ -318,6 +330,7 @@ class TouristAccommodationFacilitiesIndicator(_HospitalityFacilitiesShareIndicat
         "strutture_exalb",
     )
 
+
 class TouristPresenceGiniIndicator(Indicator):
     """
     Normalized Gini of the temporal distribution of daily tourist presences.
@@ -349,7 +362,9 @@ class TouristPresenceGiniIndicator(Indicator):
         "definito secondo il profilo mensile dei flussi Vodafone: annuale, sci, "
         "estate + spalle, estate alpina. "
     )
-    index_value_unit_description = "Indice di Gini normalizzato (0 = uniforme, 1 = concentrato)"
+    index_value_unit_description = (
+        "Indice di Gini normalizzato (0 = uniforme, 1 = concentrato)"
+    )
     availableForVariation = False
 
     def __init__(self, source_file, clusters_file):
@@ -378,21 +393,32 @@ class TouristPresenceGiniIndicator(Indicator):
         # the cluster does not depend on the window; a comune missing from the mapping has no cluster (null)
         clusters = get_comuni_clusters(self.clusters_file)
         comuni = result["ID_COMUNE"].astype(str)
-        result[self.CLUSTER_COLUMN] = comuni.map({c: v["cluster"] for c, v in clusters.items()})
-        result[self.CLUSTER_TYPE_COLUMN] = comuni.map({c: v["tipo_cluster"] for c, v in clusters.items()})
+        result[self.CLUSTER_COLUMN] = comuni.map(
+            {c: v["cluster"] for c, v in clusters.items()}
+        )
+        result[self.CLUSTER_TYPE_COLUMN] = comuni.map(
+            {c: v["tipo_cluster"] for c, v in clusters.items()}
+        )
         return result
 
     @staticmethod
     def _gini(values: np.ndarray) -> float:
         values = np.asarray(values, dtype=float)
         # Validity check: if less than 2 days are available, either negative values are present, or total sum is zero, NaN is returned
-        if (values.size < 2 or not np.isfinite(values).all() or (values < 0).any() or values.sum() <= 0):
+        if (
+            values.size < 2
+            or not np.isfinite(values).all()
+            or (values < 0).any()
+            or values.sum() <= 0
+        ):
             return np.nan
-        
-        values = np.sort(values) # It has to be computed on the ordered time series 
+
+        values = np.sort(values)  # It has to be computed on the ordered time series
         count = values.size
         weighted_sum = np.dot(2 * np.arange(1, count + 1) - count - 1, values)
-        return float(weighted_sum / (count * values.sum()) * count / (count - 1))  # Normalized (index between 0 and 1)
+        return float(
+            weighted_sum / (count * values.sum()) * count / (count - 1)
+        )  # Normalized (index between 0 and 1)
 
     def _compute_gini(
         self,
@@ -413,8 +439,12 @@ class TouristPresenceGiniIndicator(Indicator):
 
         source = self.phenomena[0]._panel
         if source is None:
-            raise RuntimeError("Tourist presences must be resolved before Gini calculation")
-        source = source[source["DATA"].between(start, end)][["ID_COMUNE", "DATA", self._PRESENCE_COLUMN]]
+            raise RuntimeError(
+                "Tourist presences must be resolved before Gini calculation"
+            )
+        source = source[source["DATA"].between(start, end)][
+            ["ID_COMUNE", "DATA", self._PRESENCE_COLUMN]
+        ]
         observed = filtered_data[self._PRESENCE_COLUMN].copy()
         observed["DATA"] = pd.to_datetime(observed["DATA"])
         source_by_comune = {
@@ -428,11 +458,21 @@ class TouristPresenceGiniIndicator(Indicator):
 
         gini_by_comune = {}
         for comune in df["ID_COMUNE"].astype(str):
-            if source_by_comune.get(comune, pd.Series(dtype=float)).reindex(data_range).notna().mean() < self._MIN_COVERAGE:
+            if (
+                source_by_comune.get(comune, pd.Series(dtype=float))
+                .reindex(data_range)
+                .notna()
+                .mean()
+                < self._MIN_COVERAGE
+            ):
                 gini_by_comune[comune] = self._LOW_COVERAGE_VALUE
                 continue
 
-            gini_by_comune[comune] = self._gini(observed_by_comune.get(comune, pd.Series(dtype=float)).dropna().to_numpy(dtype=float))
+            gini_by_comune[comune] = self._gini(
+                observed_by_comune.get(comune, pd.Series(dtype=float))
+                .dropna()
+                .to_numpy(dtype=float)
+            )
 
         return df["ID_COMUNE"].astype(str).map(gini_by_comune)
 
@@ -1219,41 +1259,141 @@ class _NotImplementedIndexIndicator(Indicator):
         )
 
 
-class AverageTouristTravelTimeIndicator(_NotImplementedIndexIndicator):
-    # #TODO Estimate travel time using tourist origin nationality at the available data granularity.
-    name = "Distanza media turisti *"
-    description = (
-        "Stima del tempo medio impiegato dai turisti per raggiungere la località, "
-        "basata sulla nazionalità di provenienza, data la granularità dei dati disponibili."
-    )
-    index_value_unit_description = "Tempo medio stimato di viaggio"
+def _parse_bool_flag(value, name: str) -> bool:
+    """Boolean extra field: it arrives as a query-string text (\"true\", \"1\", ...), or as a bool when called from code."""
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"true", "1", "yes", "y", "si", "sì", "on"}:
+        return True
+    if text in {"false", "0", "no", "n", "off", ""}:
+        return False
+    raise ValueError(f"Invalid value for {name!r}: {value!r}. Expected true or false.")
+
+
+class AverageTouristTravelTimeIndicator(Indicator):
+    """
+    Mean travel time (HOURS) of the tourists to reach the comune, weighted by the arrivals.
+
+    Source: ``phen_tempo_medio_turisti``, one row per (day, comune, provenienza): ``tempo_di_percorrenza`` is the time
+    that each tourist of that origin takes, so the comune value is sum(arrivi * tempo) / sum(arrivi) over the rows of
+    the window. Both sums are daily phenomena, so a window of many days is a ratio of sums (arrival-weighted), not a
+    mean of daily means, and the region value of the time series is weighted the same way.
+
+    The source is in minutes; INDICE is converted to hours (270 min -> 4.5).
+
+    Extra field ``arrotonda_30_minuti`` (default false): the final average is rounded to the nearest multiple of 30
+    minutes (half up), i.e. to 0.5 h steps, before the conversion to hours. The tourists' ``arrivals`` stay next to
+    INDICE.
+    """
+
     category = "Provenienza"
     order = 100
 
-
-class ProximityDemandDependenceIndicator(_NotImplementedIndexIndicator):
-    # #TODO Calculate the share of tourists originating within a two-hour travel distance.
-    name = "Indice di dipendenza dalla domanda di prossimità *"
+    name = "Distanza media turisti"
     description = (
-        "Misura la quota di turisti che proviene da destinazioni raggiungibili entro "
-        "due ore di distanza. La metodologia di stima della distanza è da definire."
+        "L'indice stima il <strong>tempo medio impiegato dai turisti per raggiungere la località</strong>. "
+        "Per ogni paese o area di provenienza il dato riporta il tempo di percorrenza dei turisti verso il comune: "
+        "i tempi sono combinati con una <strong>media pesata sugli arrivi</strong>, così le provenienze con più "
+        "arrivi contano di più. Se il periodo selezionato comprende più giorni, la media è pesata su tutti gli "
+        "arrivi del periodo. Il valore è espresso in <strong>ore</strong> (es. 4,5 = 4 ore e 30 minuti) e può essere "
+        "opzionalmente <strong>arrotondato a multipli di mezz'ora</strong>. "
+        "Sono considerati solo i turisti, e solo le provenienze con arrivi e tempo di percorrenza noti."
     )
-    index_value_unit_description = "Quota di turisti provenienti entro 2 ore (0-1)"
+    index_value_unit_description = "Ore (media pesata sugli arrivi)"
+    extraFields = ["arrotonda_30_minuti"]
+
+    ARRIVALS_COLUMN = "tourist_arrivals"
+    MINUTES_COLUMN = (
+        "arrival_minutes"  # sum of arrivals * minutes: helper, not returned
+    )
+
+    def __init__(self, source_file):
+        super().__init__(
+            phenomena=[
+                TravelTimeArrivalsPhenomenon(
+                    source_file, name=self.ARRIVALS_COLUMN, measure="arrivals"
+                ),
+                TravelTimeArrivalsPhenomenon(
+                    source_file, name=self.MINUTES_COLUMN, measure="arrival_minutes"
+                ),
+            ],
+            combinator=self._average_travel_time,
+        )
+
+    @staticmethod
+    def _round_to_step(minutes: pd.Series, step: float) -> pd.Series:
+        # half up (numpy's round goes to the even one: 45 -> 60 but 15 -> 0); missing values stay missing
+        return np.floor(minutes / step + 0.5) * step
+
+    def _average_travel_time(
+        self,
+        df: pd.DataFrame,
+        *,
+        arrotonda_30_minuti=None,
+        **_extra,
+    ) -> pd.Series:
+        average_minutes = df[self.MINUTES_COLUMN].div(
+            df[self.ARRIVALS_COLUMN].replace(0, np.nan)
+        )
+        if _parse_bool_flag(arrotonda_30_minuti, "arrotonda_30_minuti"):
+            average_minutes = self._round_to_step(
+                average_minutes, TRAVEL_TIME_ROUNDING_STEP_MINUTES
+            )
+        return average_minutes / MINUTES_PER_HOUR
+
+    def _compute_indicator(
+        self,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        **extra,
+    ) -> pd.DataFrame | None:
+        result = super()._compute_indicator(start_date, end_date, **extra)
+        if result is None:
+            return None
+        return result.drop(columns=[self.MINUTES_COLUMN])
+
+
+class ProximityDemandDependenceIndicator(Indicator):
+    """
+    Share (0-1) of the tourist arrivals that come from origins within ``PROXIMITY_MAX_TRAVEL_TIME``.
+
+    Same source as AverageTouristTravelTimeIndicator: arrivals of the origins whose travel time is <= the threshold
+    over all the arrivals, both summed over the window. A comune whose tourists all come from farther away has 0;
+    one without arrivals has no value (null). Both arrival counts stay next to INDICE.
+    """
+
     category = "Provenienza"
     order = 100
-    year_only = True
 
-
-class TouristCrowdingIndicator(_NotImplementedIndexIndicator):
-    # #TODO Define and normalize the component metrics and aggregation method.
-    name = "Affollamento turistico *"
+    name = "Indice di dipendenza dalla domanda di prossimità"
     description = (
-        "Indice composito che combina diverse metriche per offrire una panoramica "
-        "complessiva del livello di affollamento turistico di una località."
+        f"Misura la <strong>quota di turisti che proviene da destinazioni raggiungibili entro {PROXIMITY_MAX_TRAVEL_TIME} ore</strong> "
+        f"di viaggio: il rapporto fra gli arrivi dalle provenienze con tempo di percorrenza fino a {PROXIMITY_MAX_TRAVEL_TIME} ore "
+        "e gli arrivi totali. Valori alti indicano una forte dipendenza dalla domanda di prossimità. "
+        "Sono considerati solo i turisti, e solo le provenienze con arrivi e tempo di percorrenza noti."
     )
-    index_value_unit_description = "Indice composito (scala da definire)"
-    category = "Pressione turistica"
-    order = 10
+    index_value_unit_description = (
+        f"Quota di turisti provenienti entro {PROXIMITY_MAX_TRAVEL_TIME} ore (0-1)"
+    )
+
+    def __init__(self, source_file):
+        super().__init__(
+            phenomena=[
+                TravelTimeArrivalsPhenomenon(
+                    source_file,
+                    name="arrivals_within",
+                    measure="arrivals_within",
+                    max_minutes=PROXIMITY_MAX_TRAVEL_TIME * MINUTES_PER_HOUR,
+                ),
+                TravelTimeArrivalsPhenomenon(
+                    source_file, name="tourist_arrivals", measure="arrivals"
+                ),
+            ],
+            combinator=self.divide("arrivals_within", "tourist_arrivals"),
+        )
 
 
 class TerritorialSustainabilityIndicator(_NotImplementedIndexIndicator):
