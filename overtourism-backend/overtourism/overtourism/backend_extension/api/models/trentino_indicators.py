@@ -1712,52 +1712,30 @@ class TerritorialSustainabilityIndicator(Indicator):
 
     @staticmethod
     def _build_description() -> str:
-        total_pillars = sum(p.weight for p in SUSTAINABILITY_PILLARS)
-        parts = [
+        return (
             "L'indice di sostenibilità territoriale è un <strong>punteggio da 0 a 100</strong> "
-            "(100 = massima sostenibilità) che sintetizza la <strong>pressione del turismo</strong> su un comune "
-            "in un periodo, usando solo indicatori calcolabili per qualsiasi intervallo di giorni (sono esclusi gli "
-            "indicatori annuali). Si ispira ai <strong>criteri GSTC per le destinazioni (GSTC-D v2.0)</strong> e "
-            "alle <strong>aree tematiche degli osservatori INSTO di UN Tourism</strong>. \n"
-            "<strong>Come si calcola.</strong> Ogni componente è un indicatore già disponibile, trasformato in un "
-            "punteggio da 0 a 100 con una scala lineare fra un valore «sostenibile» (100) e un valore «critico» (0). "
-            "I punteggi sono mediati, con i pesi indicati, in due dimensioni, e le dimensioni sono mediate "
-            "nell'indice: ogni tema pesa un terzo. "
-        ]
-        for pillar in SUSTAINABILITY_PILLARS:
-            members = [c for c in SUSTAINABILITY_COMPONENTS if c.pillar == pillar.key]
-            members_total = sum(c.weight for c in members)
-            parts.append(
-                f"\n<strong>{pillar.label}</strong> (peso {pillar.weight / total_pillars:.0%}; "
-                f"{pillar.framework}): "
-            )
-            for c in members:
-                if c.best < c.worst:
-                    rule = (
-                        f"100 se ≤ {_it_number(c.best)}, 0 se ≥ {_it_number(c.worst)}"
-                    )
-                else:  # higher is better
-                    rule = (
-                        f"100 se ≥ {_it_number(c.best)}, 0 se ≤ {_it_number(c.worst)}"
-                    )
-                parts.append(
-                    f"\n• {c.label} (peso {c.weight / members_total:.0%} nella dimensione): "
-                    f"{rule} ({c.unit}). Rif.: {c.framework}. "
-                )
-        parts.append(
-            f"\n<strong>Dati mancanti.</strong> Un componente senza valore (ad esempio i consumi elettrici di un "
-            f"comune senza dati) è escluso e i pesi degli altri sono ricalcolati; se i componenti disponibili pesano meno del "
-            f"{SUSTAINABILITY_MIN_COVERAGE:.0%} del totale l'indice non è calcolato. Accanto all'indice sono riportati "
-            "i punteggi di ogni componente e dimensione, la quota di dati disponibili e il componente con il punteggio "
-            "più basso. \n"
-            "<strong>Limiti.</strong> Sono misurati solo tre temi (pressione sui residenti, energia, trasporti e "
-            "clima), uno per ciascuno: indicatori molto simili fra loro non sono sommati per non contare più volte lo "
-            "stesso fenomeno. Le sezioni GSTC sulla gestione (A) e sulla cultura (C), i benefici economici locali e "
-            "la pressione sugli spazi non sono valutati. GSTC e UN Tourism non definiscono soglie numeriche: i valori "
-            "di riferimento e i pesi sono scelte di prima impostazione, da validare con i portatori di interesse. "
-            "Il punteggio descrive la pressione del turismo e non è una valutazione di conformità GSTC."
+            "(100 = massima sostenibilità) che sintetizza la pressione del turismo sul territorio. "
+            "Si ispira ai criteri GSTC per le destinazioni e alle aree tematiche degli osservatori "
+            "INSTO di UN Tourism."
+            "<br><strong>Dimensioni e indicatori.</strong> L'indice considera due dimensioni, "
+            "rappresentate da tre indicatori:"
+            "<ul>"
+            "<li><strong>Impatto socio-economico:</strong> turisti per residente, per misurare "
+            "la pressione del turismo sulla popolazione locale.</li>"
+            "<li><strong>Impatto ambientale e uso delle risorse:</strong> impatto del turismo sui "
+            "consumi elettrici e tempo medio di viaggio dei turisti, per rappresentare rispettivamente "
+            "la pressione sui consumi energetici e la componente della mobilità turistica.</li>"
+            "</ul>"
+            "<strong>Calcolo.</strong> Ogni indicatore è convertito in un punteggio da 0 a 100 "
+            "sulla base di valori di riferimento sostenibili e critici. Le tre componenti hanno "
+            "lo stesso peso nell'indice finale."
+            "<br><strong>Dati mancanti.</strong> Gli indicatori non disponibili sono esclusi dal "
+            "calcolo e i pesi vengono ricalcolati. L'indice non è calcolato se la copertura dei dati "
+            "è inferiore al 50%."
+            "<br><strong>Limiti.</strong> L'indice considera la pressione sui residenti, i consumi "
+            "elettrici e la mobilità turistica. Non costituisce una valutazione complessiva della "
+            "sostenibilità del territorio né una verifica di conformità ai criteri GSTC."
         )
-        return "".join(parts)
 
     # ------------------------------------------------------------------
     # Scoring
