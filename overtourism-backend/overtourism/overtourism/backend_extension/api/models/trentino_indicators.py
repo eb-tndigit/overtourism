@@ -1386,23 +1386,17 @@ class ProximityDemandDependenceIndicator(Indicator):
 
 
 class TerritorialUnsustainabilityIndicator(Indicator):
+    category = "Pressione turistica"
+    order = 100
     """Daily equal-weighted, normalized macro-index of tourist pressure."""
 
-    name = "Macro-indice di pressione turistica"
+    name = "Macro-indice di sostenibilità territoriale"
     description = (
-        "Indice giornaliero relativo ai comuni del Trentino: carico antropico, densità "
-        "turistica, concentrazione dei mercati, quota dei consumi elettrici attribuibile "
-        "al turismo e squilibrio di ridistribuzione sono normalizzati tra 0 e 1 per "
-        "ciascun giorno e poi mediati con pesi uguali. Per lo squilibrio, i valori più "
-        "negativi (aree sovraccariche) indicano maggiore pressione. Gli indicatori "
-        "annuali sono mantenuti costanti nei giorni del rispettivo anno; i dati mancanti "
-        "sono esclusi dalla media. Il risultato è una misura relativa, non assoluta."
+    "Il macro-indice di sostenibilità territoriale misura la pressione turistica giornaliera" 
+    "nei comuni del Trentino, combinando cinque indici (carico antropico, densità turistica, concentrazione dei mercati," 
+    "consumi elettrici turistici e squilibrio di ridistribuzione) normalizzate tra 0 e 1."
     )
-    _years_range = {
-        "min_year": 2022,
-        "max_year": 2024,
-    }
-    index_value_unit_description = "Indice relativo giornaliero (0-1)"
+    index_value_unit_description = "Indice relativo giornaliero (normalizzato)"
     category = "Pressione turistica"
     order = 100
 
