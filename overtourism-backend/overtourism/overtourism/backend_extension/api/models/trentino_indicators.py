@@ -175,7 +175,14 @@ class AccommodationCapacityIndicator(Indicator):
     """Beds per resident: NUMLETTI_TOT / POPOLAZIONE."""
 
     name = "Indice di ricettività"
-    description = "L'indice di ricettività definisce il <strong>rapporto</strong> fra i <strong>letti presenti negli esercizi ricettivi</strong> e gli <strong>abitanti</strong> di una stessa area. L'indice è una misura della capacità turistica rispetto alla dimensione, in termini di popolazione, di un'area. L'indice è calcolato partendo dai dati ISPAT relativi alla popolazione residente e alla consistenza degli esercizi alberghieri e extra-alberghieri."
+    description = (
+        "L'indice di ricettività definisce il <strong>rapporto</strong> fra i <strong>letti presenti negli esercizi ricettivi</strong> e gli <strong>abitanti</strong> di una stessa area. "
+        "L'indice è una misura della capacità turistica rispetto alla dimensione, in termini di popolazione, di un'area. "
+        "<strong>Fonti dei dati</strong>: ISPAT (Istituto di statistica della Provincia autonoma di Trento) per la consistenza delle strutture ricettive "
+        "(posti letto totali = alberghieri + extra-alberghieri + alloggi turistici privati; gli alloggi a disposizione non sono inclusi nel totale, "
+        "che è ricalcolato dalle componenti) e per la popolazione residente al 1° gennaio dell'anno. "
+        "L'indice è annuale."
+    )
     index_value_unit_description = "Rapporto posti letto / popolazione"
 
     def __init__(self, source_file1, source_file2):
@@ -194,7 +201,13 @@ class TourismIndexIndicator(Indicator):
     """Total presences per resident."""
 
     name = "Indice di turisticità"
-    description = "L'indice di turisticità definisce il <strong>rapporto</strong> fra il <strong>numero medio giornaliero di turisti negli esercizi ricettivi</strong> di una specifica area e il<strong>numero di abitanti</strong> della stessa area. L'indice fornisce una misura dell'effettiva incidenza del turismo rispetto alla dimensione, in termini di popolazione, di un'area. L'indice è calcolato partendo dai dati Vodafone per quanto riguarda le presenze turistiche e dai dati ISPAT relativi alla popolazione residente."
+    description = (
+        "L'indice di turisticità definisce il <strong>rapporto</strong> fra il <strong>numero medio giornaliero di turisti</strong> di una specifica area e il <strong>numero di abitanti</strong> della stessa area. "
+        "L'indice fornisce una misura dell'effettiva incidenza del turismo rispetto alla dimensione, in termini di popolazione, di un'area. "
+        "<strong>Fonti dei dati</strong>: Vodafone (analisi dei dati della rete di telefonia mobile) per le presenze giornaliere di turisti, cioè le persone che pernottano; "
+        "ISPAT per la popolazione residente al 1° gennaio. "
+        "Le presenze Vodafone, fornite per aree che possono comprendere più comuni, sono attribuite ai comuni in proporzione ai posti letto (fonte ISPAT) dell'anno."
+    )
     index_value_unit_description = "Rapporto fra numero turisti e popolazione"
 
     def __init__(self, source_file1, source_file2, presences_col_name):
@@ -213,7 +226,14 @@ class TouristDensityIndicator(Indicator):
     """Vodafone tourists + visitors presences per km² of the comune's surface."""
 
     name = "Indice di densità turistica"
-    description = "L'indice di densità turistica definisce il <strong>rapporto</strong> fra il <strong>numero medio giornaliero di turisti ed escursionisti</strong> presenti in un comune e la sua <strong>superficie</strong> in km². L'indice fornisce una misura della pressione turistica sul territorio. L'indice è calcolato partendo dai dati Vodafone per quanto riguarda le presenze di turisti ed escursionisti e dai confini amministrativi ISTAT per la superficie dei comuni."
+    description = (
+        "L'indice di densità turistica definisce il <strong>rapporto</strong> fra il <strong>numero medio giornaliero di turisti ed escursionisti</strong> presenti in un comune e la sua <strong>superficie</strong> in km². "
+        "L'indice fornisce una misura della pressione turistica sul territorio. "
+        "<strong>Fonti dei dati</strong>: Vodafone (dati della rete di telefonia mobile) per le presenze giornaliere di turisti (persone che pernottano) ed escursionisti (visitatori giornalieri); "
+        "confini amministrativi ISTAT per la superficie dei comuni. "
+        "Per le aree Vodafone che comprendono più comuni, i turisti sono attribuiti ai comuni in proporzione ai posti letto (ISPAT) e gli escursionisti in proporzione alla popolazione residente. "
+        "Se manca uno dei due profili è considerato pari a zero; se mancano entrambi il comune non ha valore."
+    )
     index_value_unit_description = "Presenze turistiche per km²"
 
     def __init__(self, presences_source, surface_source):
@@ -252,7 +272,13 @@ class AnthropogenicDensityIndicator(Indicator):
     """Inhabitants and Vodafone tourist presences per km² of comune area."""
 
     name = "Indice di densità antropica"
-    description = "L'indice di densità antropica misura il rapporto fra la popolazione residente e il numero medio giornaliero di turisti ed escursionisti rilevati da Vodafone, rispetto alla superficie del comune in km²."
+    description = (
+        "L'indice di densità antropica misura il rapporto fra la <strong>somma di popolazione residente e numero medio giornaliero di turisti ed escursionisti</strong> "
+        "rilevati da Vodafone e la <strong>superficie</strong> del comune in km². Misura quindi quante persone, residenti e presenti, insistono su ogni km² di territorio. "
+        "<strong>Fonti dei dati</strong>: ISPAT per la popolazione residente al 1° gennaio; Vodafone (dati della rete di telefonia mobile) per le presenze di turisti ed escursionisti; "
+        "confini amministrativi ISTAT per la superficie. "
+        "Per le aree Vodafone con più comuni, i turisti sono attribuiti in proporzione ai posti letto (ISPAT) e gli escursionisti alla popolazione residente."
+    )
     index_value_unit_description = "Abitanti e presenze turistiche per km²"
 
     def __init__(self, presences_source, population_source, surface_source):
@@ -331,7 +357,10 @@ class TouristAccommodationFacilitiesIndicator(_HospitalityFacilitiesShareIndicat
     description = (
         "Misura la quota delle <strong>strutture degli alloggi turistici</strong> "
         "sul totale composto da alloggi turistici, strutture alberghiere ed "
-        "extra-alberghiere."
+        "extra-alberghiere (numero di strutture, non di posti letto). Valori alti indicano un'offerta ricettiva "
+        "orientata agli alloggi turistici privati rispetto alle strutture tradizionali. "
+        "<strong>Fonte dei dati</strong>: ISPAT, statistiche sulla consistenza delle strutture ricettive (annuario del turismo). "
+        "L'indice è annuale; le aree senza strutture non hanno valore."
     )
     numerator_column = "strutture_alloggi_turistici"
     component_columns = (
@@ -366,11 +395,16 @@ class TouristPresenceGiniIndicator(Indicator):
     column_aggs = {CLUSTER_COLUMN: "mode", CLUSTER_TYPE_COLUMN: "mode"}
 
     description = (
-        "L'indice di Gini quantifica la concentrazione temporale delle presenze turistiche giornaliere nel periodo selezionato."
+        "L'indice di Gini quantifica la <strong>concentrazione temporale delle presenze turistiche giornaliere</strong> nel periodo selezionato. "
         "Il valore 0 indica una distribuzione uniforme, il valore 1 la concentrazione in un unico giorno. \n"
-        "Per ogni comune è indicato anche il <strong>cluster stagionale</strong> (codice e tipologia), ottenuto "
-        "definito secondo il profilo mensile dei flussi Vodafone: annuale, sci, "
-        "estate + spalle, estate alpina. "
+        "<strong>Fonte dei dati</strong>: presenze giornaliere di turisti (persone che pernottano) rilevate da Vodafone con i dati della rete di telefonia mobile. "
+        "L'indice è calcolato sulla serie giornaliera dei comuni, ordinata, ed è normalizzato tra 0 e 1. "
+        "Il comune non ha valore se i giorni con dato coprono meno dell'80% del periodo o se i giorni disponibili sono meno di due. "
+        "Per le aree Vodafone con più comuni, le presenze sono attribuite ai comuni in proporzione ai posti letto (ISPAT). "
+        "Per macro aree e province il valore è la media degli indici dei comuni. \n"
+        "Per ogni comune è indicato anche il <strong>cluster stagionale</strong> (codice e tipologia): "
+        "annuale, sci, estate + spalle, estate alpina. Il cluster è calcolato una sola volta sul profilo mensile dei flussi Vodafone "
+        "dell'intero periodo disponibile, quindi non dipende dal periodo selezionato."
     )
     index_value_unit_description = (
         "Indice di Gini normalizzato (0 = uniforme, 1 = concentrato)"
@@ -496,7 +530,11 @@ class AvailableAccommodationFacilitiesIndicator(_HospitalityFacilitiesShareIndic
     description = (
         "Misura la quota delle <strong>strutture degli alloggi a disposizione</strong> "
         "sul totale composto da alloggi turistici, alloggi a disposizione, "
-        "strutture alberghiere ed extra-alberghiere."
+        "strutture alberghiere ed extra-alberghiere (numero di strutture, non di posti letto). "
+        "Gli alloggi a disposizione (ad esempio le seconde case) non fanno parte dell'offerta ricettiva ufficiale: "
+        "valori alti indicano un territorio con una forte presenza di abitazioni non stabilmente occupate. "
+        "<strong>Fonte dei dati</strong>: ISPAT, statistiche sulla consistenza delle strutture ricettive (annuario del turismo). "
+        "L'indice è annuale; le aree senza strutture non hanno valore."
     )
     numerator_column = "strutture_alloggi_disp"
     component_columns = (
@@ -521,7 +559,10 @@ class TouristAccommodationBedsIndicator(_HospitalityBedsShareIndicator):
     description = (
         "Misura la quota dei <strong>posti letto degli alloggi turistici</strong> "
         "sul totale composto da alloggi turistici, strutture alberghiere ed "
-        "extra-alberghiere."
+        "extra-alberghiere (posti letto, non numero di strutture). Valori alti indicano una capacità ricettiva "
+        "concentrata negli alloggi turistici privati rispetto alle strutture tradizionali. "
+        "<strong>Fonte dei dati</strong>: ISPAT, statistiche sulla consistenza delle strutture ricettive (annuario del turismo). "
+        "L'indice è annuale; le aree senza posti letto non hanno valore."
     )
     numerator_column = "letti_alloggi_turistici"
     component_columns = (
@@ -540,7 +581,11 @@ class AvailableAccommodationBedsIndicator(_HospitalityBedsShareIndicator):
     description = (
         "Misura la quota dei <strong>posti letto degli alloggi a disposizione</strong> "
         "sul totale composto da alloggi turistici, alloggi a disposizione, "
-        "strutture alberghiere ed extra-alberghiere."
+        "strutture alberghiere ed extra-alberghiere (posti letto, non numero di strutture). "
+        "Gli alloggi a disposizione (ad esempio le seconde case) non fanno parte dell'offerta ricettiva ufficiale: "
+        "valori alti indicano un territorio con molti posti letto in abitazioni non stabilmente occupate. "
+        "<strong>Fonte dei dati</strong>: ISPAT, statistiche sulla consistenza delle strutture ricettive (annuario del turismo). "
+        "L'indice è annuale; le aree senza posti letto non hanno valore."
     )
     numerator_column = "letti_alloggi_disp"
     component_columns = (
@@ -557,7 +602,13 @@ class HiddenTourismIndicator(Indicator):
     """Calculates the hidden tourism indicator as the ratio between Vodafone registered attendences and accomodancy ones"""
 
     name = "Turismo non intercettato"
-    description = "L'indice misura il <strong>rapporto</strong> fra le <strong>presenze di turisti misurate</strong> attraverso l'analisi di dati da rete di telefonia mobile e le <strong>presenze ufficiali</strong> di turisti in strutture alberghiere e extra-alberghiere. L'indice è stato calcolato partendo dai dati ISPAT sul movimento turistico e dai dati Vodafone relativi alle presenze misurate."
+    description = (
+        "L'indice misura il <strong>rapporto</strong> fra le <strong>presenze di turisti misurate</strong> attraverso l'analisi di dati da rete di telefonia mobile e le <strong>presenze ufficiali</strong> di turisti in strutture alberghiere e extra-alberghiere. "
+        "Valori superiori a 1 indicano la presenza di turismo non registrato dalle statistiche ufficiali (ad esempio seconde case, alloggi privati, ospiti di amici e parenti). "
+        "<strong>Fonti dei dati</strong>: Vodafone per le presenze di turisti misurate; ISPAT per le presenze ufficiali (movimento turistico) di alberghi ed extra-alberghieri. "
+        "Le presenze ISPAT sono mensili: sono distribuite sui giorni con un modello basato sulla durata media del soggiorno e poi attribuite ai comuni in proporzione ai posti letto "
+        "del tipo di struttura. Dove le presenze ufficiali sono nulle, l'indice coincide con le presenze Vodafone."
+    )
     index_value_unit_description = "Rapporto fra presenze misurate e ufficiali"
 
     def __init__(self, source_file):
@@ -602,9 +653,13 @@ class AnthropogenicLoadIndicator(Indicator):
 
     name = "Carico Antropico"
     description = (
-        "L'indice misura il rapporto fra le presenze complessive rilevate "
+        "L'indice misura il <strong>rapporto fra le presenze complessive</strong> rilevate "
         "attraverso i dati Vodafone, comprendenti turisti ed escursionisti, "
-        "e la popolazione residente."
+        "e la <strong>popolazione residente</strong>. Indica quante persone presenti in media ogni giorno, oltre ai residenti, "
+        "gravano su ogni abitante. "
+        "<strong>Fonti dei dati</strong>: Vodafone (dati della rete di telefonia mobile) per le presenze giornaliere di turisti ed escursionisti; "
+        "ISPAT per la popolazione residente al 1° gennaio. "
+        "Per le aree Vodafone con più comuni, i turisti sono attribuiti in proporzione ai posti letto (ISPAT) e gli escursionisti alla popolazione residente."
     )
     index_value_unit_description = (
         "Rapporto fra presenze Vodafone complessive e popolazione residente"
@@ -657,8 +712,12 @@ _FLOW_PROFILE_SUFFIXES = ("combined", "tourist", "visitor")
 _FLOW_COMMON_DESCRIPTION = (
     " Turisti ed escursionisti sono <strong>aggregati con un peso per ciascun profilo</strong>, "
     "stimato dai dati (una giornata-utente di escursionista non pesa come una di turista); "
-    "i valori per singolo profilo sono riportati a fianco. "
-    "L'indice è annuale e si basa sui dati Vodafone di co-visitazione fra aree."
+    "i valori per singolo profilo sono riportati a fianco (turisti peso 1, escursionisti peso 0,5: coefficienti scelti, non stimati). "
+    "<strong>Fonte dei dati</strong>: dati Vodafone di co-visitazione fra aree (flussi origine-destinazione di utenti della rete di telefonia mobile "
+    "presenti in due aree nello stesso periodo), considerando solo le righe di totale, che Vodafone fornisce al netto delle soglie di privacy (conteggi inferiori a circa 15 utenti sono azzerati). "
+    "L'indice è annuale e calcolato sulle giornate-utente dell'anno per ciascuna area Vodafone; "
+    "le aree che comprendono più comuni passano il proprio valore a tutti i loro comuni. "
+    "Le aree con meno di 100 giornate-utente annue di presenza sono lasciate senza valore, dove indicato."
 )
 
 
@@ -694,7 +753,8 @@ class InboundMobilityShareIndicator(_FlowIndicator):
         "La quota di mobilità in ingresso misura la <strong>quota degli utenti presenti in un'area che "
         "arrivano da un'altra area</strong> (rapporto fra gli utenti in arrivo da altre aree e gli utenti "
         "presenti). Valori alti indicano località di tappa, raggiunte durante uno spostamento; valori bassi "
-        "indicano località di destinazione o di pernottamento stabile."
+        "indicano località di destinazione o di pernottamento stabile. Il valore può superare 1 perché un utente può essere contato in più aree; "
+        "è lasciato vuoto per le aree con meno di 100 giornate-utente annue di presenza."
         + _FLOW_COMMON_DESCRIPTION
     )
     index_value_unit_description = (
@@ -712,7 +772,9 @@ class OutboundMobilityShareIndicator(_FlowIndicator):
     description = (
         "La quota di mobilità in uscita misura la <strong>quota degli utenti presenti in un'area che "
         "proseguono verso un'altra area</strong> (rapporto fra gli utenti diretti verso altre aree e gli "
-        "utenti presenti). Valori alti indicano località da cui i visitatori ripartono per visitare altre aree."
+        "utenti presenti). Valori alti indicano località da cui i visitatori ripartono per visitare altre aree. "
+        "Il valore può superare 1 perché un utente può essere contato in più aree; "
+        "è lasciato vuoto per le aree con meno di 100 giornate-utente annue di presenza."
         + _FLOW_COMMON_DESCRIPTION
     )
     index_value_unit_description = (
@@ -730,7 +792,9 @@ class IntraAmbitoShareIndicator(_FlowIndicator):
     description = (
         "La quota intra-ambito misura la <strong>quota dei flussi di un'area (in ingresso e in uscita) "
         "scambiati con aree dello stesso ambito turistico</strong>; il resto è mobilità inter-ambito. "
-        "Valori alti indicano un'area i cui flussi restano all'interno del proprio ambito."
+        "Valori alti indicano un'area i cui flussi restano all'interno del proprio ambito. "
+        "Per i comuni con più aree Vodafone il valore è la media pesata sui flussi intra-ambito; "
+        "è vuoto per le aree senza flussi verso altre aree o con ambito sconosciuto."
         + _FLOW_COMMON_DESCRIPTION
     )
     index_value_unit_description = "Quota dei flussi con aree dello stesso ambito"
@@ -755,7 +819,9 @@ class DiscretizedPageRankIndicator(_FlowIndicator):
         "Questo indice misura la <strong>centralità di un'area nella rete dei flussi</strong> fra aree: è alto "
         "per le tappe che ricevono flusso da aree a loro volta rilevanti. Per la lettura su mappa il valore è "
         "<strong>discretizzato in classi di quantili</strong> (1 = centralità più bassa, "
-        "{n} = più alta; 0 = dato non disponibile): le classi indicano la posizione relativa fra i comuni."
+        "{n} = più alta; 0 = dato non disponibile): le classi indicano la posizione relativa fra i comuni. "
+        "Il PageRank (fattore di smorzamento 0,85) è calcolato sulla rete orientata dei flussi pesati fra aree Vodafone; "
+        "hanno valore solo le aree che fanno parte della rete, cioè con almeno un flusso in entrata o in uscita."
         + _FLOW_COMMON_DESCRIPTION
     )
     index_value_unit_description = "Classe di PageRank (quantili: 1 = più basso)"
@@ -837,7 +903,14 @@ class RedistributionBalanceIndicator(Indicator):
         "la parte che non trova posto entro il raggio resta «non assorbibile». "
         "Non è un costo in euro. Il tetto è una stima incerta (intervallo al 90%: ×1,5 per i turisti, ×1,9 per gli "
         "escursionisti) e «bilanciato = stessa saturazione» è una scelta normativa. Per le aree Vodafone che "
-        "comprendono più comuni il valore è quello dell'area."
+        "comprendono più comuni il valore è quello dell'area. "
+        "<strong>Fonti dei dati</strong>: Vodafone (presenze giornaliere di turisti ed escursionisti e co-visitazioni fra aree, usate per stimare "
+        "il decadimento con la distanza e l'affinità fra aree); ISPAT (posti letto e popolazione residente); ISTAT (confini e superficie dei comuni, "
+        "tipologia turistica dei comuni). Il tetto di carico è stimato con una regressione quantile (quantile 0,9) sui picchi annuali di "
+        "carico delle aree comparabili, in funzione di posti letto, residenti, seconde case o superficie e profilo stagionale. "
+        "Nella versione combinata gli escursionisti pesano 0,5 rispetto ai turisti. "
+        "Il calcolo è eseguito una volta nella preparazione dei dati; le colonne affiancate indicano le persone al giorno da attrarre (+) o da "
+        "spostare (−), gli spostamenti netti e l'eccesso non assorbibile entro il raggio."
     )
     index_value_unit_description = (
         "Punti di saturazione (positivo = sotto-rappresentato, negativo = sovraccarico)"
@@ -1020,8 +1093,12 @@ class SourceMarketsConcentrationIndicator(Indicator):
         "calcolato sulle quote di presenze per paese di provenienza (l'Italia è un mercato): vale 0 quando le "
         "presenze sono distribuite in modo uniforme fra molti mercati e 1 quando provengono da un solo mercato. "
         "Valori alti indicano una forte dipendenza da pochi mercati. L'indice è annuale, riguarda solo i turisti "
-        "ed è calcolato sui dati Vodafone; è lasciato vuoto per le aree con presenze troppo basse. "
-        "I conteggi molto piccoli non sono forniti da Vodafone: l'indice descrive i mercati osservati."
+        "ed è calcolato sui dati Vodafone; è lasciato vuoto per le aree con presenze troppo basse (meno di 100 giornate-utente annue). "
+        "<strong>Fonte dei dati</strong>: presenze giornaliere di turisti per paese di provenienza rilevate da Vodafone con i dati della rete di telefonia mobile, "
+        "sommate sull'anno per area. L'indice non è additivo, quindi non viene ripartito: le aree che comprendono più comuni passano il proprio valore a tutti i loro comuni, "
+        "mentre un comune con più aree ha la media pesata sulle giornate-utente. "
+        "Le presenze contano ogni giorno di soggiorno, quindi i mercati con soggiorni lunghi pesano di più. "
+        "I conteggi molto piccoli (sotto circa 15 utenti) non sono forniti da Vodafone: l'indice descrive i mercati osservati."
     )
     index_value_unit_description = (
         "Indice HHI normalizzato (0 = mercati diversificati, 1 = un solo mercato)"
@@ -1055,7 +1132,11 @@ class MainMarketDependenceIndicator(Indicator):
         + MAIN_MARKET_MARKETS_DESCRIPTION
         + ". Sono contati gli <strong>arrivi</strong> e non le presenze, così un soggiorno lungo non pesa più "
         "di uno breve. L'indice è annuale, riguarda solo i turisti ed è calcolato sui dati Vodafone; è lasciato vuoto "
-        "per i comuni con arrivi troppo bassi. I conteggi molto piccoli non sono forniti da Vodafone: l'indice descrive "
+        "per i comuni con arrivi troppo bassi (meno di 100 arrivi annui). "
+        "<strong>Fonte dei dati</strong>: arrivi giornalieri di turisti per paese di provenienza rilevati da Vodafone con i dati della rete di telefonia mobile, "
+        "sommati sull'anno; per le aree Vodafone che comprendono più comuni gli arrivi sono attribuiti ai comuni in proporzione ai posti letto (ISPAT). "
+        "Il mercato principale è calcolato sull'insieme dei paesi di provenienza (l'Italia è un mercato) e sono riportati i principali mercati di ciascun comune. "
+        "I conteggi molto piccoli (sotto circa 15 utenti) non sono forniti da Vodafone: l'indice descrive "
         "i mercati osservati."
     )
     index_value_unit_description = (
@@ -1172,7 +1253,10 @@ class TourismElectricityConsumptionImpactIndicator(_ConsumptionImpactIndicator):
         "<strong>consumi elettrici del settore servizi</strong> e i <strong>consumi elettrici totali</strong> "
         "dell'area. Valori alti indicano un'area in cui i consumi sono dominati dalle attività legate ai servizi "
         "e quindi al turismo. I comuni senza consumi totali non hanno valore; se mancano solo i consumi del settore servizi "
-        "sono considerati pari a zero."
+        "sono considerati pari a zero. "
+        "<strong>Fonte dei dati</strong>: prelievi mensili di energia elettrica per comune (kWh), per il settore servizi (categorie ATECO legate al turismo: "
+        "49.3, 55.1, 56.1, 93.1, 96) e per il totale di tutti gli usi. I consumi mensili sono distribuiti uniformemente sui giorni del mese; "
+        "l'indice è il rapporto fra le medie del periodo selezionato. È una misura indiretta: i consumi dei servizi non sono solo turistici."
     )
     services_column = "ee_services"
     total_column = "ee_total"
@@ -1188,8 +1272,11 @@ class TourismGasConsumptionImpactIndicator(_ConsumptionImpactIndicator):
         "L'indice misura l'impatto del turismo sui consumi di gas come <strong>rapporto</strong> fra i "
         "<strong>consumi di gas del settore servizi</strong> e i <strong>consumi di gas totali</strong> "
         "dell'area. Valori alti indicano un'area in cui i consumi sono dominati dalle attività legate ai servizi "
-        "e quindi al turismo. I comuni senza consumi totali non hanno valore; se mancano solo i consumi del settore servizi "
-        "sono considerati pari a zero."
+        "e quindi al turismo. I comuni senza consumi totali non hanno valore (ad esempio i comuni privi di rete del gas); se mancano solo i consumi del settore servizi "
+        "sono considerati pari a zero. "
+        "<strong>Fonte dei dati</strong>: prelievi mensili di gas per comune (Smc), per il settore servizi (categorie ATECO legate al turismo: "
+        "49.3, 55.1, 56.1, 93.1, 96) e per il totale di tutti gli usi. I consumi mensili sono distribuiti uniformemente sui giorni del mese; "
+        "l'indice è il rapporto fra le medie del periodo selezionato. È una misura indiretta: i consumi dei servizi non sono solo turistici."
     )
     services_column = "gas_services"
     total_column = "gas_total"
@@ -1220,7 +1307,13 @@ class TourismElectricityShareIndicator(Indicator):
         "in qualche mese non hanno valore. L'indice è un'associazione statistica, non una misura diretta: il campo "
         "<em>affidabilità</em> (alta, media, bassa) indica quanto i dati del solo comune sostengono un effetto "
         "positivo delle presenze; per i comuni vicini, che condividono le presenze di una stessa area Vodafone, le stime non "
-        "sono indipendenti. I consumi sono mensili e distribuiti uniformemente sui giorni."
+        "sono indipendenti. I consumi sono mensili e distribuiti uniformemente sui giorni. "
+        "<strong>Fonti dei dati</strong>: prelievi mensili di energia elettrica del settore servizi (categorie ATECO legate al turismo); "
+        "presenze giornaliere di turisti Vodafone (i turisti sono il regressore; gli escursionisti hanno peso zero); "
+        "temperature giornaliere della stazione Meteotrentino più vicina a ciascun comune, da cui sono ricavati i gradi giorno di riscaldamento (base 18 °C). "
+        "La stima usa i dati dell'anno e la pendenza è attratta verso quella provinciale dello stesso anno (pooling parziale). "
+        "Affidabilità: «alta» se il limite inferiore dell'intervallo al 95% dell'effetto è positivo, «media» se lo è solo quello all'80%, «bassa» altrimenti "
+        "(la quota è allora determinata soprattutto dalla stima provinciale); una quota pari o superiore a 0,9 è sempre «bassa»."
     )
     index_value_unit_description = (
         "Quota dei consumi elettrici attribuibile al turismo (0-1)"
@@ -1289,7 +1382,13 @@ class AverageTouristTravelTimeIndicator(Indicator):
         "arrivi contano di più. Se il periodo selezionato comprende più giorni, la media è pesata su tutti gli "
         "arrivi del periodo. Il valore è espresso in <strong>ore</strong> (es. 4,5 = 4 ore e 30 minuti) e può essere "
         "opzionalmente <strong>arrotondato a multipli di mezz'ora</strong>. "
-        "Sono considerati solo i turisti, e solo le provenienze con arrivi e tempo di percorrenza noti."
+        "Sono considerati solo i turisti, e solo le provenienze con arrivi e tempo di percorrenza noti. "
+        "<strong>Fonti dei dati</strong>: arrivi giornalieri di turisti per paese di provenienza rilevati da Vodafone con i dati della rete di telefonia mobile "
+        "(attribuiti ai comuni in proporzione ai posti letto ISPAT per le aree con più comuni); matrice dei tempi di percorrenza verso i comuni trentini, "
+        "calcolata con OpenStreetMap/OSRM (percorso in auto più veloce, senza traffico, verso il capoluogo di ciascun comune). "
+        "È una <strong>stima</strong> e non un viaggio misurato: ogni arrivo italiano è rappresentato da un'unica città di riferimento, ogni arrivo estero dalla capitale del paese "
+        "(in auto se a meno di 1000 km da Trento, altrimenti volo fino all'aeroporto di Bergamo e poi auto; il tempo di volo è stimato dalla distanza a velocità costante, "
+        "senza attese aeroportuali). Gli arrivi senza paese di origine non sono considerati."
     )
     index_value_unit_description = "Ore (media pesata sugli arrivi)"
     extraFields = ["arrotonda_30_minuti"]
@@ -1362,7 +1461,11 @@ class ProximityDemandDependenceIndicator(Indicator):
         f"Misura la <strong>quota di turisti che proviene da destinazioni raggiungibili entro {PROXIMITY_MAX_TRAVEL_TIME} ore</strong> "
         f"di viaggio: il rapporto fra gli arrivi dalle provenienze con tempo di percorrenza fino a {PROXIMITY_MAX_TRAVEL_TIME} ore "
         "e gli arrivi totali. Valori alti indicano una forte dipendenza dalla domanda di prossimità. "
-        "Sono considerati solo i turisti, e solo le provenienze con arrivi e tempo di percorrenza noti."
+        "Sono considerati solo i turisti, e solo le provenienze con arrivi e tempo di percorrenza noti. "
+        "<strong>Fonti dei dati</strong>: arrivi giornalieri di turisti per paese di provenienza rilevati da Vodafone con i dati della rete di telefonia mobile; "
+        "tempi di percorrenza stimati con OpenStreetMap/OSRM dalla città di riferimento (Italia) o dalla capitale del paese (estero), "
+        "in auto o, oltre 1000 km, in aereo fino a Bergamo più auto. La quota è calcolata sugli arrivi dell'intero periodo selezionato; "
+        "i comuni senza arrivi non hanno valore."
     )
     index_value_unit_description = (
         f"Quota di turisti provenienti entro {PROXIMITY_MAX_TRAVEL_TIME} ore (0-1)"
@@ -1392,9 +1495,10 @@ class TerritorialUnsustainabilityIndicator(Indicator):
 
     name = "Macro-indice di sostenibilità territoriale"
     description = (
-    "Il macro-indice di sostenibilità territoriale misura la pressione turistica giornaliera" 
+    "Il macro-indice di sostenibilità territoriale misura la <strong>pressione turistica</strong> giornaliera" 
     "nei comuni del Trentino, combinando cinque indici (carico antropico, densità turistica, concentrazione dei mercati," 
-    "consumi elettrici turistici e squilibrio di ridistribuzione) normalizzate tra 0 e 1."
+    "consumi elettrici turistici e squilibrio di ridistribuzione). L'indicatore e' normalizzato tra 0 e 1 e integra diverse metriche "
+    "per fornire una valutazione sintetica della sostenibilità territoriale in relazione al turismo. "
     )
     index_value_unit_description = "Indice relativo giornaliero (normalizzato)"
     category = "Pressione turistica"
@@ -1513,7 +1617,7 @@ class VariationRateIndicator(Indicator):
     """
 
     name = "Tasso di variazione"
-    description = "Il tasso di variazione misura la <strong>variazione percentuale</strong> di un indicatore fra il <strong>periodo selezionato</strong> ed un <strong>periodo storicizzato di confronto</strong>. È utile per confrontare due intervalli temporali (es. due stagioni, due anni) sullo stesso indice."
+    description = "Il tasso di variazione misura la <strong>variazione percentuale</strong> di un indicatore fra il <strong>periodo selezionato</strong> ed un <strong>periodo storicizzato di confronto</strong>. È utile per confrontare due intervalli temporali (es. due stagioni, due anni) sullo stesso indice. Il valore è (periodo selezionato − periodo di confronto) / periodo di confronto × 100; non ha valore dove l'indice del periodo di confronto è zero o mancante. Le fonti dei dati sono quelle dell'indicatore confrontato."
     availableForVariation = False
     extraFields = ["indicator", "start_date_comparison", "end_date_comparison"]
     internal_only = True
