@@ -75,6 +75,14 @@ PROXIMITY_MAX_TRAVEL_TIME = 5
 # Step (minutes) of the optional rounding of the average travel time
 TRAVEL_TIME_ROUNDING_STEP_MINUTES = 30
 MINUTES_PER_HOUR = 60
+# Macro-indicator: change _years_range based on indicators subset
+MACRO_PRESSURE_COMPONENTS = (
+    "carico-antropico",
+    "densita-turistica",
+    "concentrazione-mercati-provenienza",
+    "quota-consumi-elettrici-attribuibili-turismo",  # 2022 - 2024
+    "squilibrio-ridistribuzione",
+)
 
 
 _VARIATION_RATE_KEY = "tasso-variazione"
@@ -141,7 +149,7 @@ _REGISTRY: dict[str, Callable[[], Indicator]] = {
     "dipendenza-domanda-prossimita": lambda: ProximityDemandDependenceIndicator(
         TRAVEL_TIME_SOURCE
     ),
-    "sostenibilita-territoriale": lambda: TerritorialSustainabilityIndicator(),
+    "sostenibilita-territoriale": lambda: TerritorialUnsustainabilityIndicator(),
     _VARIATION_RATE_KEY: lambda: VariationRateIndicator(),
 }
 
@@ -1238,27 +1246,6 @@ class TourismElectricityShareIndicator(Indicator):
         return df["quota_ee_turismo"]
 
 
-class _NotImplementedIndexIndicator(Indicator):
-    """Metadata-only placeholder for an index whose methodology is not implemented yet."""
-
-    category = "Indicatori in sviluppo"
-    availableForVariation = False
-    _years_range = {
-        "min_year": 2022,
-        "max_year": 2025,
-    }
-
-    def __init__(self):
-        super().__init__(phenomena=[], combinator=self._not_implemented)
-
-    @staticmethod
-    def _not_implemented(df: pd.DataFrame, **_extra) -> pd.Series:
-        # #TODO Implement the index methodology and required source data.
-        raise NotImplementedError(
-            "This indicator is a placeholder; its calculation has not been implemented yet."
-        )
-
-
 def _parse_bool_flag(value, name: str) -> bool:
     """Boolean extra field: it arrives as a query-string text (\"true\", \"1\", ...), or as a bool when called from code."""
     if value is None:
@@ -1396,17 +1383,109 @@ class ProximityDemandDependenceIndicator(Indicator):
         )
 
 
-class TerritorialSustainabilityIndicator(_NotImplementedIndexIndicator):
-    # #TODO Define component metrics, normalization, weighting, and aggregation.
-    name = "Indice di sostenibilità territoriale  *"
+class TerritorialUnsustainabilityIndicator(Indicator):
+    """Daily equal-weighted, normalized macro-index of tourist pressure."""
+
+    name = "Macro-indice di pressione turistica"
     description = (
-        "Macro-indicatore composito che integra diverse metriche per fornire una "
-        "valutazione sintetica della sostenibilità territoriale in relazione al turismo."
+        "Indice giornaliero relativo ai comuni del Trentino: carico antropico, densità "
+        "turistica, concentrazione dei mercati, quota dei consumi elettrici attribuibile "
+        "al turismo e squilibrio di ridistribuzione sono normalizzati tra 0 e 1 per "
+        "ciascun giorno e poi mediati con pesi uguali. Per lo squilibrio, i valori più "
+        "negativi (aree sovraccariche) indicano maggiore pressione. Gli indicatori "
+        "annuali sono mantenuti costanti nei giorni del rispettivo anno; i dati mancanti "
+        "sono esclusi dalla media. Il risultato è una misura relativa, non assoluta."
     )
-    index_value_unit_description = "Indice composito (scala da definire)"
+    _years_range = {
+        "min_year": 2022,
+        "max_year": 2024,
+    }
+    index_value_unit_description = "Indice relativo giornaliero (0-1)"
     category = "Pressione turistica"
     order = 100
 
+    PRESSURE_INDEX = "macro_indice_pressione_turistica"
+
+    def __init__(self):
+        components = [
+            (
+                "carico-antropico",
+                AnthropogenicLoadIndicator(POPULATION_SOURCE, PRESENCES_SOURCE),
+            ),
+            (
+                "densita-turistica",
+                TouristDensityIndicator(PRESENCES_SOURCE, MAP_SHAPEFILE),
+            ),
+            (
+                "concentrazione-mercati-provenienza",
+                SourceMarketsConcentrationIndicator(PROVENIENZA_SOURCE),
+            ),
+            (
+                "quota-consumi-elettrici-attribuibili-turismo",
+                TourismElectricityShareIndicator(EE_TOURISM_SHARE_SOURCE),
+            ),
+            (
+                "squilibrio-ridistribuzione",
+                RedistributionBalanceIndicator(
+                    REDISTRIBUTION_SOURCE,
+                    REDISTRIBUTION_FLOWS_SOURCE,
+                    REDISTRIBUTION_NODES_SOURCE,
+                ),
+            ),
+        ]
+        for name, indicator in components:
+            indicator.name = name
+        super().__init__(
+            phenomena=[indicator for _, indicator in components],
+            combinator=self._pressure_index,
+        )
+
+    @classmethod
+    def _normalize_daily_pressure(cls, daily: pd.DataFrame) -> pd.DataFrame:
+        """Scale each pressure component to 0–1 across comuni, separately per day."""
+        result = daily.copy()
+        for column in MACRO_PRESSURE_COMPONENTS:
+            values = (
+                -result[column]
+                if column == "squilibrio-ridistribuzione"
+                else result[column]
+            )
+            minimum = values.groupby(result["DATA"]).transform("min")
+            span = values.groupby(result["DATA"]).transform("max") - minimum
+            result[column] = (values - minimum).div(span).where(span.ne(0), 0.0)
+        result[cls.PRESSURE_INDEX] = result[list(MACRO_PRESSURE_COMPONENTS)].mean(axis=1)
+        return result
+
+    def _pressure_index(
+        self,
+        df: pd.DataFrame,
+        *,
+        filtered_data: dict[str, pd.DataFrame],
+        **_extra,
+    ) -> pd.Series:
+        daily = self._merge_daily(
+            {
+                phenomenon.name: filtered_data[phenomenon.name][
+                    ["ID_COMUNE", "DATA", phenomenon.name]
+                ]
+                for phenomenon in self.phenomena
+            },
+            on=["ID_COMUNE", "DATA"],
+        )
+        daily = self._normalize_daily_pressure(daily)
+
+        if {"ID_COMUNE", "DATA"}.issubset(df.columns):
+            scores = daily.set_index(["ID_COMUNE", "DATA"])[self.PRESSURE_INDEX]
+            keys = pd.MultiIndex.from_frame(df[["ID_COMUNE", "DATA"]])
+            return pd.Series(keys.map(scores), index=df.index)
+        if "ID_COMUNE" in df:
+            scores = daily.groupby("ID_COMUNE")[self.PRESSURE_INDEX].mean()
+            return df["ID_COMUNE"].map(scores)
+        if "DATA" in df:
+            scores = daily.groupby("DATA")[self.PRESSURE_INDEX].mean()
+            return df["DATA"].map(scores)
+        region_by_day = daily.groupby("DATA")[self.PRESSURE_INDEX].mean()
+        return pd.Series(region_by_day.mean(), index=df.index)
 
 class VariationRateIndicator(Indicator):
     category = "Internal"
