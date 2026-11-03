@@ -96,6 +96,13 @@ PHENOMENON_LABELS_IT: dict[str, str] = {
     "persone_gap": "presenze da attrarre (+) o da spostare (−)",
     "persone_spostate_nette": "presenze spostate entro il raggio (ingresso − uscita)",
     "eccesso_non_assorbibile": "presenze non assorbibili entro il raggio",
+    "score_tourists_per_resident": "punteggio turisti per residente",
+    "score_electricity_services_share": "punteggio impatto consumi elettrici",
+    "score_travel_time_hours": "punteggio tempo medio di viaggio",
+    "score_socioeconomic": "punteggio dimensione socio-economica",
+    "score_environmental": "punteggio dimensione ambientale",
+    "data_coverage": "copertura dati",
+    "weakest_component": "componente più debole",
 }
 
 # ---------------------------------------------------------------------------
