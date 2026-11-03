@@ -1406,7 +1406,7 @@ def plot_measurement_space(days: pd.DataFrame, pilot: dict, path: Path):
         lines = [f"{y}: {int(n.loc[y, 'days'])} {'giorno' if n.loc[y, 'days'] == 1 else 'giorni'}"
                  + (f"\n{', '.join(SHUTTLE_NAMES.get(s, s) for s in n.loc[y, 'shuttle'].split(', '))}"
                     if n.loc[y, "shuttle"] else "")
-                 + (f"\n({int(n.loc[y, 'with_bus_down'])} con discesa)" if n.loc[y, "with_bus_down"] else "")
+                 + (f"\n({int(n.loc[y, 'with_bus_down'])} con discese\nin navetta)" if n.loc[y, "with_bus_down"] else "")
                  for y in years if y in n.index]
         ax.text(col, row, "\n".join(lines) if lines else "non osservato", ha="center", va="center", fontsize=9.5,
                 color=C_INK if lines else C_INK2, zorder=2)
@@ -1422,8 +1422,8 @@ def plot_measurement_space(days: pd.DataFrame, pilot: dict, path: Path):
         for xi, cond in zip(x, d["condition"]):
             ax.add_patch(plt.Rectangle((xi, base), 1, 1.6, color=CONDITIONS[cond][1] if cond in CONDITIONS
                                        else C_NEUTRAL_MID, linewidth=0))
-        for k, (col, label) in enumerate([("has_traffic", "traffico valido a Pellizzano"),
-                                          ("has_bus_down", "persone in discesa (a piedi)")]):
+        for k, (col, label) in enumerate([("has_bus_down", "discese in navetta"),
+                                          ("has_traffic", "traffico a Pellizzano")]):
             y0 = base + 1.9 + k * 0.55
             ax.add_patch(plt.Rectangle((0, y0), 122, 0.4, color=C_NEUTRAL_MID, linewidth=0))
             for xi in x[d[col].to_numpy()]:
