@@ -11,7 +11,45 @@
     "proposal_name": "Miglioramento della gestione dei parcheggi e dei flussi turistici",
     "proposal_description": "Valutare misure per migliorare la gestione dei parcheggi nei periodi di maggiore affluenza, con particolare attenzione ai visitatori giornalieri diretti al lago e ai percorsi escursionistici. La proposta prevede di analizzare la domanda di sosta, la disponibilità dei posti auto ed i possibili interventi attuabili. Sulla base dei risultati, potranno essere valutate soluzioni organizzative e informative per agevolare l'accesso alla località e ridurre la pressione sui parcheggi esistenti.",
     "proposal_status": "draft",
-    "proposal_extras": {}
+    "proposal_extras": {},
+    "scenarios": [
+      {
+        "key": "august_no_booking",
+        "name": "Agosto, nessun parcheggio su prenotazione",
+        "description": "1–31 agosto senza posti su prenotazione (regole 2023–2024): chi non trova posto nei parcheggi a pagamento sosta altrove.",
+        "param_overrides": {
+          "day of summer": [
+            61.0,
+            92.0
+          ],
+          "booked parking spaces": 0.0
+        }
+      },
+      {
+        "key": "august_booking_ischia",
+        "name": "Agosto, Ischia su prenotazione",
+        "description": "1–31 agosto con il parcheggio Ischia (195 posti) solo su prenotazione, come dal 2025.",
+        "param_overrides": {
+          "day of summer": [
+            61.0,
+            92.0
+          ],
+          "booked parking spaces": 195.0
+        }
+      },
+      {
+        "key": "august_booking_all_paid",
+        "name": "Agosto, tutti i parcheggi a pagamento su prenotazione",
+        "description": "1–31 agosto con tutti i 529 posti a pagamento solo su prenotazione: gli escursionisti in auto oltre i posti disponibili rinunciano (ipotesi A13).",
+        "param_overrides": {
+          "day of summer": [
+            61.0,
+            92.0
+          ],
+          "booked parking spaces": 529.0
+        }
+      }
+    ]
   },
   {
     "territory": "fazzon",
@@ -25,6 +63,69 @@
     "proposal_name": "Incentivazione all'utilizzo della navetta",
     "proposal_description": "Miglioramento della gestione degli accessi all'Altipiano di Fazzon durante il periodo estivo, incentivando l'utilizzo della navetta e regolando l'accesso ai parcheggi attraverso un sistema di prenotazione. La proposta prevede di valutare l'introduzione di una tariffazione elevata per la sosta nei periodi di maggiore affluenza, al fine di disincentivare l'accesso con auto privata e favorire il trasporto collettivo. L'obiettivo è ridurre la pressione sulla strada di accesso, caratterizzata da una carreggiata limitata e dalla difficoltà di garantire il transito contemporaneo nei due sensi, migliorando la gestione dei flussi e l'organizzazione degli arrivi nei giorni di picco.",
     "proposal_status": "draft",
-    "proposal_extras": {}
+    "proposal_extras": {},
+    "scenarios": [
+      {
+        "key": "a1_no_cap",
+        "name": "A1 – Senza cap (baseline storico 2022)",
+        "description": "Scenario pre-intervento 2022: il contingentamento non è ancora in vigore. La capacità di parcheggio simultaneo sale a 400 auto (stima del massimo storico prima della regolamentazione).",
+        "param_overrides": {
+          "parking capacity (simultaneous cars)": [
+            350.0,
+            450.0
+          ]
+        }
+      },
+      {
+        "key": "a2_reduced_cap",
+        "name": "A2 – Cap ridotto (100 auto simultanee)",
+        "description": "Inasprimento del contingentamento: il numero massimo di auto in parcheggio simultaneo scende a 100.  Questo scenario testa la resilienza del sistema a una riduzione ulteriore dell'accesso motorizzato.",
+        "param_overrides": {
+          "parking capacity (simultaneous cars)": [
+            80.0,
+            120.0
+          ]
+        }
+      },
+      {
+        "key": "b1_shuttle_only",
+        "name": "B1 – Navetta senza tariffa",
+        "description": "Navetta Lakebus (2 bus da 30 posti ogni 30 minuti, 9-19) con il parcheggio a 5 € come nel 2025.  Senza un incentivo a lasciare l'auto la navetta non sposta visitatori (come il Greenbus pilota del 2025): aggiunge solo passaggi sulla strada.",
+        "param_overrides": {
+          "shuttle buses": 2.0
+        }
+      },
+      {
+        "key": "b2_price_10",
+        "name": "B2 – Tariffa 10 € + navetta",
+        "description": "Tariffa intermedia di 10 € per veicolo con la navetta Lakebus.  È fuori dai due livelli di prezzo osservati (5 € e ~15 €): l'effetto deriva dalla forma esponenziale della risposta alla tariffa (A23).",
+        "param_overrides": {
+          "parking price (euro per vehicle)": 10.0,
+          "shuttle buses": 2.0
+        }
+      },
+      {
+        "key": "c1_piano_2026",
+        "name": "C1 – Regole 2026 (tariffa + navetta)",
+        "description": "Le regole 2026 come osservate: parcheggio a 20 € la giornata e 10 € dopo le 12 (prezzo medio pagato 15 €), prenotazione e semaforo, navetta Lakebus ogni 30 minuti.  La risposta alla tariffa è stimata proprio su questo periodo: lo scenario riproduce il 2026 e serve da riferimento per gli altri.",
+        "param_overrides": {
+          "parking price (euro per vehicle)": 15.0,
+          "shuttle buses": 2.0
+        }
+      },
+      {
+        "key": "c2_strong",
+        "name": "C2 – Intervento forte (cap 80 + tariffa 20 € + navetta)",
+        "description": "Massima restrizione: contingentamento a 80 auto simultanee, tariffa di 20 € per ogni veicolo (nessuno sconto pomeridiano) e navetta Lakebus.",
+        "param_overrides": {
+          "parking price (euro per vehicle)": 20.0,
+          "parking capacity (simultaneous cars)": [
+            60.0,
+            100.0
+          ],
+          "shuttle buses": 2.0
+        }
+      }
+    ]
   }
 ]

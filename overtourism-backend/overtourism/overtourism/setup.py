@@ -84,6 +84,12 @@ for model in list_models():
         ),
         None,
     )
+    # Further scenarios of the territory, linked to its base proposal: created when missing,
+    # so that an existing platform gets the ones added later.
+    extra_scenarios: list[dict[str, Any]] = []
+    if model_config is not None:
+        model_config = dict(model_config)
+        extra_scenarios = model_config.pop("scenarios", [])
     names_cfg = (
         BootstrapConfig(**model_config)
         if model_config is not None
@@ -92,43 +98,66 @@ for model in list_models():
 
     try:
         crud_manager.scenario_manager.read_scenario(names_cfg.scenario_id)
-        continue
     except EntityDoesNotExist:
-        pass
+        crud_manager.problem_manager.create_problem(
+            problem_id=names_cfg.problem_id,
+            territory=names_cfg.territory,
+            name=names_cfg.problem_name,
+            description=names_cfg.problem_description,
+        )
+        crud_manager.scenario_manager.create_scenario(
+            scenario_id=names_cfg.scenario_id,
+            territory=names_cfg.territory,
+            name=names_cfg.scenario_name,
+            description=names_cfg.scenario_description,
+            summary=names_cfg.scenario_summary,
+            extras=names_cfg.scenario_extras,
+        )
+        evaluation = crud_manager.create_evaluation(names_cfg.scenario_id)
+        try:
+            result = call_executor(names_cfg.territory)
+        except Exception:
+            crud_manager.fail_evaluation(evaluation)
+        else:
+            crud_manager.complete_evaluation(evaluation, result)
+        crud_manager.proposal_manager.create_proposal(
+            proposal_id=names_cfg.proposal_id,
+            problem_id=names_cfg.problem_id,
+            name=names_cfg.proposal_name,
+            description=names_cfg.proposal_description,
+            status=names_cfg.proposal_status,
+            extras=names_cfg.proposal_extras,
+        )
+        crud_manager.relationship_manager.link_scenario_proposal(
+            proposal_id=names_cfg.proposal_id,
+            scenario_id=names_cfg.scenario_id,
+        )
 
-    crud_manager.problem_manager.create_problem(
-        problem_id=names_cfg.problem_id,
-        territory=names_cfg.territory,
-        name=names_cfg.problem_name,
-        description=names_cfg.problem_description,
-    )
-    crud_manager.scenario_manager.create_scenario(
-        scenario_id=names_cfg.scenario_id,
-        territory=names_cfg.territory,
-        name=names_cfg.scenario_name,
-        description=names_cfg.scenario_description,
-        summary=names_cfg.scenario_summary,
-        extras=names_cfg.scenario_extras,
-    )
-    evaluation = crud_manager.create_evaluation(names_cfg.scenario_id)
-    try:
-        result = call_executor(names_cfg.territory)
-    except Exception:
-        crud_manager.fail_evaluation(evaluation)
-    else:
-        crud_manager.complete_evaluation(evaluation, result)
-    crud_manager.proposal_manager.create_proposal(
-        proposal_id=names_cfg.proposal_id,
-        problem_id=names_cfg.problem_id,
-        name=names_cfg.proposal_name,
-        description=names_cfg.proposal_description,
-        status=names_cfg.proposal_status,
-        extras=names_cfg.proposal_extras,
-    )
-    crud_manager.relationship_manager.link_scenario_proposal(
-        proposal_id=names_cfg.proposal_id,
-        scenario_id=names_cfg.scenario_id,
-    )
+    for scenario_config in extra_scenarios:
+        scenario_id = f"{names_cfg.territory}_{scenario_config['key']}"
+        try:
+            crud_manager.scenario_manager.read_scenario(scenario_id)
+            continue
+        except EntityDoesNotExist:
+            pass
+        crud_manager.scenario_manager.create_scenario(
+            scenario_id=scenario_id,
+            territory=names_cfg.territory,
+            param_overrides=scenario_config["param_overrides"],
+            name=scenario_config["name"],
+            description=scenario_config["description"],
+        )
+        evaluation = crud_manager.create_evaluation(scenario_id)
+        try:
+            result = call_executor(names_cfg.territory, scenario_config["param_overrides"])
+        except Exception:
+            crud_manager.fail_evaluation(evaluation)
+        else:
+            crud_manager.complete_evaluation(evaluation, result)
+        crud_manager.relationship_manager.link_scenario_proposal(
+            proposal_id=names_cfg.proposal_id,
+            scenario_id=scenario_id,
+        )
 
 
 # ──────────────────────────────────────────────
