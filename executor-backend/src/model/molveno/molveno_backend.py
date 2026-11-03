@@ -524,15 +524,15 @@ class MolvenoBackend:
                 kind="scalar",
                 label="Fattore massimo di allocazione dei posti letto",
                 description=(
-                    "Fattore di allocazione che rappresenta la frazione di posti letto "
-                    "occupati nel caso di alberghi pieni (tenendo conto ad es. di camere "
-                    "doppie uso singola)."
+                    "Persone alloggiate per posto letto dichiarato quando le strutture sono "
+                    "piene (letti aggiunti, piazzole): nell'agosto 2022 e 2023 i pernottamenti "
+                    "ISPAT arrivano a 1,06 volte i posti letto (3.619 su 3.429 nel 2023)."
                 ),
                 category="Alberghi",
-                default=1.0,
+                default=1.06,
                 min_value=0.5,
                 max_value=1.25,
-                step=0.05,
+                step=0.01,
             ),
             inp.i_c_food.name: OvertourismParameterMeta(
                 name=inp.i_c_food.name,

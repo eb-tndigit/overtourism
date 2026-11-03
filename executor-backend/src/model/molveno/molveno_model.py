@@ -537,8 +537,10 @@ class MolvenoModel(Model):
                 stats.uniform,
                 {"loc": 0.65, "scale": 0.25},
             ),
+            # A11: at most 1.06 beds occupied per declared bed (ISPAT stays, August 2022: 3,589
+            # on 3,365 beds; 2023: 3,619 on 3,429)
             i_xa_tourists_accommodation=Index(
-                "tourists per accommodation allocation factor", 1.0
+                "tourists per accommodation allocation factor", 1.06
             ),
             # Food parameters
             i_u_tourists_food=Index("tourist food service usage factor", 0.20),
