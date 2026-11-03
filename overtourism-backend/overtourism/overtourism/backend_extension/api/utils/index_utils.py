@@ -89,12 +89,17 @@ _DECIMAL_COLUMNS = {
 }
 
 
-def _round_count_columns(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+def _round_count_columns(
+    gdf: gpd.GeoDataFrame, decimals: int | None = None
+) -> gpd.GeoDataFrame:
+    """``decimals``: when given, every numeric column is rounded to it instead (no integer rounding)."""
     out = gdf.copy()
     for col in out.columns:
-        decimals = next((d for m, d in _DECIMAL_COLUMNS.items() if m in col), None)
-        if decimals is not None and pd.api.types.is_numeric_dtype(out[col]):
-            out[col] = out[col].round(decimals)
+        col_decimals = decimals
+        if col_decimals is None:
+            col_decimals = next((d for m, d in _DECIMAL_COLUMNS.items() if m in col), None)
+        if col_decimals is not None and pd.api.types.is_numeric_dtype(out[col]):
+            out[col] = out[col].round(col_decimals)
         elif col not in {
             "AREA_NAME",
             "geometry",
@@ -103,9 +108,9 @@ def _round_count_columns(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     return out
 
 
-def _to_map_response(gdf_final):
+def _to_map_response(gdf_final, decimals: int | None = None):
     min_value, max_value = _compute_min_max(gdf_final)
-    gdf_final = _round_count_columns(gdf_final)
+    gdf_final = _round_count_columns(gdf_final, decimals)
     return {
         "geojson": gdf_final.to_json(),
         "min_value": min_value,

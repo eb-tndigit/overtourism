@@ -345,7 +345,9 @@ def get_index_data(
             # left untouched since they aren't in PHENOMENON_LABELS_IT.
             gdf_final = _translate_columns(gdf_final, PHENOMENON_LABELS_IT)
 
-            geo_data = _to_map_response(gdf_final)
+            geo_data = _to_map_response(
+                gdf_final, decimals=getattr(indicator, "map_decimals", None)
+            )
 
         _validate_map_values(
             geo_data["min_value"],
