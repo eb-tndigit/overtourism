@@ -101,3 +101,31 @@ def test_every_comune_of_a_multi_comune_area_gets_the_indicators_and_combined_us
     assert np.isclose(a["quota_uscita_tourist"], 100 / 1000)
     assert np.isclose(a["quota_uscita_visitor"], 200 / 400)
     assert np.isclose(a["quota_uscita_combined"], (100 + 0.5 * 200) / (1000 + 0.5 * 400))
+
+
+def test_intra_ambito_is_computed_without_presence_denominator():
+    rows = []
+    for profile in ("TOURIST", "VISITOR"):
+        rows += [
+            ("2024-01-01", "*", "X", "A", "X", "ND", profile, 200),
+            ("2024-01-01", "A", "X", "B", "X", "UD", profile, 50),
+            ("2024-01-01", "B", "X", "A", "X", "UD", profile, 30),
+        ]
+    area_comune = pd.DataFrame(
+        {"areaId": ["A", "B"], "ID_COMUNE": ["000001", "000002"]}
+    )
+    out = comune_flow_indicators(
+        _od(rows),
+        area_comune,
+        min_t=100,
+        damping=0.85,
+        profiles=COVISITS_PROFILES,
+        metrics=COVISITS_METRICS,
+        weights=COVISITS_PROFILE_WEIGHTS,
+    )
+
+    b = out[out["ID_COMUNE"] == "000002"].iloc[0]
+    assert pd.isna(b["quota_ingresso_tourist"])
+    assert pd.isna(b["quota_uscita_tourist"])
+    assert np.isclose(b["quota_intra_ambito_tourist"], 1.0)
+    assert np.isclose(b["quota_intra_ambito_combined"], 1.0)

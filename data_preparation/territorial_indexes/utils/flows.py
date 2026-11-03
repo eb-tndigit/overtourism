@@ -206,7 +206,6 @@ def area_indicators(yearly, ambito, min_t) -> pd.DataFrame:
                 )
             }
         )
-        d = d[d["T"].notna()].copy()
         n_pairs_only = int((~d.index.isin(ud_out_star.index)).sum())
         if n_pairs_only:
             logger.warning(
