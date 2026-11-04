@@ -7,6 +7,7 @@ import os
 from typing import Any
 
 import requests
+
 from overtourism.dt_manager.scenario.manager import ScenarioManager
 
 logger = logging.getLogger(__name__)
@@ -78,8 +79,7 @@ def update_scenario_summaries(
         persisted_scenario = scenario_manager.read_scenario(scenario.scenario_id)
         if persisted_scenario.summary != summary:
             raise RuntimeError(
-                f"Summary update for scenario {scenario.scenario_id} was not "
-                "persisted"
+                f"Summary update for scenario {scenario.scenario_id} was not persisted"
             )
         updated_scenario_ids.append(scenario.scenario_id)
         updated_summaries[scenario.scenario_id] = summary

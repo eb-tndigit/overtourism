@@ -130,7 +130,9 @@ class TerritorialConfig:
                 elif fn == "last":
                     out[col] = valid.iloc[-1]
                 elif fn == "mode":
-                    out[col] = valid.mode().iloc[0]  # mode() is sorted: a tie takes the smallest value
+                    out[col] = valid.mode().iloc[
+                        0
+                    ]  # mode() is sorted: a tie takes the smallest value
                 else:
                     out[col] = series.agg(fn)
         return out

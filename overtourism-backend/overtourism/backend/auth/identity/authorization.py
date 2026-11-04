@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends, HTTPException, status
 
@@ -13,6 +13,34 @@ from overtourism.backend.auth.tokens.dependencies import get_auth_context
 from overtourism.backend.auth.tokens.enums import AuthClaim
 from overtourism.backend.auth.tokens.settings import AuthSettings, get_auth_settings
 from overtourism.backend.handler import Handler, get_handler
+
+
+def _extract_claim_identifier(claims: dict[str, Any], path: str) -> str | None:
+    """Extract the identifier from JWT claims, supporting direct strings,
+    nested objects (e.g. the AAC codicefiscale claim), and dot notation (e.g.
+    codicefiscale.fiscalCode).
+    """
+    if not path:
+        return None
+
+    parts = path.split(".")
+    current: Any = claims
+
+    for part in parts:
+        if isinstance(current, dict):
+            current = current.get(part)
+        else:
+            return None
+
+    # If the claim resolves to a dictionary (as with the AAC codicefiscale payload),
+    # extract the fiscalCode field.
+    if isinstance(current, dict):
+        fiscal_code = current.get("fiscalCode")
+        if isinstance(fiscal_code, str):
+            return fiscal_code
+        return None
+
+    return current if isinstance(current, str) else None
 
 
 def resolve_current_user(
@@ -33,8 +61,15 @@ def resolve_current_user(
             detail="User manager is not configured",
         )
 
+    # 1. Look up an existing user by OIDC subject.
     user = handler.user_manager.get_active_user_by_subject(context.subject)
-    identifier = context.claims.get(auth_settings.identifier_claim)
+
+    # 2. Extract the identifier from the token (string, dict, or dot notation).
+    identifier = _extract_claim_identifier(
+        context.claims, auth_settings.identifier_claim
+    )
+
+    # 3. Auto-bind on first login if the user exists in the database with a NULL subject.
     if (
         user is None
         and (
@@ -47,6 +82,7 @@ def resolve_current_user(
             identifier,
             context.subject,
         )
+
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

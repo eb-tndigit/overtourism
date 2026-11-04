@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import requests
-
 from overtourism.backend.api.utils import utils as api_utils
 from overtourism.backend.auth.identity.authorization import require_territory_access
 from overtourism.backend.auth.tokens.context import AuthContext
@@ -227,18 +226,22 @@ def test_update_configuration_summaries_calls_agent_for_each_scenario(
         f"{territory}_base_scenario": f"Summary for {territory}_base_scenario",
         second_scenario_id: f"Summary for {second_scenario_id}",
     }
-    assert {
-        call[2]["current_context"]["scenarios"][0] for call in calls
-    } == {f"{territory}_base_scenario", second_scenario_id}
+    assert {call[2]["current_context"]["scenarios"][0] for call in calls} == {
+        f"{territory}_base_scenario",
+        second_scenario_id,
+    }
     assert all(
         call[3] == {"Authorization": "Bearer agent-access-token"} for call in calls
     )
-    assert handler.manager.scenario_manager.read_scenario(
-        f"{territory}_base_scenario"
-    ).summary == f"Summary for {territory}_base_scenario"
-    assert handler.manager.scenario_manager.read_scenario(second_scenario_id).summary == (
-        f"Summary for {second_scenario_id}"
+    assert (
+        handler.manager.scenario_manager.read_scenario(
+            f"{territory}_base_scenario"
+        ).summary
+        == f"Summary for {territory}_base_scenario"
     )
+    assert handler.manager.scenario_manager.read_scenario(
+        second_scenario_id
+    ).summary == (f"Summary for {second_scenario_id}")
 
 
 def test_update_configuration_summaries_skips_when_agent_backend_is_absent(
