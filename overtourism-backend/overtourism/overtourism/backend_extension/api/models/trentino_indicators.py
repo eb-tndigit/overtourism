@@ -381,6 +381,16 @@ class TouristPresenceGiniIndicator(Indicator):
     _MIN_COVERAGE = 0.8
     CLUSTER_COLUMN = "cluster_stagionalita"
     CLUSTER_TYPE_COLUMN = "tipo_cluster"
+    custom_legend = {
+        "type": "cluster-value",
+        "cluster_property": "cluster stagionale",
+        "clusters": [
+            {"id": 0, "label": "annuale", "color": "#984ea3"},
+            {"id": 1, "label": "estate_alpina", "color": "#fcc306"},
+            {"id": 2, "label": "estate_spalle", "color": "#1a9850"},
+            {"id": 3, "label": "sci", "color": "#4575b4"},
+        ],
+    }
     # macro area / province: INDICE = mean Gini of the comuni, cluster = the most frequent one. The codes follow the
     # alphabetical order of the names, so on a tie both columns take the same cluster (the smallest)
     column_aggs = {CLUSTER_COLUMN: "mode", CLUSTER_TYPE_COLUMN: "mode"}
