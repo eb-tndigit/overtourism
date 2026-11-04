@@ -3,8 +3,10 @@ import pandas as pd
 import pytest
 from overtourism.overtourism.backend_extension.api.models.trentino_indicators import (
     _REGISTRY,
+    AnthropogenicLoadIndicator,
     AvailableAccommodationBedsIndicator,
     AvailableAccommodationFacilitiesIndicator,
+    HiddenTourismIndicator,
     MainMarketDependenceIndicator,
     TouristAccommodationBedsIndicator,
     TouristAccommodationFacilitiesIndicator,
@@ -117,3 +119,36 @@ def test_period_percentage_impact_indicator_is_removed():
 
     with pytest.raises(KeyError, match="Unknown indicator 'incidenza-periodo'"):
         get_indicator("incidenza-periodo")
+
+
+def test_hidden_tourism_falls_back_only_when_official_presences_are_zero():
+    indicator = HiddenTourismIndicator("unused.parquet")
+    values = pd.DataFrame(
+        {
+            "presenze_vodafone": [10.0, 10.0, 10.0],
+            "presenze_alb": [5.0, 0.0, float("nan")],
+            "presenze_xalb": [float("nan"), 0.0, 5.0],
+        }
+    )
+
+    result = indicator.combinator(values)
+
+    assert np.isnan(result.iloc[0])
+    assert result.iloc[1] == 10.0
+    assert np.isnan(result.iloc[2])
+
+
+def test_anthropogenic_load_uses_available_profile_and_requires_any_profile():
+    indicator = AnthropogenicLoadIndicator("unused.parquet", "unused.parquet")
+    values = pd.DataFrame(
+        {
+            "presenze_vodafone": [float("nan"), float("nan")],
+            "presenze_escursionisti_vodafone": [5.0, float("nan")],
+            "population": [10.0, 10.0],
+        }
+    )
+
+    result = indicator.combinator(values)
+
+    assert result.iloc[0] == 0.5
+    assert np.isnan(result.iloc[1])
