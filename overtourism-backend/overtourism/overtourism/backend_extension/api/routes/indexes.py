@@ -213,6 +213,7 @@ def get_indicators_list():
                                 f"{getattr(indicator, 'category', 'Altro')} - "
                                 f"{indicator.name}"
                             ),
+                            "year_only": indicator.year_only,
                             "index_description": indicator.description,
                             "index_value_unit_description": (
                                 indicator.index_value_unit_description

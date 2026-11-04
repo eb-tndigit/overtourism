@@ -1357,9 +1357,6 @@ class AverageTouristTravelTimeIndicator(Indicator):
 
     The source is in minutes; INDICE is converted to hours (270 min -> 4.5).
 
-    Extra field ``arrotonda_30_minuti`` (default false): the final average is rounded to the nearest multiple of 30
-    minutes (half up), i.e. to 0.5 h steps, before the conversion to hours. The tourists' ``arrivals`` stay next to
-    INDICE.
     """
 
     category = "Provenienza"
@@ -1382,7 +1379,6 @@ class AverageTouristTravelTimeIndicator(Indicator):
         "senza attese aeroportuali). Gli arrivi senza paese di origine non sono considerati."
     )
     index_value_unit_description = "Ore (media pesata sugli arrivi)"
-    extraFields = ["arrotonda_30_minuti"]
 
     ARRIVALS_COLUMN = "tourist_arrivals"
     MINUTES_COLUMN = (
@@ -1411,13 +1407,13 @@ class AverageTouristTravelTimeIndicator(Indicator):
         self,
         df: pd.DataFrame,
         *,
-        arrotonda_30_minuti=None,
+        arrotonda_30_minuti=False,
         **_extra,
     ) -> pd.Series:
         average_minutes = df[self.MINUTES_COLUMN].div(
             df[self.ARRIVALS_COLUMN].replace(0, np.nan)
         )
-        if _parse_bool_flag(arrotonda_30_minuti, "arrotonda_30_minuti"):
+        if arrotonda_30_minuti:
             average_minutes = self._round_to_step(
                 average_minutes, TRAVEL_TIME_ROUNDING_STEP_MINUTES
             )
