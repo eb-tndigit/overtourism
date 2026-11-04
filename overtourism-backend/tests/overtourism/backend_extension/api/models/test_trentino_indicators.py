@@ -96,9 +96,9 @@ def test_main_market_indicator_includes_top_market_names(tmp_path):
                 "ID_COMUNE": "001",
                 "volume_mercato_1": 150,
                 "volume_totale": 250,
-                "nome_mercato_1": "Italia",
-                "nome_mercato_2": "Germania",
-                "nome_mercato_3": "Francia",
+                "nome_mercato_1": "Italy",
+                "nome_mercato_2": "Germany",
+                "nome_mercato_3": "France",
             }
         ]
     ).to_csv(source, sep=";", index=False)
@@ -113,7 +113,7 @@ def test_main_market_indicator_includes_top_market_names(tmp_path):
 
 def test_period_percentage_impact_indicator_is_removed():
     assert "incidenza-periodo" not in _REGISTRY
-    assert "indice-stagionalita-presenze" in _REGISTRY
+    assert "gini-stagionalita" in _REGISTRY
 
     with pytest.raises(KeyError, match="Unknown indicator 'incidenza-periodo'"):
         get_indicator("incidenza-periodo")
