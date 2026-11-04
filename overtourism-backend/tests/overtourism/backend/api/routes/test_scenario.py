@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import requests
+
 from overtourism.backend.api.utils import utils as api_utils
+from overtourism.backend.auth.identity.authorization import require_territory_access
+from overtourism.backend.auth.tokens.context import AuthContext
+from overtourism.backend.auth.tokens.dependencies import get_auth_context
 from overtourism.dt_manager.manager.manager import Manager
 
 
@@ -25,6 +30,38 @@ def test_list_and_read_stored_scenarios(
     assert read_response.json()["scenario_id"] == base_scenario_id
     assert read_response.json()["version"] == 1
     assert read_response.json()["summary"] is None
+
+
+def test_list_scenarios_orders_base_first_then_alphabetically(
+    client,
+    territory: str,
+    manager: Manager,
+) -> None:
+    manager.scenario_manager.create_scenario(
+        "scenario-zulu",
+        territory,
+        name="Zulu",
+    )
+    manager.scenario_manager.create_scenario(
+        "scenario-bravo",
+        territory,
+        name="bravo",
+    )
+    manager.scenario_manager.create_scenario(
+        "scenario-alpha",
+        territory,
+        name="Alpha",
+    )
+
+    response = client.get(f"/api/{territory}/scenarios")
+
+    assert response.status_code == 200
+    assert [scenario["scenario_id"] for scenario in response.json()] == [
+        f"{territory}_base_scenario",
+        "scenario-alpha",
+        "scenario-bravo",
+        "scenario-zulu",
+    ]
 
 
 def test_list_scenarios_can_return_only_the_base_scenario(
@@ -136,6 +173,103 @@ def test_update_stored_scenario_persists_top_level_summary(
     assert update_response.status_code == 200
     assert update_response.json()["summary"] == "Updated summary"
     assert "summary" not in update_response.json()["extras"]
+
+
+def test_update_configuration_summaries_calls_agent_for_each_scenario(
+    client,
+    handler,
+    territory: str,
+    monkeypatch,
+) -> None:
+    second_scenario_id = "scenario-summary-second"
+    handler.manager.scenario_manager.create_scenario(
+        second_scenario_id,
+        territory,
+        name="Second scenario",
+    )
+    client.app.dependency_overrides[get_auth_context] = lambda: AuthContext(
+        authenticated=True,
+        territory=territory,
+        subject="test-subject",
+        token="agent-access-token",
+    )
+    client.app.dependency_overrides[require_territory_access] = lambda: None
+    calls = []
+
+    class AgentResponse:
+        def __init__(self, scenario_id: str) -> None:
+            self.scenario_id = scenario_id
+
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict[str, str]:
+            return {"message": f"Summary for {self.scenario_id}"}
+
+    def post(url, *, params, json, headers, timeout):
+        calls.append((url, params, json, headers, timeout))
+        return AgentResponse(json["current_context"]["scenarios"][0])
+
+    monkeypatch.setattr(
+        "overtourism.backend.utils.summaries.requests.post",
+        post,
+    )
+
+    response = client.post(f"/api/{territory}/configuration/update/summaries")
+
+    assert response.status_code == 200
+    assert set(response.json()["updated_scenario_ids"]) == {
+        f"{territory}_base_scenario",
+        second_scenario_id,
+    }
+    assert response.json()["skipped"] is False
+    assert response.json()["updated_summaries"] == {
+        f"{territory}_base_scenario": f"Summary for {territory}_base_scenario",
+        second_scenario_id: f"Summary for {second_scenario_id}",
+    }
+    assert {
+        call[2]["current_context"]["scenarios"][0] for call in calls
+    } == {f"{territory}_base_scenario", second_scenario_id}
+    assert all(
+        call[3] == {"Authorization": "Bearer agent-access-token"} for call in calls
+    )
+    assert handler.manager.scenario_manager.read_scenario(
+        f"{territory}_base_scenario"
+    ).summary == f"Summary for {territory}_base_scenario"
+    assert handler.manager.scenario_manager.read_scenario(second_scenario_id).summary == (
+        f"Summary for {second_scenario_id}"
+    )
+
+
+def test_update_configuration_summaries_skips_when_agent_backend_is_absent(
+    client,
+    territory: str,
+    monkeypatch,
+) -> None:
+    client.app.dependency_overrides[get_auth_context] = lambda: AuthContext(
+        authenticated=True,
+        territory=territory,
+        subject="test-subject",
+        token="agent-access-token",
+    )
+    client.app.dependency_overrides[require_territory_access] = lambda: None
+
+    def post(*args, **kwargs):
+        raise requests.ConnectionError("agent backend is unavailable")
+
+    monkeypatch.setattr(
+        "overtourism.backend.utils.summaries.requests.post",
+        post,
+    )
+
+    response = client.post(f"/api/{territory}/configuration/update/summaries")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "updated_scenario_ids": [],
+        "updated_summaries": {},
+        "skipped": True,
+    }
 
 
 def test_list_stored_scenarios_can_filter_by_related_proposal(

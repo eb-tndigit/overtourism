@@ -60,9 +60,18 @@ async def list_scenarios(
         scenarios = handler.manager.list_scenarios(
             territory=territory, proposal_id=proposal_id
         )
-        return scenarios_to_api(
-            [scenario for scenario in scenarios if scenario.session_id is None]
+        base_scenario_id = BootstrapConfig(territory).scenario_id
+        stored_scenarios = [
+            scenario for scenario in scenarios if scenario.session_id is None
+        ]
+        stored_scenarios.sort(
+            key=lambda scenario: (
+                scenario.scenario_id != base_scenario_id,
+                (scenario.name or "").casefold(),
+                scenario.scenario_id.casefold(),
+            )
         )
+        return scenarios_to_api(stored_scenarios)
     except Exception as e:
         logger.error(f"Error listing scenarios: {e}")
         raise

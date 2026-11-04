@@ -11,10 +11,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from overtourism.backend.api.models.configuration import ModelSchema
 from overtourism.backend.auth.identity.authorization import (
     require_global_admin,
+    require_persistent_write_access,
     require_territory_access,
 )
+from overtourism.backend.auth.tokens.context import AuthContext
+from overtourism.backend.auth.tokens.dependencies import get_auth_context
+from overtourism.backend.handler import Handler, get_handler
 from overtourism.backend.utils.config import TERRITORY_ROUTE_PREFIX
 from overtourism.backend.utils.executor_utils import call_download_data, call_schema
+from overtourism.backend.utils.summaries import update_scenario_summaries
 
 logger = logging.getLogger(__name__)
 
@@ -71,3 +76,31 @@ def download_model_data(territory: str) -> dict[str, str]:
             status_code=502,
             detail="Model API data download request failed",
         ) from exc
+
+
+@configuration_router.post(
+    "/configuration/update/summaries",
+    response_model=dict[str, Any],
+    dependencies=[Depends(require_persistent_write_access)],
+    description=(
+        "Regenerate and persist the summaries for every stored scenario in this "
+        "territory. The agent backend is meant to be active; if it is not present, "
+        "the update is skipped."
+    ),
+)
+def update_configuration_summaries(
+    territory: str,
+    handler: Handler = Depends(get_handler),
+    context: AuthContext = Depends(get_auth_context),
+) -> dict[str, Any]:
+    """Update stored scenario summaries using the agent backend."""
+    if context.token is None:
+        raise HTTPException(
+            status_code=401,
+            detail="A bearer token is required to call the agent backend",
+        )
+    return update_scenario_summaries(
+        handler.manager.scenario_manager,
+        territory,
+        context.token,
+    )
