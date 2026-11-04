@@ -15,6 +15,6 @@ from model.common import sources
 from model.fazzon.config import FAZZON_RAW_DIR
 
 
-def resolve_sources(config: sources.SourcesConfig, refresh: bool = False, raw_dir=FAZZON_RAW_DIR) -> dict[str, Path]:
+def resolve_sources(config: sources.SourcesConfig, refresh: bool = False, raw_dir=FAZZON_RAW_DIR) -> dict[str, Path | list[Path]]:
     """Local path of every source in fazzon.yaml, downloading it from the data lake if needed."""
     return sources.resolve_sources(config, raw_dir, refresh=refresh)

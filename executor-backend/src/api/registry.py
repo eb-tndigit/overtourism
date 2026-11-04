@@ -26,7 +26,7 @@ BACKEND_REGISTRY: dict[str, type[FazzonBackend | MolvenoBackend]] = {
 }
 
 MODEL_TITLES: dict[str, str] = {
-    "fazzon": "Fazzon (Lago dei Caprioli)",
+    "fazzon": "Altipiano di Fazzon",
     "molveno": "Molveno",
 }
 

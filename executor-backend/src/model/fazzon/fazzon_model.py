@@ -1,4 +1,4 @@
-"""Fazzon (Lago dei Caprioli, Val di Sole) overtourism model definition.
+"""Altipiano di Fazzon (Val di Sole) overtourism model definition.
 
 The model uses the ``@define`` / ``compute()`` contract throughout — no
 ``legacy=True`` escape hatches.  Each concern sub-model declares its I/O
@@ -20,7 +20,8 @@ Sub-models:
     under semaphore control.
 
 :class:`FoodModel`
-    Peak simultaneous diners vs. total seat capacity (4 venues, 520 seats).
+    Peak simultaneous diners vs. total seat capacity (4 venues, 520 seats); visitors by car
+    use the restaurants less than the others (picnic, A10).
 
 :class:`FazzonModel`
     Root model — owns the CVs, two PVs, all ``i_*`` defaults, and wires the
@@ -33,16 +34,18 @@ lakeside constraint was dropped (D6).
 
 Context variables
 -----------------
-cv_season   : june / july / august / september   (from 2025 parking data; A14)
+cv_season   : june / july / august / september   (calendar days of each month; A14)
 cv_weather  : good / cool / rainy  (climatology averaged over the seasons; D7, A19, A20, D13)
-cv_parking_price : 5, 10, ..., 40 euro per vehicle (always fixed by the backend; D15)
+cv_parking_price : 5, 6, ..., 30 euro per vehicle (always fixed by the backend; D15)
 cv_shuttle  : usable shuttle capacity class, riders per day (derived by the backend from the
               shuttle timetable parameters; D15, D16)
 
 Presence variables
 ------------------
-pv_visitors_car   : daily arrivals by private vehicle (2025 parking data, modal shift; A2, A23, A26)
-pv_visitors_other : daily arrivals by other means (A3, A4, A6, A28)
+pv_visitors_car   : daily arrivals by private vehicle (valley traffic via the 2025 relation, modal shift; A37, A38, A2, A23, A26)
+pv_visitors_total : daily arrivals, all means (A3, A4, A6, A28)
+pv_demand_car, pv_demand_other : visitors of a day in 2025 conditions, by private vehicle and
+              by other means: the days simulated by the backend (A36, A39)
 
 No day-type CV (D5).
 """
@@ -68,13 +71,43 @@ from civic_digital_twins.dt_model import (
 from scipy import stats
 
 from .fazzon_presence_stats import (
+    DEMAND_LEVEL_NAME,
+    OCCUPANCY_HIGH_NAME,
+    OCCUPANCY_LOW_NAME,
     PRICE_INDEX_NAME,
     PRICE_LEVELS,
     SHUTTLE_CAPACITY_LEVELS,
     SHUTTLE_INDEX_NAME,
+    VEHICLE_RESPONSE_NAME,
     WEATHERS,
     presence_inputs,
 )
+
+# Ranges of the uncertain parameters (A39).  PLACEHOLDER: a range chosen without a source,
+# to be validated; the user can change every range in the dashboard.
+OCCUPANCY_LOW_RANGE = (
+    2.3,
+    2.9,
+)  # A2: low end PLACEHOLDER; high end: 2021 survey, 2.69-2.87 per car
+OCCUPANCY_HIGH_RANGE = (3.0, 4.0)  # A2: PLACEHOLDER around the operator's ~3.5
+DEMAND_LEVEL_RANGE = (0.9, 1.1)  # A22: year effect 1 +- 10 %
+OCCUPANCY_RATIO_RANGE = (0.49, 0.61)  # A8: 2021 survey, 0.495-0.604 by day
+FOOD_FRACTION_CAR_RANGE = (0.40, 0.60)  # A10: PLACEHOLDER
+FOOD_FRACTION_OTHER_RANGE = (0.56, 0.76)  # A10: PLACEHOLDER
+FOOD_SITTINGS_RANGE = (1.5, 2.5)  # A11: PLACEHOLDER
+
+
+def _uniform(name: str, bounds: tuple[float, float]) -> DistributionIndex:
+    lo, hi = bounds
+    return DistributionIndex(name, stats.uniform, {"loc": lo, "scale": hi - lo})
+
+
+def _triang(name: str, bounds: tuple[float, float], mode: float) -> DistributionIndex:
+    """Triangular on *bounds* with its mode at the point value (clipped into the range)."""
+    lo, hi = bounds
+    c = min(max((mode - lo) / (hi - lo), 0.0), 1.0)
+    return DistributionIndex(name, stats.triang, {"loc": lo, "scale": hi - lo, "c": c})
+
 
 # ---------------------------------------------------------------------------
 # Constraint
@@ -248,21 +281,25 @@ class FoodModel(Model):
     """Concern sub-model — daily restaurant demand at the 4 lake venues.
 
     Models peak simultaneous diners as a fraction of the visitors reaching the lake
-    (all arrivals, D19), divided by the daily seat turnover.  The constraint is peak
-    simultaneous demand ≤ total seats (520).
+    (all arrivals, D19), divided by the daily seat turnover.  The fraction differs between
+    the visitors arrived by car (who can bring a picnic) and the others (A10).  The
+    constraint is peak simultaneous demand ≤ total seats (520).
 
     Formula::
 
-        visitors_at_lake = pv_visitors_total
-        i_u_food = visitors_at_lake * i_u_food_fraction / i_xo_food_sittings
+        other    = max(pv_visitors_total - pv_visitors_car, 0)
+        i_u_food = (pv_visitors_car * i_u_food_fraction_car
+                    + other * i_u_food_fraction_other) / i_xo_food_sittings
     """
 
     @inputs
     class Inputs:
         """Contractual inputs of :class:`FoodModel`."""
 
+        pv_visitors_car: ConditionalDistributionIndex
         pv_visitors_total: ConditionalDistributionIndex
-        i_u_food_fraction: Index
+        i_u_food_fraction_car: Index
+        i_u_food_fraction_other: Index
         i_xo_food_sittings: Index
         i_c_seats: Index
 
@@ -274,11 +311,13 @@ class FoodModel(Model):
 
     def compute(self, inputs: Inputs) -> Outputs:
         """Compute peak simultaneous diners."""
-        visitors_at_lake = inputs.pv_visitors_total
-        i_u_food = Index(
-            "food usage",
-            visitors_at_lake * inputs.i_u_food_fraction / inputs.i_xo_food_sittings,
+        # above the diagonal (more car arrivals than arrivals) the field is not reachable
+        other = graph.maximum(inputs.pv_visitors_total - inputs.pv_visitors_car, 0.0)
+        diners = (
+            inputs.pv_visitors_car * inputs.i_u_food_fraction_car
+            + other * inputs.i_u_food_fraction_other
         )
+        i_u_food = Index("food usage", diners / inputs.i_xo_food_sittings)
         self.constraint = Constraint(
             name="food", usage=i_u_food, capacity=inputs.i_c_seats
         )
@@ -307,14 +346,16 @@ class FazzonModel(Model):
 
     Context variables
     -----------------
-    cv_season   : june / july / august / september   (prior: proportional to observed days, A14)
+    cv_season   : june / july / august / september   (prior: calendar days of each month, A14)
     cv_weather  : good / cool / rainy                (prior: climatology, A20, D13)
     cv_parking_price, cv_shuttle : access policy     (always fixed by the backend, D15)
 
     Presence variables
     ------------------
-    pv_visitors_car   : daily arrivals by private vehicle   (axis x of the field)
-    pv_visitors_other : daily arrivals by other means       (axis y of the field)
+    pv_visitors_total : daily arrivals, all means           (axis x of the field)
+    pv_visitors_car   : daily arrivals by private vehicle   (axis y of the field)
+    pv_demand_car, pv_demand_other : visitors of a day in 2025 conditions (the days
+                        simulated by the backend for the scatter and the KPIs, A36)
 
     Both depend on the season, the weather, the parking price level and whether the
     shuttle runs (D15): the access policy moves the arrivals on the field (modal shift),
@@ -334,7 +375,9 @@ class FazzonModel(Model):
         # Presence distributions
         pv_visitors_car: ConditionalDistributionIndex
         pv_visitors_total: ConditionalDistributionIndex
-        pv_visitors_other: ConditionalDistributionIndex  # sampling only (scatter)
+        # Demand of a day in 2025 conditions: the days of the backend (scatter, KPIs; A36)
+        pv_demand_car: ConditionalDistributionIndex
+        pv_demand_other: ConditionalDistributionIndex
         # Access policy (D15)
         cv_parking_price: CategoricalIndex
         cv_shuttle: CategoricalIndex
@@ -347,17 +390,23 @@ class FazzonModel(Model):
         i_shuttle_end_hour: Index
         i_shuttle_peak_end_hour: Index
         i_shuttle_peak_share: Index
+        # 1: the parking turns away the cars above its capacity of the day (A40); 0: no limit
+        i_parking_limit: Index
         # Persons per vehicle (A2)
         i_occupancy_low_price: Index
-        i_occupancy_low: Index
+        i_occupancy_low: DistributionIndex
         i_occupancy_high_price: Index
-        i_occupancy_high: Index
+        i_occupancy_high: DistributionIndex
+        # Uncertain quantities of the arrivals only (parents of the presence variables, A39)
+        i_vehicle_response: DistributionIndex
+        i_demand_level: DistributionIndex
         # Conversion parameters
-        i_occupancy_ratio: Index
+        i_occupancy_ratio: DistributionIndex
         i_xo_road_trips: Index
         # Food parameters
-        i_u_food_fraction: Index
-        i_xo_food_sittings: Index
+        i_u_food_fraction_car: DistributionIndex
+        i_u_food_fraction_other: DistributionIndex
+        i_xo_food_sittings: DistributionIndex
         # Capacity parameters
         i_c_parking: DistributionIndex
         i_c_road: DistributionIndex
@@ -383,7 +432,7 @@ class FazzonModel(Model):
         The presence statistics are read from the Fazzon data folder at every call
         (see :mod:`src.model.fazzon.fazzon_data`).
         """
-        season, weather, behaviour, car_visitors_stats, other_visitors_stats = (
+        season, weather, behaviour, car_visitors_stats, _, demand_stats = (
             presence_inputs()
         )
         cv_season = CategoricalIndex("season", {s: season[s] for s in season})  # A14
@@ -402,11 +451,34 @@ class FazzonModel(Model):
                 for c in SHUTTLE_CAPACITY_LEVELS
             },
         )
-        policy = [cv_season, cv_weather, cv_parking_price, cv_shuttle]
+        # A39: uncertain quantities of the arrivals, sampled by the ensemble
+        i_occupancy_low = _triang(
+            OCCUPANCY_LOW_NAME, OCCUPANCY_LOW_RANGE, behaviour["occupancy_low"]
+        )
+        i_occupancy_high = _triang(
+            OCCUPANCY_HIGH_NAME, OCCUPANCY_HIGH_RANGE, behaviour["occupancy_high"]
+        )
+        # measured: normal with the 90 % interval of fazzon_modal_shift
+        k_sd = (behaviour["car_response_high"] - behaviour["car_response_low"]) / (
+            2 * stats.norm.ppf(0.95)
+        )
+        i_vehicle_response = DistributionIndex(
+            VEHICLE_RESPONSE_NAME,
+            stats.norm,
+            {"loc": behaviour["car_response"], "scale": max(k_sd, 1e-9)},
+        )
+        i_demand_level = _uniform(DEMAND_LEVEL_NAME, DEMAND_LEVEL_RANGE)
+        uncertain = [
+            i_vehicle_response,
+            i_occupancy_low,
+            i_occupancy_high,
+            i_demand_level,
+        ]
+        policy = [cv_season, cv_weather, cv_parking_price, cv_shuttle, *uncertain]
 
         pv_visitors_car = ConditionalDistributionIndex(
             "visitors_car",
-            [cv_season, cv_weather, cv_parking_price],
+            [cv_season, cv_weather, cv_parking_price, *uncertain],
             car_visitors_stats,
         )
         # Trial: y axis = all visitors arriving (car + other)
@@ -415,12 +487,15 @@ class FazzonModel(Model):
             policy,
             car_visitors_stats.total,
         )
-        # Non-car arrivals: not in the graph, used by the backend to sample the scatter
-        # (total = car + non-car draw of the same day)
-        pv_visitors_other = ConditionalDistributionIndex(
-            "visitors_other",
-            policy,
-            other_visitors_stats,
+        # Demand of a day in 2025 conditions: not in the graph; the backend draws the days
+        # from them and computes what happens on each (scatter and KPIs, A36)
+        car_demand_stats, other_demand_stats = demand_stats
+        demand_parents = [cv_season, cv_weather, i_occupancy_low, i_demand_level]
+        pv_demand_car = ConditionalDistributionIndex(
+            "demand_car", demand_parents, car_demand_stats
+        )
+        pv_demand_other = ConditionalDistributionIndex(
+            "demand_other", demand_parents, other_demand_stats
         )
 
         return cls.Inputs(
@@ -430,7 +505,8 @@ class FazzonModel(Model):
             cv_shuttle=cv_shuttle,
             pv_visitors_car=pv_visitors_car,
             pv_visitors_total=pv_visitors_total,
-            pv_visitors_other=pv_visitors_other,
+            pv_demand_car=pv_demand_car,
+            pv_demand_other=pv_demand_other,
             # Shuttle: no bus in 2025 conditions (the Greenbus pilot only ran 28/06-20/07, D1).
             # 2026 Lakebus (A29): 2 buses x 30 seats, together every 30 min, 9-19.
             i_shuttle_buses=Index("shuttle buses", 0.0),
@@ -445,32 +521,39 @@ class FazzonModel(Model):
             i_shuttle_peak_share=Index(
                 "shuttle riders in the morning peak (share)", 0.6
             ),  # A35
-            # Persons per vehicle, from the pipeline (fazzon_modal_shift, A2)
+            # A40: off by default (no evidence of how the 2026 booking limit acted)
+            i_parking_limit=Index("parking turns away cars above capacity", 0.0),
+            # Persons per vehicle, point values from the pipeline (fazzon_modal_shift, A2)
             i_occupancy_low_price=Index(
                 "occupancy low price", behaviour["occupancy_low_price"]
             ),
-            i_occupancy_low=Index(
-                "persons per vehicle at low price", behaviour["occupancy_low"]
-            ),
+            i_occupancy_low=i_occupancy_low,
             i_occupancy_high_price=Index(
                 "occupancy high price", behaviour["occupancy_high_price"]
             ),
-            i_occupancy_high=Index(
-                "persons per vehicle at high price", behaviour["occupancy_high"]
-            ),
+            i_occupancy_high=i_occupancy_high,
+            i_vehicle_response=i_vehicle_response,
+            i_demand_level=i_demand_level,
             # Conversion parameters
-            i_occupancy_ratio=Index(
-                "parking occupancy ratio", 0.555
-            ),  # A8: 4.44h/8h, 2021 calibration
+            # A8: simultaneous / daily cars, 2021 survey (mean 0.555, 0.495-0.604 by day)
+            i_occupancy_ratio=_uniform(
+                "parking occupancy ratio", OCCUPANCY_RATIO_RANGE
+            ),
             i_xo_road_trips=Index(
                 "road round-trip multiplier", 2.0
             ),  # A9: in + out = 2 passages
-            # Food
-            i_u_food_fraction=Index(
-                "restaurant usage fraction", 0.55
-            ),  # A10: >50% (EETRA 2022)
-            i_xo_food_sittings=Index(
-                "food seat turnover", 2.0
+            # Food. A10: 0.55 of all visitors (EETRA 2022, >50 %) in 2025 conditions, where
+            # 31 % arrive by other means (A3): 0.69 x 0.50 + 0.31 x 0.66 = 0.55 at the
+            # centres of the ranges
+            i_u_food_fraction_car=_uniform(
+                "restaurant usage fraction, visitors by car", FOOD_FRACTION_CAR_RANGE
+            ),
+            i_u_food_fraction_other=_uniform(
+                "restaurant usage fraction, visitors by other means",
+                FOOD_FRACTION_OTHER_RANGE,
+            ),
+            i_xo_food_sittings=_uniform(
+                "food seat turnover", FOOD_SITTINGS_RANGE
             ),  # A11: ~2 sittings/seat/day
             # Capacities
             # A12 — Parking: policy cap is 150 simultaneous cars.  Triangular captures
@@ -533,8 +616,10 @@ class FazzonModel(Model):
         )
         food = FoodModel(
             inputs=FoodModel.Inputs(
+                pv_visitors_car=inputs.pv_visitors_car,
                 pv_visitors_total=inputs.pv_visitors_total,
-                i_u_food_fraction=inputs.i_u_food_fraction,
+                i_u_food_fraction_car=inputs.i_u_food_fraction_car,
+                i_u_food_fraction_other=inputs.i_u_food_fraction_other,
                 i_xo_food_sittings=inputs.i_xo_food_sittings,
                 i_c_seats=inputs.i_c_seats,
             )

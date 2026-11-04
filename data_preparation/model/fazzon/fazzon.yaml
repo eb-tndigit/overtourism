@@ -20,9 +20,12 @@ sources:
   greenbus_2025:      # 2025 Greenbus pilot, tickets sold
     key: fazzon/Riepilogo dati bus estate 2025.xlsx
     local: Riepilogo dati bus estate 2025.xlsx
-  road_counts:        # PAT Servizio Gestione Strade, hourly, 2022-2025 (~2.3 GB)
-    key: dati_transiti/dati_transito_veicolare.csv
-    local: vehicles/esportazione-002.csv
+  road_counts:        # PAT Servizio Gestione Strade, hourly; one entry per delivery, in delivery order
+                      # (a later delivery replaces an earlier one on the same station and day)
+    - key: dati_transiti/dati_transito_veicolare.csv   # 2022-2025, Val di Sole and Val di Non (~2.3 GB)
+      local: vehicles/esportazione-002.csv
+    - key: dati_transiti/Dati_prot_n_0827898.csv       # 01/01-30/09/2026: Pellizzano, Pracorno, Celledizzo, Revo'
+      local: vehicles/Dati_prot_n_0827898.csv
   vodafone_attendences:
     key: vodafone_attendences_new.csv
     local: new/vodafone_attendences.csv

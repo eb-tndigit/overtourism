@@ -7,6 +7,7 @@ from model.fazzon.reference_datasets import (
     REFERENCE_OCCUPANCY,
     build_fazzon_daily,
     build_presence_stats,
+    level_presence_stats,
     weather_factors,
 )
 from model.fazzon.standardize import (
@@ -20,6 +21,39 @@ from model.fazzon.standardize import (
 def test_config_lists_all_sources():
     config = load_config()
     assert {"parking", "road_counts", "vodafone_attendences", "meteo_station", "meteo_bulletin"} <= set(config.sources)
+    assert isinstance(config.sources["road_counts"], tuple)  # one entry per delivery
+
+
+def _road_csv(path, rows):
+    """rows: (station, date, direction, cars per hour) -> PAT file with one car row per hour."""
+    lines = ['"PUNTO","DATA","ORA","DIREZIONE","CLASSE","VELOCITA","N_VEICOLI"']
+    for station, date, direction, cars in rows:
+        lines += [f'"{station}","{date}","{hour:02d}",{direction},2,5,{cars}' for hour in range(24)]
+    path.write_text("\n".join(lines))
+    return path
+
+
+_ROAD_STATIONS = pd.DataFrame({"kind": ["road", "road"], "code": ["110", "155"], "name": ["pellizzano", "pracorno"]})
+
+
+def test_road_counts_later_delivery_replaces_earlier(tmp_path):
+    first = _road_csv(tmp_path / "a.csv", [("110", "01/08/2026", 2, 10), ("110", "02/08/2026", 2, 10),
+                                           ("155", "01/08/2026", 2, 7)])
+    second = _road_csv(tmp_path / "b.csv", [("110", "02/08/2026", 2, 20)])
+    hourly = standardize_road_counts([first, second], _ROAD_STATIONS)
+    cars = hourly.groupby(["station", "date"])["cars"].sum()
+    assert cars[("pellizzano", pd.Timestamp("2026-08-01"))] == 240  # only in the first delivery
+    assert cars[("pellizzano", pd.Timestamp("2026-08-02"))] == 480  # replaced, not added
+    assert cars[("pracorno", pd.Timestamp("2026-08-01"))] == 168
+
+
+def test_road_counts_undercounting_direction_is_invalid(tmp_path):
+    path = _road_csv(tmp_path / "r.csv", [("155", "01/08/2026", 1, 3), ("155", "01/08/2026", 2, 60),
+                                          ("110", "01/08/2026", 1, 50), ("110", "01/08/2026", 2, 70)])
+    daily = road_counts_daily(standardize_road_counts(path, _ROAD_STATIONS)).set_index(["station", "direction"])
+    assert not daily.loc[("pracorno", 1), "valid"]  # 72 cars, above the minimum, but 1/20 of direction 2
+    assert daily.loc[("pracorno", 2), "valid"]
+    assert daily.loc[("pellizzano", 1), "valid"] and daily.loc[("pellizzano", 2), "valid"]
 
 
 def _parking_sheet(tmp_path):
@@ -121,7 +155,7 @@ def test_weather_factors_recover_multiplicative_effect():
     assert factor["good"] == 1.0 and factor["rainy"] == pytest.approx(0.5)
 
 
-def test_presence_stats_per_season_and_weather():
+def test_level_presence_stats_per_season_and_weather():
     days = pd.date_range("2025-07-01", "2025-08-31")
     cars = {str(d.date()): (300.0 if d.month == 8 else 150.0) for d in days}
     rain = {str(d.date()): 20.0 for d in days if d.day % 4 == 0}  # rainy days: half the cars
@@ -131,7 +165,7 @@ def test_presence_stats_per_season_and_weather():
     cars["2025-08-28"] = 27.0  # D4: bad-weather days are part of the calibration
     rain["2025-08-28"] = 34.0
     daily = build_fazzon_daily(_tables_for_daily(cars, rain, tmax))
-    stats = build_presence_stats(daily).set_index(["season", "weather"])
+    stats = level_presence_stats(daily).set_index(["season", "weather"])
     assert set(stats.index.get_level_values("season")) == {"july", "august"}
     assert set(stats.index.get_level_values("weather")) == {"good", "cool", "rainy"}
     assert stats.loc[("august", "good"), "mean_car_visitors"] == pytest.approx(300.0 * REFERENCE_OCCUPANCY, rel=0.05)
@@ -143,10 +177,47 @@ def test_presence_stats_per_season_and_weather():
     assert stats.groupby("season")["weather_freq_rel"].sum().tolist() == pytest.approx([1.0, 1.0])
 
 
-def test_presence_stats_fail_without_days_of_a_weather_class():
+def test_level_presence_stats_fail_without_days_of_a_weather_class():
     cars = {str(d.date()): 100.0 for d in pd.date_range("2025-07-01", "2025-07-31")}
     daily = build_fazzon_daily(_tables_for_daily(cars))  # all days good: no cool / rainy days
     with pytest.raises(ValueError, match="weather classes"):
+        level_presence_stats(daily)
+
+
+def _traffic_daily(years=(2024, 2025)):
+    """Season days with traffic and weather; Fazzon cars only in 2025: cars = 0.1 x traffic +
+    c(weather), c = 0 / -20 / -30 (A37)."""
+    dates = pd.DatetimeIndex([d for y in years for d in pd.date_range(f"{y}-06-01", f"{y}-09-30")])
+    weather = np.array(["good", "cool", "rainy"])[np.arange(len(dates)) % 3]
+    traffic = 1000.0 + 10.0 * (np.arange(len(dates)) % 40)
+    cars = 0.1 * traffic + np.select([weather == "cool", weather == "rainy"], [-20.0, -30.0], 0.0)
+    daily = pd.DataFrame({"date": dates, "year": dates.year, "month": dates.month, "weather": weather,
+                          "strada_pellizzano_salita_mattina": traffic, "cars": cars})
+    daily.loc[daily["year"] != 2025, "cars"] = np.nan
+    return daily
+
+
+def test_presence_stats_from_traffic_and_relation():
+    daily = _traffic_daily()
+    stats = build_presence_stats(daily).set_index(["season", "weather"])
+    days = daily.assign(season=daily["month"].map({6: "june", 7: "july", 8: "august", 9: "september"}))
+    cell = days[(days["season"] == "august") & (days["weather"] == "cool")]
+    expected = 0.1 * cell["strada_pellizzano_salita_mattina"] - 20.0  # both years, through the 2025 relation
+    assert stats.loc[("august", "cool"), "mean_car_visitors"] == pytest.approx(expected.mean() * REFERENCE_OCCUPANCY)
+    # exact relation: no scatter around it (A38), the SD is the spread of the days
+    assert stats.loc[("august", "cool"), "std_car_visitors"] == pytest.approx(expected.std() * REFERENCE_OCCUPANCY)
+    assert stats.loc[("august", "cool"), "n_days"] == len(cell)
+    seasons = stats.reset_index().drop_duplicates("season").set_index("season")["season_freq_rel"]
+    assert seasons.to_dict() == pytest.approx({"june": 30 / 122, "july": 31 / 122, "august": 31 / 122,
+                                               "september": 30 / 122})  # A14: calendar days
+    assert stats.groupby("season")["weather_freq_rel"].sum().tolist() == pytest.approx([1.0] * 4)
+    assert stats.reset_index()["calibration"].iloc[0] == "traffic_2024_2025_relation_2025"
+
+
+def test_presence_stats_fail_with_few_traffic_days_in_a_cell():
+    daily = _traffic_daily(years=(2025,))
+    daily.loc[(daily["month"] == 6) & (daily["weather"] == "rainy"), "strada_pellizzano_salita_mattina"] = np.nan
+    with pytest.raises(ValueError, match="days with traffic"):
         build_presence_stats(daily)
 
 
@@ -163,38 +234,69 @@ def test_parking_price_per_day():
 def test_modal_shift_recovers_known_response():
     from model.fazzon.modal_shift import estimate_modal_shift
 
-    stats = pd.DataFrame({
-        "season": ["july", "august", "september"], "weather": ["good"] * 3,
-        "mean_car_visitors": [100 * REFERENCE_OCCUPANCY, 200 * REFERENCE_OCCUPANCY, 100 * REFERENCE_OCCUPANCY],
+    stats = pd.DataFrame({  # season x weather levels: only kept for comparison (A21)
+        "season": ["june", "july", "august", "september"], "weather": ["good"] * 4,
+        "mean_car_visitors": [100 * REFERENCE_OCCUPANCY] * 4,
     })
     beta = 0.1
     rows = []
-    for day in pd.date_range("2026-07-04", "2026-08-30"):  # rules: 20 euro, shuttle
-        cars5 = 100.0 if day.month == 7 else 200.0
-        cars = cars5 * np.exp(-beta * 15)
-        rows.append({"date": day, "month": day.month, "cars": cars, "cars_full": cars, "cars_half": np.nan,
-                     "parking_price": 20.0, "parking_price_afternoon": 10.0, "regulated_parking": True,
+    for i, day in enumerate(pd.date_range("2025-06-01", "2025-09-30")):  # calibration: cars = 0.1 x traffic
+        traffic = 1000.0 + 20 * (i % 50)
+        rows.append({"date": day, "year": 2025, "month": day.month, "traffic": traffic, "cars": 0.1 * traffic,
+                     "parking_price": 5.0, "regulated_parking": False, "shuttle": None})
+    for i, day in enumerate(pd.date_range("2026-07-04", "2026-08-30")):  # rules: 20 euro, shuttle
+        traffic = 1500.0 + 30 * (i % 20)
+        rows.append({"date": day, "year": 2026, "month": day.month, "traffic": traffic,
+                     "cars": 0.1 * traffic * np.exp(-beta * 15), "parking_price": 20.0, "regulated_parking": True,
                      "shuttle": "lakebus", "bus_up": 50.0, "bus_down": 60.0})
-    for day in pd.date_range("2026-09-01", "2026-09-10"):  # 5 euro, no rules: year effect 1.2
-        rows.append({"date": day, "month": 9, "cars": 120.0, "cars_full": 120.0, "cars_half": np.nan,
-                     "parking_price": 5.0, "parking_price_afternoon": 5.0, "regulated_parking": False,
-                     "shuttle": None, "bus_up": np.nan, "bus_down": np.nan})
-    daily = pd.DataFrame(rows).assign(year=2026, weather="good", event_day=False, moto_persons=0.0,
-                                      parking_price_assumed=False)
+    for i, day in enumerate(pd.date_range("2026-09-01", "2026-09-10")):  # 5 euro, no rules: 1.2 x the relation
+        traffic = 1000.0 + 40 * i
+        rows.append({"date": day, "year": 2026, "month": 9, "traffic": traffic, "cars": 0.12 * traffic,
+                     "parking_price": 5.0, "regulated_parking": False, "shuttle": None})
+    daily = pd.DataFrame(rows).rename(columns={"traffic": "strada_pellizzano_salita_mattina"})
+    daily = daily.assign(cars_full=daily["cars"], cars_half=np.nan, parking_price_afternoon=daily["parking_price"],
+                         weather="good", event_day=False, moto_persons=0.0, parking_price_assumed=False)
+    daily.loc[daily["shuttle"].isna(), ["bus_up", "bus_down"]] = np.nan
+    daily.loc[daily["regulated_parking"], "parking_price_afternoon"] = 10.0
     estimates, days = estimate_modal_shift(daily, stats)
     e = estimates.set_index(["parameter", "days"])["estimate"]
-    assert e[("year_effect", "")] == pytest.approx(1.2)
-    # vehicles at 5 euro in 2026 = 1.2 x 2025 level, so the car response is exp(-15 beta) / 1.2
-    assert e[("car_response", "")] == pytest.approx(np.exp(-beta * 15) / 1.2)
+    assert e[("demand_per_morning_car", "")] == pytest.approx(0.1) and e[("demand_intercept", "")] == pytest.approx(0, abs=1e-6)
+    assert e[("year_effect_observed", "")] == pytest.approx(1.2)  # reported, not used (A22)
+    assert e[("year_effect", "")] == 1.0
+    assert e[("car_response", "")] == pytest.approx(np.exp(-beta * 15))
     assert e[("price_paid", "")] == pytest.approx(20.0)
     # visitors: 3.5 persons per car at 20 euro vs 2.5 at 5 euro (A2)
-    assert e[("visitor_response", "")] == pytest.approx(np.exp(-beta * 15) / 1.2 * 3.5 / 2.5)
+    assert e[("visitor_response", "")] == pytest.approx(np.exp(-beta * 15) * 3.5 / 2.5)
     assert e[("share_walk_up", "with_walk_up")] > 0
     assert set(days["role"]) == {"regime", "year_effect"}
     assert e[("occupancy_high", "")] == 3.5 and e[("reference_price", "")] == 5.0
+    low, high = estimates.set_index("parameter").loc["year_effect", ["low", "high"]]
+    assert 0.9 <= low < 1.0 < high <= 1.1
 
 
 def test_occupancy_interpolates_between_low_and_high_price():
     from model.fazzon.reference_datasets import occupancy
 
     assert occupancy([0.0, 5.0, 10.0, 20.0, 40.0]).tolist() == pytest.approx([2.5, 2.5, 2.5 + 1 / 3, 3.5, 3.5])
+
+
+def test_monitoring_compares_every_year_with_the_calibration_year():
+    from model.fazzon.monitoring import build_monitoring
+
+    dates = pd.date_range("2025-06-01", "2025-09-30").append(pd.date_range("2026-06-01", "2026-09-30"))
+    daily = pd.DataFrame({"date": dates, "year": dates.year, "month": dates.month, "weather": "good"})
+    regime = (daily["year"] == 2026) & daily["date"].between("2026-07-04", "2026-08-31")
+    daily["strada_pellizzano_salita_mattina"] = np.where(daily["year"] == 2026, 1100.0, 1000.0)
+    daily["cars"] = np.where(regime, 33.0, daily["strada_pellizzano_salita_mattina"] * 0.1)
+    for station in ("pellizzano", "pracorno", "celledizzo", "tonale", "revo"):
+        daily[f"strada_{station}_totale"] = np.nan
+    m = build_monitoring(daily).set_index(["indicator", "year", "period"])
+    up = m.loc[("road_pellizzano_morning_up", 2026, "regime_window")]
+    assert up["ratio_to_reference"] == pytest.approx(1.1) and up["regime_in_force"]
+    ratio = m.loc[("fazzon_cars_per_morning_car", 2026, "regime_window"), "ratio_to_reference"]
+    assert ratio == pytest.approx(0.03 / 0.1)
+    assert m.loc[("fazzon_cars_per_morning_car", 2026, "rest_of_season"), "ratio_to_reference"] == pytest.approx(1.0)
+    assert m.loc[("fazzon_cars_per_morning_car", 2025, "regime_window"), "ratio_to_reference"] == pytest.approx(1.0)
+    assert "road_tonale" not in m.index.get_level_values("indicator")  # no data, no row
+    # 2025: cars = 0.1 x traffic, so the relation (A37) predicts the 2026 days outside the regime exactly
+    assert m.loc[("fazzon_cars_vs_calibration_relation", 2026, "rest_of_season"), "value"] == pytest.approx(1.0)

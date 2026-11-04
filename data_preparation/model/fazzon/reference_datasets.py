@@ -7,12 +7,15 @@ Output: <final>/fazzon/
   - fazzon_daily: one row per day, measured Fazzon data + access regime flags + predictors
   - fazzon_presence_stats: the presence statistics of the Fazzon model
     (executor-backend/src/model/fazzon/fazzon_presence_stats.py), per season and weather class
+  - fazzon_modal_shift, fazzon_modal_shift_daily (modal_shift.py, step 2b)
+  - fazzon_monitoring (monitoring.py, step 2c): drift indicators, every year vs the calibration year
 
 `fazzon_daily` holds measured values and the access rules of each day; assumptions
 (occupancy, non-car share, ...) are applied in the statistics. Every decision and
 assumption is listed in ASSUMPTIONS.md; the IDs in the comments below refer to it.
 """
 
+import calendar
 import logging
 
 import numpy as np
@@ -30,13 +33,21 @@ SHUTTLE_PERIODS = {
     "greenbus_pilot": (pd.Timestamp("2025-06-28"), pd.Timestamp("2025-07-20")),
     "lakebus": (pd.Timestamp("2026-07-04"), pd.Timestamp("2026-08-30")),
 }
-REGULATED_PARKING = (pd.Timestamp("2026-07-04"), pd.Timestamp("2026-08-31"))
+# Regulated access (traffic light, booking, regulated price), per year: add a line for a new season.
+REGULATED_PARKING = {
+    2026: (pd.Timestamp("2026-07-04"), pd.Timestamp("2026-08-31")),
+}
 # D3: 21/08/2026, bad weather all day: shuttle not running, parking at 5 euro.
 SHUTTLE_NOT_RUNNING = pd.to_datetime(["2026-08-21"])
 REDUCED_PRICE_DAYS = {pd.Timestamp("2026-08-21"): 5.0}
 # D2: events that make the car count not comparable ("5days": >2000 people, extra meadows
 # used as parking, cars not counted).
 EVENT_DAYS = pd.to_datetime(["2026-07-02", "2026-07-03"])
+# D21: days whose access rules are uncertain (31/08/2026: in the regulated period but after the
+# Lakebus, recorded and counted like the 5-euro days).
+UNCERTAIN_RULES_DAYS = pd.to_datetime(["2026-08-31"])
+# Days left out of the comparisons between years and periods (D2, D3, D21).
+EXCLUDED_DAYS = EVENT_DAYS.union(SHUTTLE_NOT_RUNNING).union(UNCERTAIN_RULES_DAYS)
 
 # Parking price per car (euro), on the days with Fazzon parking data.
 PRICE_2025 = 5.0  # 2025 rules (operator): 5 euro/day until the car park is full
@@ -163,7 +174,9 @@ def build_fazzon_daily(tables: dict[str, pd.DataFrame]) -> pd.DataFrame:
     daily["shuttle"] = None
     for name, (first, last) in SHUTTLE_PERIODS.items():
         daily.loc[d.between(first, last) & ~d.isin(SHUTTLE_NOT_RUNNING), "shuttle"] = name
-    daily["regulated_parking"] = d.between(*REGULATED_PARKING)
+    daily["regulated_parking"] = False
+    for first, last in REGULATED_PARKING.values():
+        daily.loc[d.between(first, last), "regulated_parking"] = True
     daily["event_day"] = d.isin(EVENT_DAYS)
     _add_parking_price(daily, parking_days=fz.index)
     daily["year"] = d.dt.year
@@ -219,9 +232,10 @@ def weather_factors(cal: pd.DataFrame, n_iter: int = 50) -> tuple[pd.Series, pd.
     return level, factor
 
 
-def build_presence_stats(daily: pd.DataFrame) -> pd.DataFrame:
-    """Presence statistics per (season, weather) cell, in the layout read by
-    fazzon_presence_stats.py.
+def level_presence_stats(daily: pd.DataFrame) -> pd.DataFrame:
+    """Season x weather levels of the calibration year (A21), in the layout of the presence
+    statistics. Replaced by ``build_presence_stats`` (A37, A38); kept for comparison (modal-shift
+    days, exploratory analysis).
 
     * ``season_freq_rel``: share of the calibration days in the season (A14).
     * ``weather_freq_rel``: P(weather | season), climatology (A20).
@@ -265,18 +279,81 @@ def build_presence_stats(daily: pd.DataFrame) -> pd.DataFrame:
     return stats
 
 
+MIN_CELL_DAYS = 10  # fewer traffic days in a season x weather cell: error, not a thin estimate
+
+
+def season_weights() -> pd.Series:
+    """A14: share of the calendar days of each season (month) in June-September."""
+    days = pd.Series({season: calendar.monthrange(CALIBRATION_YEAR, month)[1] for month, season in SEASONS.items()})
+    return days / days.sum()
+
+
+def build_presence_stats(daily: pd.DataFrame) -> pd.DataFrame:
+    """Presence statistics per (season, weather) cell, in the layout read by
+    fazzon_presence_stats.py.
+
+    * ``season_freq_rel``: share of the calendar days in the season (A14).
+    * ``weather_freq_rel``: P(weather | season), climatology (A20).
+    * Visitors by private vehicle in 2025 conditions (5 euro; A2, A26): the cars of every season
+      day of every year with valid traffic and weather class, from the calibration year's relation
+      with the traffic (A37; below zero: zero); mean = their mean x REFERENCE_OCCUPANCY;
+      variance = their variance + DISPERSION x mean (the scatter of the days around the
+      relation, A38), x REFERENCE_OCCUPANCY^2.
+    * Non-car visitors: car visitors x NON_CAR_SHARE / (1 - NON_CAR_SHARE) (A3),
+      SD = OTHER_STD_REL x mean (A4).
+    """
+    from model.fazzon.demand import calibration_days, demand_days, dispersion, expected_cars, fit_demand
+
+    other_ratio = NON_CAR_SHARE / (1.0 - NON_CAR_SHARE)
+    cal = calibration_days(daily)
+    coef = fit_demand(cal)
+    phi = dispersion(cal, coef)
+    days = demand_days(daily).copy()
+    days["season"] = days["month"].map(SEASONS)
+    days["cars"] = np.clip(expected_cars(days, coef), 0.0, None)
+    climatology = weather_climatology(daily)
+    weights = season_weights()
+
+    rows = []
+    for season in SEASONS.values():
+        for weather in WEATHER_CLASSES:
+            cell = days.loc[(days["season"] == season) & (days["weather"] == weather), "cars"]
+            if len(cell) < MIN_CELL_DAYS:
+                raise ValueError(f"{season} / {weather}: {len(cell)} days with traffic, fewer than {MIN_CELL_DAYS}")
+            mean_car = cell.mean() * REFERENCE_OCCUPANCY
+            std_car = np.sqrt(cell.var() + phi * cell.mean()) * REFERENCE_OCCUPANCY
+            rows.append({
+                "season": season,
+                "weather": weather,
+                "season_freq_rel": weights[season],
+                "weather_freq_rel": climatology.loc[season, weather],
+                "mean_car_visitors": mean_car,
+                "std_car_visitors": std_car,
+                "mean_other_visitors": mean_car * other_ratio,
+                "std_other_visitors": mean_car * other_ratio * OTHER_STD_REL,
+                "n_days": len(cell),
+            })
+    stats = pd.DataFrame(rows)
+    years = sorted(days["year"].unique())
+    stats.insert(0, "calibration", f"traffic_{years[0]}_{years[-1]}_relation_{CALIBRATION_YEAR}")
+    return stats
+
+
 def build_all(tables: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
     daily = build_fazzon_daily(tables)
     stats = build_presence_stats(daily)
     _check(daily, stats)
-    from model.fazzon.modal_shift import estimate_modal_shift  # step 2b, uses the stats above
+    from model.fazzon.modal_shift import estimate_modal_shift  # step 2b
 
-    modal_shift, modal_shift_days = estimate_modal_shift(daily, stats)
+    modal_shift, modal_shift_days = estimate_modal_shift(daily, level_presence_stats(daily))
+    from model.fazzon.monitoring import build_monitoring  # step 2c
+
     return {
         "fazzon_daily": daily,
         "fazzon_presence_stats": stats,
         "fazzon_modal_shift": modal_shift,
         "fazzon_modal_shift_daily": modal_shift_days,
+        "fazzon_monitoring": build_monitoring(daily),
     }
 
 
@@ -289,6 +366,6 @@ def _check(daily: pd.DataFrame, stats: pd.DataFrame) -> None:
     by_season = stats.groupby("season")["weather_freq_rel"].sum()
     if not np.allclose(by_season, 1.0) or (stats["weather_freq_rel"] <= 0).any():
         raise ValueError(f"weather_freq_rel must be > 0 and sum to 1 per season: {by_season.to_dict()}")
-    for year in (2025, 2026):
-        n = daily.loc[daily["year"] == year, "cars"].notna().sum()
-        logger.info("fazzon_daily: %d days with Fazzon car counts in %d", n, year)
+    for year, n in daily.groupby("year")["cars"].count().items():
+        if n:
+            logger.info("fazzon_daily: %d days with Fazzon car counts in %d", n, year)

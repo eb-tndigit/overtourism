@@ -64,6 +64,11 @@ MODAL_SHIFT = pd.DataFrame(
         ("share_shuttle", "with_walk_up", 0.77),
         ("share_walk_up", "with_walk_up", 0.155),
         ("share_elsewhere", "with_walk_up", 0.075),
+        # 2026 regime observations, consistent with beta: R(15) = exp(-0.09 x 10),
+        # vehicle response = R x 2.5 / persons per vehicle at 15 euro (3.1667)
+        ("price_paid", "", 15.0),
+        ("visitor_response", "", float(np.exp(-0.9))),
+        ("car_response", "", float(np.exp(-0.9) * 2.5 / (2.5 + 10.0 / 15.0))),
     ],
     columns=["parameter", "days", "estimate"],
 )

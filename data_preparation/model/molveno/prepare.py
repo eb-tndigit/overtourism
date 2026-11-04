@@ -31,8 +31,10 @@ from model.common.io import save_computed_dfs
 
 logger = logging.getLogger(__name__)
 
-NORMALIZED_TABLES = ("vodafone_presences", "meteo_station")
-REFERENCE_TABLES = ("molveno_daily", "molveno_presence_stats", "molveno_presence_stats_monthly", "molveno_weather_freq")
+NORMALIZED_TABLES = ("vodafone_presences", "meteo_station", "road_counts_daily", "beach_counts", "parking_paid",
+                     "ispat_daily", "beds", "restaurants", "parking_lots")
+REFERENCE_TABLES = ("molveno_daily", "molveno_presence_stats", "molveno_presence_stats_monthly", "molveno_weather_freq",
+                    "molveno_counts_daily")
 
 
 def read_normalized(normalized_dir=MOLVENO_NORMALIZED_DIR) -> dict[str, pd.DataFrame]:

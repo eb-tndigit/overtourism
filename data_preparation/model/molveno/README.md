@@ -23,9 +23,17 @@ python -m model.molveno.estimator_comparison     # validation of the presence es
 * **Sources** (`molveno.yaml`): Vodafone presences (`vodafone_attendences_new.csv`) and the
   aggregated foreign presences (`vodafone_attendences_STR_new.csv`); the measured weather of
   Meteotrentino station T0414 (San Lorenzo in Banale), fetched by
-  `data_download/download_meteo_meteotrentino.py T0414` and uploaded to `molveno/meteo/`.
+  `data_download/download_meteo_meteotrentino.py T0414` and uploaded to `molveno/meteo/`; the
+  counts of summer 2023 (PAT vehicle counters at the two road entries and at the beach, BS4
+  people counters at the 9 beach gates, paying vehicles per tariff of the car parks of the
+  comune), ISPAT daily overnight stays 2022–2023, ISPAT beds per comune, seats of the
+  restaurants and bars of the lake area, the public car parks of the comune with their spaces.
 * **Standardize**: `vodafone_presences` (Molveno tourists and excursionists per day: Italians
-  plus the foreign total), `meteo_station`.
+  plus the foreign total), `meteo_station`, `road_counts_daily` (cars and vehicles per sensor,
+  direction and day, with the hours counted), `beach_counts` (presences and passages per gate
+  and day), `parking_paid` (paying vehicles per day and tariff), `ispat_daily`, `beds` (per
+  year: hotel, extra-hotel, private rentals, second homes), `restaurants` (seats per venue),
+  `parking_lots` (public car parks: tariff, position, spaces per vehicle type).
 * **Reference datasets**:
   * `molveno_daily`: one row per day, presences, calendar, measured weather, weather class.
   * `molveno_presence_stats`: the presence statistics of the model, per summer calendar day
@@ -34,6 +42,10 @@ python -m model.molveno.estimator_comparison     # validation of the presence es
   * `molveno_presence_stats_monthly`: the comparison statistics, per month x weekday x weather
     class (least squares).
   * `molveno_weather_freq`: per summer month, the frequency of each weather class.
+  * `molveno_counts_daily`: one row per day from 27/07/2022 to 04/10/2023, the presences and
+    weather of `molveno_daily` with the counts (cars entering Molveno and the beach, beach
+    presences and passages, paying vehicles and vehicle-hours, ISPAT arrivals and overnight
+    stays); NaN where a day is incomplete. Basis for the calibration of the subsystems.
 * **Validation** (`estimator_comparison.py`): leave-one-year-out scores of the two estimators and
   of the alternatives considered; tables in `data/analysis_output/` (not versioned).
 

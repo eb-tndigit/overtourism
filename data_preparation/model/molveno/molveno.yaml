@@ -18,3 +18,28 @@ sources:
                              # weather; produced by data_download/download_meteo_meteotrentino.py T0414
     key: molveno/meteo/meteo_stazione_T0414.csv
     local: meteo/meteo_stazione_T0414.csv
+  road_counts:               # PAT Servizio Gestione Strade, hourly vehicle counts by class at the three
+                             # Molveno sensors (M40 Andalo side, M42 S. Lorenzo side, M47 beach), 29/06-04/10/2023
+    key: Gestionestrade_contamezzi.zip
+    local: Gestionestrade_contamezzi.zip
+  beach_counts:              # BS4 people counters at the 9 beach gates, daily presences and passages, summer 2023
+    key: BS4_contapersone.zip
+    local: BS4_contapersone.zip
+  parking_paid:              # Comune di Molveno: paying vehicles per day and tariff (stay duration), 27/07/2022-01/10/2023
+    key: Statistiche_parcheggi_Molveno.xlsx
+    local: Statistiche_parcheggi_Molveno.xlsx
+  ispat_daily:               # ISPAT tourist movement (hotel + extra-hotel), comune of Molveno, daily 2022-2023
+    key: Molveno
+    local: Molveno
+  beds:                      # ISPAT yearbook table XIII: establishments and beds per comune, 2019-2023
+    key: Annuario-TavXIII-per-comune-csv.csv
+    local: Annuario-TavXIII-per-comune-csv.csv
+  beds_2025:                 # ISPAT establishments and beds per comune, 2025
+    key: numero_strutture_ISPAT_2025.xlsx
+    local: numero_strutture_ISPAT_2025.xlsx
+  restaurants:               # restaurants and bars of the lake area: seats per venue (beach zone, village and Pradel)
+    key: Numero e capienza esercizi di ristorazione_bar area del lago.xlsx
+    local: Numero e capienza esercizi di ristorazione_bar area del lago.xlsx
+  parking_lots:              # Comune di Molveno: public car parks with tariff (paid / disc / free) and spaces, 09/2024
+    key: molveno/Parcheggi_Molveno_aggiornato-20240919.xlsx
+    local: Parcheggi_Molveno_aggiornato-20240919.xlsx

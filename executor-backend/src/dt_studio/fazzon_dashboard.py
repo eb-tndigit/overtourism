@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Streamlit dashboard entry point for the Fazzon (Lago dei Caprioli) overtourism model.
+"""Streamlit dashboard entry point for the Altipiano di Fazzon overtourism model.
 
 Dev/test tooling only — not part of the application backend. Run with::
 
@@ -90,7 +90,7 @@ class FazzonAdapter(OvertourismAdapter):
     @property
     def title(self) -> str:
         """Dashboard page title."""
-        return "Overtourism Digital Twin — Fazzon (Lago dei Caprioli)"
+        return "Overtourism Digital Twin — Altipiano di Fazzon"
 
     def parameter_specs(self) -> list[OvertourismParameterMeta]:
         """Return the backend's parameter schema, in schema-declaration order."""

@@ -6,25 +6,126 @@
     "problem_extras": {},
     "scenario_name": "Scenario base",
     "scenario_description": "Lo scenario rappresenta una situazione di riferimento in cui la gestione dei flussi turistici avviene senza introdurre nuove misure specifiche nell'ambito della simulazione. Il fine dello scenario  è valutare la sostenibilità della destinazione rispetto alle capacità di carico considerate, con particolare attenzione alla disponibilità di parcheggi per i visitatori giornalieri.",
-    "scenario_summary": "<h6 _ngcontent-ng-c2324380181=\"\" class=\"text-primary mb-3 d-flex align-items-center gap-2\">Descrizione simulazione</h6>\n<p _ngcontent-ng-c2324380181=\"\" class=\"small text-muted mb-2\">\nLe simulazioni della piattaforma usano un <strong>gemello digitale</strong>, cioè una replica virtuale di una destinazione fisica, per valutare gli effetti di possibili decisioni di gestione e attuazione di misure attraverso la definizione di uno scenario prima di applicarle nel mondo reale. elL'<strong>affollamento turistico</strong> si verifica quando la domanda supera una o più <strong>capacità di carico</strong> di una specifica località, generando impatti negativi.Le simulazioni definiranno una serie di indicatori grazie ai quali sarà possibile valutare la sostenibilità della simulazione proposta.\n</p>\n\n<h6 _ngcontent-ng-c2324380181=\"\" class=\"text-primary mb-3 d-flex align-items-center gap-2\">Risultati generali simulazione</h6>\n<p _ngcontent-ng-c2324380181=\"\" class=\"small text-muted mb-2\">\nNello scenario Base scenario, la <strong>Sostenibilità complessiva</strong> si attesta al 74,2% (incertezza di ±1,1 punti percentuali), indicando un livello generale di sostenibilità non pienamente equilibrato rispetto alle capacità di carico considerate. Il <strong>Vincolo Critico</strong> è rappresentato dai Parcheggi, con una sostenibilità pari al 78,3% (incertezza di ±1,1 punti percentuali), ed è quindi il vincolo che limita maggiormente la sostenibilità complessiva. Non sono presenti informazioni su cambiamenti rispetto a uno scenario base alternativo.\n</p>\n\n<h6 _ngcontent-ng-c2324380181=\"\" class=\"text-primary mb-3 d-flex align-items-center gap-2\">Risultati dettagliati</h6>\n<div _ngcontent-ng-c2324380181=\"\" class=\"small text-muted mb-2\">\n<ul class=\"mb-0\">\n<li><strong>Sostenibilità Parcheggi</strong>: si attesta al 78,3% (incertezza di ±1,1 punti percentuali).</li>\n<li><strong>Sostenibilità Spiaggia</strong>: si attesta al 98,6% (incertezza di ±0,2 punti percentuali).</li>\n<li><strong>Sostenibilità Alberghi</strong>: si attesta all’87,2% (incertezza di ±0,7 punti percentuali).</li>\n<li><strong>Sostenibilità Ristoranti</strong>: si attesta al 98,2% (incertezza di ±0,1 punti percentuali).</li>\n</ul>\n</div>",
+    "scenario_summary": "<h6 _ngcontent-ng-c2324380181=\"\" class=\"text-primary mb-3 d-flex align-items-center gap-2\">Descrizione simulazione</h6>\n<p _ngcontent-ng-c2324380181=\"\" class=\"small text-muted mb-2\">\nLe simulazioni della piattaforma usano un <strong>gemello digitale</strong>, cioè una replica virtuale di una destinazione fisica, per valutare gli effetti di possibili decisioni di gestione e attuazione di misure attraverso la definizione di uno scenario prima di applicarle nel mondo reale. elL'<strong>affollamento turistico</strong> si verifica quando la domanda supera una o più <strong>capacità di carico</strong> di una specifica località, generando impatti negativi.Le simulazioni definiranno una serie di indicatori grazie ai quali sarà possibile valutare la sostenibilità della simulazione proposta.\n</p>\n\n<h6 _ngcontent-ng-c2324380181=\"\" class=\"text-primary mb-3 d-flex align-items-center gap-2\">Risultati generali simulazione</h6>\n<p _ngcontent-ng-c2324380181=\"\" class=\"small text-muted mb-2\">\nNello scenario Base scenario, la <strong>Sostenibilità complessiva</strong> si attesta al 74,2% (incertezza di ±4,5 punti percentuali), indicando un livello generale di sostenibilità non pienamente equilibrato rispetto alle capacità di carico considerate. Il <strong>Vincolo Critico</strong> è rappresentato dai Parcheggi, con una sostenibilità pari al 78,3% (incertezza di ±4,4 punti percentuali), ed è quindi il vincolo che limita maggiormente la sostenibilità complessiva. Non sono presenti informazioni su cambiamenti rispetto a uno scenario base alternativo.\n</p>\n\n<h6 _ngcontent-ng-c2324380181=\"\" class=\"text-primary mb-3 d-flex align-items-center gap-2\">Risultati dettagliati</h6>\n<div _ngcontent-ng-c2324380181=\"\" class=\"small text-muted mb-2\">\n<ul class=\"mb-0\">\n<li><strong>Sostenibilità Parcheggi</strong>: si attesta al 78,3% (incertezza di ±4,4 punti percentuali).</li>\n<li><strong>Sostenibilità Spiaggia</strong>: si attesta al 98,6% (incertezza di ±0,8 punti percentuali).</li>\n<li><strong>Sostenibilità Alberghi</strong>: si attesta all’87,2% (incertezza di ±2,7 punti percentuali).</li>\n<li><strong>Sostenibilità Ristoranti</strong>: si attesta al 98,2% (incertezza di ±0,6 punti percentuali).</li>\n</ul>\n</div>",
     "scenario_extras": {},
     "proposal_name": "Miglioramento della gestione dei parcheggi e dei flussi turistici",
     "proposal_description": "Valutare misure per migliorare la gestione dei parcheggi nei periodi di maggiore affluenza, con particolare attenzione ai visitatori giornalieri diretti al lago e ai percorsi escursionistici. La proposta prevede di analizzare la domanda di sosta, la disponibilità dei posti auto ed i possibili interventi attuabili. Sulla base dei risultati, potranno essere valutate soluzioni organizzative e informative per agevolare l'accesso alla località e ridurre la pressione sui parcheggi esistenti.",
     "proposal_status": "draft",
-    "proposal_extras": {}
+    "proposal_extras": {},
+    "scenarios": [
+      {
+        "key": "august_no_booking",
+        "name": "Agosto, nessun parcheggio su prenotazione",
+        "description": "1–31 agosto senza posti su prenotazione (regole 2023–2024): chi non trova posto nei parcheggi a pagamento sosta altrove.",
+        "param_overrides": {
+          "day of summer": [
+            61.0,
+            92.0
+          ],
+          "booked parking spaces": 0.0
+        }
+      },
+      {
+        "key": "august_booking_ischia",
+        "name": "Agosto, Ischia su prenotazione",
+        "description": "1–31 agosto con il parcheggio Ischia (195 posti) solo su prenotazione, come dal 2025.",
+        "param_overrides": {
+          "day of summer": [
+            61.0,
+            92.0
+          ],
+          "booked parking spaces": 195.0
+        }
+      },
+      {
+        "key": "august_booking_all_paid",
+        "name": "Agosto, tutti i parcheggi a pagamento su prenotazione",
+        "description": "1–31 agosto con tutti i 529 posti a pagamento solo su prenotazione: gli escursionisti in auto oltre i posti disponibili rinunciano (ipotesi A13).",
+        "param_overrides": {
+          "day of summer": [
+            61.0,
+            92.0
+          ],
+          "booked parking spaces": 529.0
+        }
+      }
+    ]
   },
   {
     "territory": "fazzon",
     "problem_name": "Gestione degli accessi e dei flussi turistici",
-    "problem_description": "Nel periodo di maggiore affluenza estiva, la località di Fazzon e il Lago dei Caprioli sono interessati da una forte pressione turistica. L'accesso al lago avviene attraverso un'unica strada a carreggiata limitata, che non consente il passaggio contemporaneo dei veicoli nei due sensi quando è impegnata dalla navetta. Questa condizione può generare difficoltà nella gestione dei flussi, limitare la fluidità degli spostamenti e rendere necessario contingentare gli accessi nei momenti di maggiore affluenza. La criticità principale consiste quindi nel conciliare la domanda turistica con la capacità limitata della viabilità e dei parcheggi disponibili.",
+    "problem_description": "Nel periodo di maggiore affluenza estiva, l'Altipiano di Fazzon è interessato da una forte pressione turistica. L'accesso avviene attraverso un'unica strada a carreggiata limitata, che non consente il passaggio contemporaneo dei veicoli nei due sensi quando è impegnata dalla navetta. Questa condizione può generare difficoltà nella gestione dei flussi, limitare la fluidità degli spostamenti e rendere necessario contingentare gli accessi nei momenti di maggiore affluenza. La criticità principale consiste quindi nel conciliare la domanda turistica con la capacità limitata della viabilità, dei parcheggi e della ristorazione.",
     "problem_extras": {},
     "scenario_name": "Scenario base",
-    "scenario_description": "Lo scenario rappresenta la situazione attuale di gestione degli accessi a Fazzon e al Lago dei Caprioli, caratterizzata da una capacità limitata della strada di accesso e dalla necessità di gestire i flussi veicolari, soprattutto durante i picchi estivi. La simulazione permette di valutare la sostenibilità del sistema rispetto alle capacità di carico considerate, con particolare attenzione ai parcheggi e alla viabilità.",
-    "scenario_summary": "<h6 _ngcontent-ng-c2324380181=\"\" class=\"text-primary mb-3 d-flex align-items-center gap-2\">Descrizione simulazione</h6>\n<p _ngcontent-ng-c2324380181=\"\" class=\"small text-muted mb-2\">\nLe simulazioni della piattaforma usano un <strong>gemello digitale</strong>, cioè una replica virtuale di una destinazione fisica, per valutare gli effetti di possibili decisioni di gestione e attuazione di misure attraverso la definizione di uno scenario prima di applicarle nel mondo reale. elL'<strong>affollamento turistico</strong> si verifica quando la domanda supera una o più <strong>capacità di carico</strong> di una specifica località, generando impatti negativi.Le simulazioni definiranno una serie di indicatori grazie ai quali sarà possibile valutare la sostenibilità della simulazione proposta.\n</p>\n</p>\n\n<h6 _ngcontent-ng-c2324380181=\"\" class=\"text-primary mb-3 d-flex align-items-center gap-2\">Risultati generali simulazione</h6>\n<p _ngcontent-ng-c2324380181=\"\" class=\"small text-muted mb-2\">\nNel <em>Base scenario</em>, il livello generale di overtourism risulta limitato: la <strong>Sostenibilità complessiva</strong> si attesta al 91,7% (incertezza di ±0,7 punti percentuali). Il <strong>Vincolo Critico</strong> è Parcheggi, con una sostenibilità pari a 91,7% (incertezza di ±0,7 punti percentuali), quindi la capacità di carico legata ai parcheggi è il fattore che limita maggiormente la sostenibilità complessiva.\n</p>\n\n<h6 _ngcontent-ng-c2324380181=\"\" class=\"text-primary mb-3 d-flex align-items-center gap-2\">Risultati dettagliati</h6>\n<div _ngcontent-ng-c2324380181=\"\" class=\"small text-muted mb-2\">\n<ul class=\"mb-0\">\n<li><strong>Sostenibilità Parcheggi</strong> si attesta al 91,7% (incertezza di ±0,7 punti percentuali).</li>\n<li><strong>Sostenibilità Viabilità</strong> si attesta al 98,9% (incertezza di ±0,2 punti percentuali).</li>\n<li><strong>Sostenibilità Ristorazione</strong> si attesta al 99,7% (incertezza di ±0,2 punti percentuali).</li>\n<li><strong>Visitatori potenziali che non arrivano: media stagionale (persone/giorno)</strong> indica che nessun visitatore potenziale rinuncia ad arrivare nella media stagionale: 0,0, pari al 0,0% del totale.</li>\n<li><strong>Visitatori potenziali che non arrivano: giorni di picco (persone/giorno)</strong> indica che nessun visitatore potenziale rinuncia ad arrivare nei giorni di picco: 0,0, pari al 0,0% del totale.</li>\n</ul>\n</div>",
+    "scenario_description": "Lo scenario rappresenta la gestione degli accessi all'Altipiano di Fazzon con le regole del 2025: sosta a 5 € per veicolo, senza navetta, con una strada di accesso a capacità limitata e la necessità di gestire i flussi veicolari, soprattutto durante i picchi estivi. La simulazione permette di valutare la sostenibilità del sistema rispetto alle capacità di carico considerate, con particolare attenzione ai parcheggi, alla viabilità e alla ristorazione.",
+    "scenario_summary": "<h6 _ngcontent-ng-c2324380181=\"\" class=\"text-primary mb-3 d-flex align-items-center gap-2\">Descrizione simulazione</h6>\n<p _ngcontent-ng-c2324380181=\"\" class=\"small text-muted mb-2\">\nLe simulazioni della piattaforma usano un <strong>gemello digitale</strong>, cioè una replica virtuale di una destinazione fisica, per valutare gli effetti di possibili decisioni di gestione e attuazione di misure attraverso la definizione di uno scenario prima di applicarle nel mondo reale. L'<strong>affollamento turistico</strong> si verifica quando la domanda supera una o più <strong>capacità di carico</strong> di una specifica località, generando impatti negativi. Le simulazioni definiranno una serie di indicatori grazie ai quali sarà possibile valutare la sostenibilità della simulazione proposta.\n</p>\n\n<h6 _ngcontent-ng-c2324380181=\"\" class=\"text-primary mb-3 d-flex align-items-center gap-2\">Risultati generali simulazione</h6>\n<p _ngcontent-ng-c2324380181=\"\" class=\"small text-muted mb-2\">\nNello <em>Scenario base</em> arrivano tutti i visitatori potenziali, con lo stesso numero di veicoli delle regole 2025. Il livello generale di overtourism risulta limitato: la <strong>Sostenibilità complessiva</strong> si attesta al 94,5% (incertezza di ±2,2 punti percentuali). Il <strong>Vincolo Critico</strong> è Parcheggi, con una sostenibilità pari al 94,7% (incertezza di ±2,2 punti percentuali): la capacità di carico dei parcheggi è il fattore che limita maggiormente la sostenibilità complessiva, soprattutto nei giorni di agosto.\n</p>\n\n<h6 _ngcontent-ng-c2324380181=\"\" class=\"text-primary mb-3 d-flex align-items-center gap-2\">Risultati dettagliati</h6>\n<div _ngcontent-ng-c2324380181=\"\" class=\"small text-muted mb-2\">\n<ul class=\"mb-0\">\n<li><strong>Arrivi rispetto ai visitatori potenziali</strong>: 100% nella media stagionale (536 persone/giorno) e nei giorni di picco (1.494 persone/giorno).</li>\n<li><strong>Veicoli rispetto alle regole 2025</strong>: 100% nella media stagionale (143 veicoli/giorno) e nei giorni di picco (407 veicoli/giorno).</li>\n<li><strong>Sostenibilità Parcheggi</strong> si attesta al 94,7% (incertezza di ±2,2 punti percentuali).</li>\n<li><strong>Sostenibilità Viabilità</strong> si attesta al 99,3% (incertezza di ±0,6 punti percentuali).</li>\n<li><strong>Sostenibilità Ristorazione</strong> si attesta al 99,4% (incertezza di ±0,5 punti percentuali).</li>\n</ul>\n</div>",
     "scenario_extras": {},
     "proposal_name": "Incentivazione all'utilizzo della navetta",
-    "proposal_description": "Miglioramento della gestione degli accessi al Lago dei Caprioli durante il periodo estivo, incentivando l'utilizzo della navetta e regolando l'accesso ai parcheggi attraverso un sistema di prenotazione. La proposta prevede di valutare l'introduzione di una tariffazione elevata per la sosta nei periodi di maggiore affluenza, al fine di disincentivare l'accesso con auto privata e favorire il trasporto collettivo. L'obiettivo è ridurre la pressione sulla strada di accesso, caratterizzata da una carreggiata limitata e dalla difficoltà di garantire il transito contemporaneo nei due sensi, migliorando la gestione dei flussi e l'organizzazione degli arrivi nei giorni di picco.",
+    "proposal_description": "Miglioramento della gestione degli accessi all'Altipiano di Fazzon durante il periodo estivo, incentivando l'utilizzo della navetta e regolando l'accesso ai parcheggi attraverso un sistema di prenotazione. La proposta prevede di valutare l'introduzione di una tariffazione elevata per la sosta nei periodi di maggiore affluenza, al fine di disincentivare l'accesso con auto privata e favorire il trasporto collettivo. L'obiettivo è ridurre la pressione sulla strada di accesso, caratterizzata da una carreggiata limitata e dalla difficoltà di garantire il transito contemporaneo nei due sensi, migliorando la gestione dei flussi e l'organizzazione degli arrivi nei giorni di picco.",
     "proposal_status": "draft",
-    "proposal_extras": {}
+    "proposal_extras": {},
+    "scenarios": [
+      {
+        "key": "a1_no_cap",
+        "name": "A1 – Senza cap (baseline storico 2022)",
+        "description": "Scenario pre-intervento 2022: il contingentamento non è ancora in vigore. La capacità di parcheggio simultaneo sale a 400 auto (stima del massimo storico prima della regolamentazione).",
+        "param_overrides": {
+          "parking capacity (simultaneous cars)": [
+            350.0,
+            450.0
+          ]
+        }
+      },
+      {
+        "key": "a2_reduced_cap",
+        "name": "A2 – Cap ridotto (100 auto simultanee)",
+        "description": "Inasprimento del contingentamento: il numero massimo di auto in parcheggio simultaneo scende a 100.  Questo scenario testa la resilienza del sistema a una riduzione ulteriore dell'accesso motorizzato.",
+        "param_overrides": {
+          "parking capacity (simultaneous cars)": [
+            80.0,
+            120.0
+          ]
+        }
+      },
+      {
+        "key": "b1_shuttle_only",
+        "name": "B1 – Navetta senza tariffa",
+        "description": "Navetta Lakebus (2 bus da 30 posti ogni 30 minuti, 9-19) con il parcheggio a 5 € come nel 2025.  Senza un incentivo a lasciare l'auto la navetta non sposta visitatori (come il Greenbus pilota del 2025): aggiunge solo passaggi sulla strada.",
+        "param_overrides": {
+          "shuttle buses": 2.0
+        }
+      },
+      {
+        "key": "b2_price_10",
+        "name": "B2 – Tariffa 10 € + navetta",
+        "description": "Tariffa intermedia di 10 € per veicolo con la navetta Lakebus.  È fuori dai due livelli di prezzo osservati (5 € e ~15 €): l'effetto deriva dalla forma esponenziale della risposta alla tariffa (A23).",
+        "param_overrides": {
+          "parking price (euro per vehicle)": 10.0,
+          "shuttle buses": 2.0
+        }
+      },
+      {
+        "key": "c1_piano_2026",
+        "name": "C1 – Regole 2026 (tariffa + navetta)",
+        "description": "Le regole 2026 come osservate: parcheggio a 20 € la giornata e 10 € dopo le 12 (prezzo medio pagato 15 €), prenotazione e semaforo, navetta Lakebus ogni 30 minuti.  La risposta alla tariffa è stimata proprio su questo periodo: lo scenario riproduce il 2026 e serve da riferimento per gli altri.",
+        "param_overrides": {
+          "parking price (euro per vehicle)": 15.0,
+          "shuttle buses": 2.0
+        }
+      },
+      {
+        "key": "c2_strong",
+        "name": "C2 – Intervento forte (cap 80 + tariffa 20 € + navetta)",
+        "description": "Massima restrizione: contingentamento a 80 auto simultanee, tariffa di 20 € per ogni veicolo (nessuno sconto pomeridiano) e navetta Lakebus.",
+        "param_overrides": {
+          "parking price (euro per vehicle)": 20.0,
+          "parking capacity (simultaneous cars)": [
+            60.0,
+            100.0
+          ],
+          "shuttle buses": 2.0
+        }
+      }
+    ]
   }
 ]

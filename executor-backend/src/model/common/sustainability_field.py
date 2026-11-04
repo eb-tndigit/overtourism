@@ -317,14 +317,50 @@ def compute_sustainable_area(
     )
 
 
+def expected_period_days(
+    total_days: float, overrides: dict, categoricals: list
+) -> float:
+    """Expected number of days of a scenario's period: *total_days* times the probability of
+    the outcomes the scenario allows on each of *categoricals* (a pinned outcome, a list of
+    outcomes, or all of them when the index is free or re-weighted), with the model's
+    outcome weights."""
+    days = float(total_days)
+    for idx in categoricals:
+        pin = overrides.get(idx)
+        if pin is None or isinstance(pin, dict):
+            continue
+        weights = dict(idx.outcomes)
+        keep = [pin] if isinstance(pin, str) else list(pin)
+        days *= sum(weights[k] for k in keep) / sum(weights.values())
+    return days
+
+
+def _mean_and_half_width(
+    index: np.ndarray, confidence: float, period_days: float | None
+) -> tuple[float, float]:
+    """Mean of *index* over the sampled days and the half-width of its confidence interval.
+
+    With *period_days*, the interval is that of the average over a period of that many days
+    (sd / sqrt(period_days)): how much the result varies from one year to another with the
+    days that occur, the days taken as independent.  Without it, that of the average over
+    the samples (the precision of the simulation).
+    """
+    n = float(period_days) if period_days else float(index.size)
+    se = float(np.std(index, ddof=1)) / np.sqrt(n) if index.size > 1 else 0.0
+    h = float(se * scipy_stats.t.ppf((1 + confidence) / 2.0, max(n - 1.0, 1.0)))
+    return float(np.mean(index)), h
+
+
 def compute_sustainability_index_with_ci(
     field: np.ndarray,
     x_values: np.ndarray,
     y_values: np.ndarray,
     presences: list,
     confidence: float = 0.8,
+    period_days: float | None = None,
 ) -> tuple[float, float]:
-    """Return ``(sustainability_index, ci_half_width)`` over the sampled presences."""
+    """Return ``(sustainability_index, ci_half_width)`` over the sampled presences (see
+    :func:`_mean_and_half_width` for *period_days*)."""
     index = interpolate.interpn(
         (x_values, y_values),
         field,
@@ -332,9 +368,7 @@ def compute_sustainability_index_with_ci(
         bounds_error=False,
         fill_value=0.0,
     )
-    m, se = np.mean(index), scipy_stats.sem(index)
-    h = float(se * scipy_stats.t.ppf((1 + confidence) / 2.0, index.size - 1))
-    return float(m), h
+    return _mean_and_half_width(index, confidence, period_days)
 
 
 def compute_sustainability_by_constraint(
@@ -343,8 +377,10 @@ def compute_sustainability_by_constraint(
     y_values: np.ndarray,
     presences: list,
     confidence: float = 0.8,
+    period_days: float | None = None,
 ) -> dict[str, tuple[float, float]]:
-    """Return ``(index, ci_half_width)`` per constraint name."""
+    """Return ``(index, ci_half_width)`` per constraint name (see
+    :func:`_mean_and_half_width` for *period_days*)."""
     result: dict[str, tuple[float, float]] = {}
     for name, fe in field_elements.items():
         index = interpolate.interpn(
@@ -354,9 +390,7 @@ def compute_sustainability_by_constraint(
             bounds_error=False,
             fill_value=0.0,
         )
-        m, se = np.mean(index), scipy_stats.sem(index)
-        h = float(se * scipy_stats.t.ppf((1 + confidence) / 2.0, index.size - 1))
-        result[name] = (float(m), h)
+        result[name] = _mean_and_half_width(index, confidence, period_days)
     return result
 
 
@@ -431,7 +465,11 @@ class SustainabilityFieldOutput(ModelOutput):
         Confidence level for the sustainability CI (default 0.8).
     extra_kpis : dict[str, dict[str, Any]]
         Model-specific KPIs, added to :attr:`kpis` as they are (e.g. Fazzon's
-        potential visitors who cannot arrive).  Empty by default.
+        arrivals and vehicles).  Empty by default.
+    period_days : float or None
+        Expected number of days of the scenario's period: the confidence intervals of the
+        sustainability are those of the average over a period of that many days (the
+        variability from one year to another).  ``None``: over the samples.
     """
 
     field: np.ndarray
@@ -444,6 +482,7 @@ class SustainabilityFieldOutput(ModelOutput):
     capacity_distributions: dict[str, dict[str, float]]
     confidence: float = 0.8
     extra_kpis: dict[str, dict[str, Any]] = dataclass_field(default_factory=dict)
+    period_days: float | None = None
 
     def __post_init__(self) -> None:
         """Initialise the base `ModelOutput`."""
@@ -463,7 +502,12 @@ class SustainabilityFieldOutput(ModelOutput):
     def sustainability_index(self) -> tuple[float, float]:
         """Return ``(index, ci_half_width)`` over the sampled presences."""
         return compute_sustainability_index_with_ci(
-            self.field, self.x_values, self.y_values, self._zip_samples, self.confidence
+            self.field,
+            self.x_values,
+            self.y_values,
+            self._zip_samples,
+            self.confidence,
+            self.period_days,
         )
 
     @functools.cached_property
@@ -475,6 +519,7 @@ class SustainabilityFieldOutput(ModelOutput):
             self.y_values,
             self._zip_samples,
             self.confidence,
+            self.period_days,
         )
 
     @functools.cached_property
@@ -598,16 +643,22 @@ class SustainabilityFieldOutput(ModelOutput):
 
     @functools.cached_property
     def kpis(self) -> dict[str, Any]:
-        """KPI dict: sustainability level, critical constraint, per-constraint levels. English-only —
-        locale translation is a presentation-layer concern, not part of this computation.
+        """KPI dict, in display order: the model-specific KPIs, the sustainability level, the
+        per-constraint levels, the critical constraint. English-only — locale translation is a
+        presentation-layer concern, not part of this computation.
         """
         idx, ci = self.sustainability_index
         sbc = self.sustainability_by_constraint
-        kpis: dict[str, Any] = {}
+        kpis: dict[str, Any] = dict(self.extra_kpis)
         kpis["sustainability_level"] = {
             "level": round(idx * 100, 4),
             "confidence": round(ci * 100, 4),
         }
+        for name, (c_mean, c_ci) in sbc.items():
+            kpis["constraint level " + name] = {
+                "level": round(c_mean * 100, 4),
+                "confidence": round(c_ci * 100, 4),
+            }
         critical_name = min(sbc, key=lambda k: sbc[k][0])
         c_mean, c_ci = sbc[critical_name]
         kpis["critical constraint"] = {
@@ -615,12 +666,6 @@ class SustainabilityFieldOutput(ModelOutput):
             "level": round(c_mean * 100, 4),
             "confidence": round(c_ci * 100, 4),
         }
-        for name, (c_mean, c_ci) in sbc.items():
-            kpis["constraint level " + name] = {
-                "level": round(c_mean * 100, 4),
-                "confidence": round(c_ci * 100, 4),
-            }
-        kpis.update(self.extra_kpis)
         return kpis
 
     @functools.cached_property

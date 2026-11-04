@@ -1,12 +1,12 @@
-"""Presence statistics for the Fazzon (Lago dei Caprioli, Val di Sole) overtourism model.
+"""Presence statistics for the Altipiano di Fazzon (Val di Sole) overtourism model.
 
-Two presence variables are modelled:
+The presence variables (the axes of the field):
 
 ``pv_visitors_car``
     Daily visitors arriving by private car.
 
-``pv_visitors_other``
-    Daily visitors arriving by non-car modes (shuttle bus, on foot, bicycle).
+``pv_visitors_total``
+    Daily visitors arriving by any mode (car + shuttle bus, on foot, bicycle).
 
 Both are the **arrivals** at Fazzon, conditioned on the season, the weather class (good /
 cool / rainy, D7 in ``data_preparation/model/fazzon/ASSUMPTIONS.md``), the parking price
@@ -21,6 +21,17 @@ and the behaviour model (``fazzon_modal_shift``, D8):
   capacity)  (A28, A30, A33, A34);
 * the rest of the deterred car demand goes elsewhere and does not arrive.
 
+Uncertainty (A39): the arrivals also depend on four uncertain quantities, distribution
+indexes of the model sampled by the ensemble: the demand level D (A22), the persons per
+vehicle at the low and at the high price L, H (A2) and the vehicle response k (cars / cars
+expected at 5 euro on the 2026 regime days, measured; A23).  β and the shuttle and walk-up
+shares are derived from them on every draw (:func:`behaviour_for`), consistently with the
+2026 observations; at the point values they are the estimates of ``fazzon_modal_shift``.
+
+The scatter and the KPIs come instead from simulated days (A36): the demand of a day in 2025
+conditions (:func:`make_demand_factories`) and what happens on it
+(:func:`daily_accounting`).
+
 The data has ``P(weather | season)`` (climatology, A20); the model uses one weather
 distribution for all seasons, their weighted average (D13).
 
@@ -31,7 +42,8 @@ The tables are the reference datasets produced by the Fazzon data-preparation pi
 weather) cell) and ``fazzon_modal_shift`` (behaviour parameters).  Their calibration and
 assumptions are listed in that folder's ``ASSUMPTIONS.md`` (A2: persons per vehicle;
 A3: non-car share 0.31 in 2025 conditions; A4: non-car SD 50 % of the mean; A14: season
-weights; A19–A21: weather classes, frequencies and effect; A6, A23: modal shift).  It is read from the Fazzon data folder (see
+weights; A19, A20: weather classes and frequencies; A37, A38: demand per season and weather
+from the valley traffic; A6, A23: modal shift).  It is read from the Fazzon data folder (see
 :mod:`src.model.fazzon.fazzon_data`) every time :func:`presence_inputs` is called,
 i.e. every time a model is built: there are no built-in values, and a missing or
 malformed file is an error.
@@ -105,7 +117,7 @@ def load_presence_stats(data_dir: str | Path | None = None) -> pd.DataFrame:
 
 PRICE_INDEX_NAME = "parking price (euro per vehicle)"
 SHUTTLE_INDEX_NAME = "shuttle capacity (riders per day)"
-PRICE_LEVELS: tuple[int, ...] = (5, 10, 15, 20, 25, 30, 35, 40)  # D15: 5-euro classes
+PRICE_LEVELS: tuple[int, ...] = tuple(range(5, 31))  # D15: 1-euro classes, 5-30 euro
 SHUTTLE_CAPACITY_STEP = (
     60  # D16: capacity classes of 60 riders (one run of the 2026 Lakebus)
 )
@@ -151,6 +163,54 @@ def shuttle_capacity_level(capacity: float) -> str:
     return str(min(max(level, 0), SHUTTLE_CAPACITY_LEVELS[-1]))
 
 
+VEHICLE_RESPONSE_NAME = "vehicle response at the 2026 regime price"
+OCCUPANCY_LOW_NAME = "persons per vehicle at low price"
+OCCUPANCY_HIGH_NAME = "persons per vehicle at high price"
+DEMAND_LEVEL_NAME = "demand level"
+
+
+def behaviour_for(
+    behaviour: dict[str, float], k: float, low: float, high: float
+) -> dict[str, float]:
+    """The behaviour parameters for one draw of the vehicle response *k* and of the persons
+    per vehicle at the low and high price *low*, *high* (A39).
+
+    The 2026 regime days are fixed observations: cars C, shuttle riders S and walk-ups W.
+    The visitor response at the price paid p26 is R = k x occupancy(p26) / low, and the
+    visitors lost per car are (low / k)(1 - R); β = -ln R / (p26 - 5), and the shares are
+    S / lost and W / lost (rescaled to sum to 1 when the shuttle and the walk-ups exceed the
+    lost visitors).  R, S and W are taken relative to the point estimates, so that at the
+    point values the result is ``behaviour`` itself.
+    """
+    p26, ref = behaviour["price_paid"], behaviour["reference_price"]
+    k0, r0 = behaviour["car_response"], behaviour["visitor_response"]
+    low0, high0 = behaviour["occupancy_low"], behaviour["occupancy_high"]
+    r = (
+        r0
+        * (k / k0)
+        * (
+            occupancy(p26, {**behaviour, "occupancy_low": low, "occupancy_high": high})
+            / low
+        )
+        / (occupancy(p26, behaviour) / low0)
+    )
+    r = min(r, 0.999)
+    lost0 = (low0 / k0) * (1.0 - r0)
+    lost = (low / k) * (1.0 - r)
+    shuttle = behaviour["share_shuttle"] * lost0 / lost
+    walk = behaviour["share_walk_up"] * lost0 / lost
+    if shuttle + walk > 1.0:
+        shuttle, walk = shuttle / (shuttle + walk), walk / (shuttle + walk)
+    return {
+        **behaviour,
+        "occupancy_low": low,
+        "occupancy_high": high,
+        "beta_per_euro": -float(np.log(r)) / (p26 - ref),
+        "share_shuttle": shuttle,
+        "share_walk_up": walk,
+    }
+
+
 def price_response(price: float, behaviour: dict[str, float]) -> float:
     """R(p): share of the car demand still arriving by private vehicle (A23; A27: 1 below the
     reference price)."""
@@ -158,17 +218,53 @@ def price_response(price: float, behaviour: dict[str, float]) -> float:
     return float(np.exp(-behaviour["beta_per_euro"] * excess))
 
 
+def _gamma(mean: float, var: float):
+    """Gamma distribution with the given mean and variance (mean floored at 1)."""
+    mean = max(mean, 1.0)
+    var = max(var, 1e-6)
+    return stats.gamma(a=mean**2 / var, scale=var / mean)
+
+
+def _demand_scale(kwargs, behaviour: dict[str, float]) -> float:
+    """D x L / L0: the demand level and the persons per vehicle at 5 euro of a draw (A39); the
+    presence statistics count L0 persons per vehicle."""
+    low = float(kwargs.get(OCCUPANCY_LOW_NAME, behaviour["occupancy_low"]))
+    return float(kwargs.get(DEMAND_LEVEL_NAME, 1.0)) * low / behaviour["occupancy_low"]
+
+
+def make_demand_factories(stats_table: pd.DataFrame, behaviour: dict[str, float]):
+    """Return ``(car_demand_stats, other_demand_stats)``: the visitors of a day in 2025
+    conditions (5 euro, no shuttle), by private vehicle and by other means, as Gamma
+    distributions of the (season, weather) cell scaled by D x L / L0 (A39).  The days of the
+    backend are drawn from them (:func:`daily_accounting`)."""
+
+    def _demand(kwargs, mean_col: str, sd_col: str):
+        cell = stats_table.loc[(kwargs["season"], kwargs["weather"])]
+        scale = _demand_scale(kwargs, behaviour)
+        return _gamma(float(cell[mean_col]) * scale, (float(cell[sd_col]) * scale) ** 2)
+
+    def car_demand_stats(**kwargs):
+        return _demand(kwargs, "mean_car_visitors", "std_car_visitors")
+
+    def other_demand_stats(**kwargs):
+        return _demand(kwargs, "mean_other_visitors", "std_other_visitors")
+
+    return car_demand_stats, other_demand_stats
+
+
 def make_presence_factories(stats_table: pd.DataFrame, behaviour: dict[str, float]):
     """Return ``(car_arrivals_stats, other_arrivals_stats)`` closures.
 
     Both take the parent values as keyword arguments (``season``, ``weather``, the price
-    level and the shuttle level, keyed by the index names) and return a **Gamma**
+    level, the shuttle level and the uncertain quantities of A39, keyed by the index names;
+    a missing uncertain quantity takes its point value) and return a **Gamma**
     distribution with mean μ and variance σ²::
 
         k = μ² / σ²   (shape)
         θ = σ² / μ    (scale)
 
-    Car arrivals scale the car demand by R(price) (mean and SD).  Non-car arrivals add the
+    The demand (car and non-car) is scaled by D x L / L0: the visitors of the presence
+    statistics are cars x L0.  Car arrivals scale the car demand by R(price) (mean and SD).  Non-car arrivals add the
     walkers and the shuttle riders to the non-car demand; the riders are capped by the
     shuttle capacity class on the cell mean (A33), and the shifted part keeps the car
     demand's coefficient of variation; non-car demand and shifted part are taken as
@@ -176,38 +272,48 @@ def make_presence_factories(stats_table: pd.DataFrame, behaviour: dict[str, floa
     the Gamma parameters.
     """
 
-    def _gamma(mean: float, var: float):
-        mean = max(mean, 1.0)
-        var = max(var, 1e-6)
-        k = mean**2 / var
-        theta = var / mean
-        return stats.gamma(a=k, scale=theta)
-
     def _cell(kwargs):
         cell = stats_table.loc[(kwargs["season"], kwargs["weather"])]
+        low = float(kwargs.get(OCCUPANCY_LOW_NAME, behaviour["occupancy_low"]))
+        b = behaviour_for(
+            behaviour,
+            k=float(kwargs.get(VEHICLE_RESPONSE_NAME, behaviour["car_response"])),
+            low=low,
+            high=float(kwargs.get(OCCUPANCY_HIGH_NAME, behaviour["occupancy_high"])),
+        )
+        scale = _demand_scale(kwargs, behaviour)
+        demand = {
+            col: float(cell[col]) * scale
+            for col in (
+                "mean_car_visitors",
+                "std_car_visitors",
+                "mean_other_visitors",
+                "std_other_visitors",
+            )
+        }
         price = float(kwargs[PRICE_INDEX_NAME])
         capacity = float(
             kwargs.get(SHUTTLE_INDEX_NAME, 0)
         )  # not a parent of the car arrivals
-        return cell, price_response(price, behaviour), capacity
+        return demand, b, price_response(price, b), capacity
 
     def car_arrivals_stats(**kwargs):
-        cell, r, _ = _cell(kwargs)
+        cell, _, r, _ = _cell(kwargs)
         return _gamma(
             cell["mean_car_visitors"] * r, (cell["std_car_visitors"] * r) ** 2
         )
 
     def other_arrivals_stats(**kwargs):
-        cell, r, capacity = _cell(kwargs)
+        cell, b, r, capacity = _cell(kwargs)
         deterred = cell["mean_car_visitors"] * (1.0 - r)
-        shuttle_demand = deterred * behaviour["share_shuttle"]
+        shuttle_demand = deterred * b["share_shuttle"]
         riders = min(
             shuttle_demand, capacity
         )  # A33; A28: no shuttle -> capacity 0; A34: excess elsewhere
         shuttle_part = (
             riders / cell["mean_car_visitors"] if cell["mean_car_visitors"] > 0 else 0.0
         )
-        shifted = (1.0 - r) * behaviour["share_walk_up"] + shuttle_part
+        shifted = (1.0 - r) * b["share_walk_up"] + shuttle_part
         mean = cell["mean_other_visitors"] + cell["mean_car_visitors"] * shifted
         var = (
             cell["std_other_visitors"] ** 2 + (cell["std_car_visitors"] * shifted) ** 2
@@ -227,7 +333,8 @@ def make_presence_factories(stats_table: pd.DataFrame, behaviour: dict[str, floa
 
 def presence_inputs(data_dir: str | Path | None = None):
     """Return ``(season_weights, weather_weights, behaviour, car_arrivals_stats,
-    other_arrivals_stats)``.
+    other_arrivals_stats, demand_stats)``, ``demand_stats`` = ``(car_demand_stats,
+    other_demand_stats)`` (:func:`make_demand_factories`).
 
     * ``season_weights``: ``{season: P(season)}`` (A14);
     * ``weather_weights``: ``{weather: sum_s P(s) P(weather | s)}`` (A20, D13): the weather
@@ -253,7 +360,15 @@ def presence_inputs(data_dir: str | Path | None = None):
     total = sum(weather_weights.values())
     weather_weights = {w: p / total for w, p in weather_weights.items()}
     car_stats, other_stats = make_presence_factories(table, behaviour)
-    return season_weights, weather_weights, behaviour, car_stats, other_stats
+    demand_stats = make_demand_factories(table, behaviour)
+    return (
+        season_weights,
+        weather_weights,
+        behaviour,
+        car_stats,
+        other_stats,
+        demand_stats,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -270,6 +385,10 @@ BEHAVIOUR_PARAMETERS: dict[str, str] = {
     "occupancy_high": "",
     "share_shuttle": "with_walk_up",  # same days as the walk-up share (from 01/08/2026)
     "share_walk_up": "with_walk_up",
+    # 2026 regime observations, for the behaviour of each draw (A39, behaviour_for)
+    "car_response": "",
+    "price_paid": "",
+    "visitor_response": "",
 }
 
 
@@ -294,65 +413,120 @@ def behaviour_params(data_dir: str | Path | None = None) -> dict[str, float]:
         raise ValueError(
             f"Fazzon modal-shift parameters in {data_dir}: missing {missing}"
         )
-    return {p: float(values[(p, d)]) for p, d in BEHAVIOUR_PARAMETERS.items()}
+    out = {p: float(values[(p, d)]) for p, d in BEHAVIOUR_PARAMETERS.items()}
+    # 90 % interval of the vehicle response (A39)
+    if {"low", "high"} <= set(df.columns):
+        bounds = df.set_index(["parameter", "days"]).loc[("car_response", "")]
+        out["car_response_low"] = float(bounds["low"])
+        out["car_response_high"] = float(bounds["high"])
+    else:
+        out["car_response_low"] = out["car_response_high"] = out["car_response"]
+    return out
 
 
 # ---------------------------------------------------------------------------
-# Dropouts: potential visitors who do not arrive (KPI)
+# Policy KPIs: arrivals out of the potential visitors, vehicles out of the 2025 rules
 # ---------------------------------------------------------------------------
 
-DROPOUT_PEAK_QUANTILE = 0.95  # "maximum": the 95th percentile of the days (A36)
+PEAK_QUANTILE = 0.95  # peak days: the busiest 5 % of the days (A36)
 
 
-def dropouts(
-    stats_table: pd.DataFrame,
-    behaviour: dict[str, float],
-    cell_weights: dict[tuple[str, str], float],
-    price: float,
-    capacity: float,
-    n_days: int = 20_000,
-    seed: int = 0,
-) -> dict[str, float]:
-    """Potential visitors who do not arrive, per day: season mean and peak (A36).
+def occupancy(price: float, behaviour: dict[str, float]) -> float:
+    """Persons per vehicle at *price* (A2): linear between the two occupancy points, clipped
+    to them (as ``AccessModel``)."""
+    low_p, low = behaviour["occupancy_low_price"], behaviour["occupancy_low"]
+    high_p, high = behaviour["occupancy_high_price"], behaviour["occupancy_high"]
+    linear = low + (price - low_p) * (high - low) / (high_p - low_p)
+    return float(min(max(linear, low), high))
 
-    Days are drawn from the (season, weather) cells with *cell_weights*; on each day the car
-    demand in 2025 conditions is drawn from the cell's Gamma distribution, and
 
-        deterred  = demand × (1 - R(price))
-        riders    = min(deterred × shuttle share, capacity)     (cap per day)
-        dropouts  = deterred × (1 - walk-up share) - riders
+def daily_accounting(
+    car_demand: np.ndarray,
+    other_demand: np.ndarray,
+    *,
+    response: np.ndarray,
+    share_shuttle: np.ndarray,
+    share_walk_up: np.ndarray,
+    occupancy_price: np.ndarray,
+    occupancy_reference: np.ndarray,
+    seats: np.ndarray,
+    car_limit: np.ndarray | None = None,
+) -> dict[str, np.ndarray]:
+    """What happens on each simulated day (A36); every argument is an array over the days.
 
-    i.e. the visitors deterred by the price who neither walk up nor find a seat on the
-    shuttle (A28, A34).  The potential visitors of a day are its car demand plus the
-    cell's non-car demand in proportion (A3).  Returns ``mean`` and ``share`` (mean
-    dropouts / mean potential visitors), ``peak`` (the ``DROPOUT_PEAK_QUANTILE`` of the
-    daily dropouts) and ``peak_share`` (dropouts / potential visitors over the days at or
-    above the peak).
+    *car_demand*, *other_demand*: the visitors of the day in 2025 conditions by private
+    vehicle and by other means; *response*: R(price), the share of the car demand that still
+    comes by car; *occupancy_price*, *occupancy_reference*: persons per vehicle at the price
+    and at 5 euro; *seats*: usable shuttle seats of the day; *car_limit*: vehicles the
+    parking can take in the day (A40), ``None`` = no limit.
+
+        deterred  = car demand x (1 - R)
+        riders    = min(deterred x shuttle share, seats)
+        walk-up   = deterred x walk-up share
+        lost      = deterred - riders - walk-up
+        vehicles  = car demand x R / occupancy(price)
+
+    With *car_limit*, the vehicles above it are turned away: their persons take the
+    remaining shuttle seats, walk up or are lost with the same shares (A40).
     """
-    rng = np.random.default_rng(seed)
-    cells = list(cell_weights)
-    weights = np.array([cell_weights[c] for c in cells], dtype=float)
-    weights = weights / weights.sum()
-    picked = rng.choice(len(cells), size=n_days, p=weights)
-    demand = np.empty(n_days)
-    potential = np.empty(n_days)
-    for k, cell in enumerate(cells):
-        mask = picked == k
-        row = stats_table.loc[cell]
-        mean, sd = float(row["mean_car_visitors"]), float(row["std_car_visitors"])
-        shape, scale = (mean / sd) ** 2, sd**2 / mean
-        demand[mask] = rng.gamma(shape, scale, size=int(mask.sum()))
-        potential[mask] = demand[mask] * (
-            1.0 + float(row["mean_other_visitors"]) / mean
+    deterred = car_demand * (1.0 - response)
+    riders = np.minimum(deterred * share_shuttle, seats)
+    walk = deterred * share_walk_up
+    lost = deterred - riders - walk
+    car_arrivals = car_demand * response
+    vehicles = car_arrivals / occupancy_price
+    if car_limit is not None:
+        turned_vehicles = np.maximum(vehicles - car_limit, 0.0)
+        turned = turned_vehicles * occupancy_price
+        more_riders = np.minimum(
+            turned * share_shuttle, np.maximum(seats - riders, 0.0)
         )
-    deterred = demand * (1.0 - price_response(price, behaviour))
-    riders = np.minimum(deterred * behaviour["share_shuttle"], capacity)
-    lost = deterred * (1.0 - behaviour["share_walk_up"]) - riders
-    peak = float(np.quantile(lost, DROPOUT_PEAK_QUANTILE))
-    peak_days = lost >= peak
+        more_walk = turned * share_walk_up
+        lost = lost + turned - more_riders - more_walk
+        riders, walk = riders + more_riders, walk + more_walk
+        vehicles = vehicles - turned_vehicles
+        car_arrivals = car_arrivals - turned
+    other_arrivals = other_demand + riders + walk
     return {
-        "mean": float(lost.mean()),
-        "share": float(lost.mean() / potential.mean()),
-        "peak": peak,
-        "peak_share": float(lost[peak_days].sum() / potential[peak_days].sum()),
+        "potential": car_demand + other_demand,
+        "car_arrivals": car_arrivals,
+        "other_arrivals": other_arrivals,
+        "arrivals": car_arrivals + other_arrivals,
+        "shuttle_riders": riders,
+        "walk_up": walk,
+        "lost": lost,
+        "vehicles": vehicles,
+        "vehicles_2025": car_demand / occupancy_reference,
+    }
+
+
+def policy_kpis(days: dict[str, np.ndarray]) -> dict[str, dict[str, dict[str, float]]]:
+    """Arrivals and vehicles over the simulated *days* (:func:`daily_accounting`), over the
+    season and on the peak days (the days at or above the ``PEAK_QUANTILE`` of the potential
+    visitors; A36).
+
+    Returns ``{"arrivals" | "vehicles": {"mean" | "peak": {"value", "share"}}}``: ``value``
+    is the mean per day; ``share`` the ratio to the potential visitors (arrivals) or to the
+    vehicles under the 2025 rules (vehicles) over the same days, so that 1 = nobody lost /
+    as many vehicles as in 2025.
+    """
+    potential = days["potential"]
+    every = np.ones(potential.size, dtype=bool)
+    peak = potential >= np.quantile(potential, PEAK_QUANTILE)
+
+    def kpi(sel: np.ndarray, value: str, reference: str) -> dict[str, float]:
+        return {
+            "value": float(days[value][sel].mean()),
+            "share": float(days[value][sel].sum() / days[reference][sel].sum()),
+        }
+
+    return {
+        "arrivals": {
+            "mean": kpi(every, "arrivals", "potential"),
+            "peak": kpi(peak, "arrivals", "potential"),
+        },
+        "vehicles": {
+            "mean": kpi(every, "vehicles", "vehicles_2025"),
+            "peak": kpi(peak, "vehicles", "vehicles_2025"),
+        },
     }

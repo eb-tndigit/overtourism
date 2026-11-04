@@ -77,13 +77,14 @@ def _build_metadata(minimal: dict[str, Any]) -> dict[str, Any]:
         for key, label in mapper.items()
         if key != "default"
     }
+    # display order: the model-specific KPIs, then the sustainability (as SustainabilityFieldOutput.kpis)
     kpi_mapper = {
         "title": "Indici",
         "area": "Area Totale",
+        **minimal.get("kpi_labels", {}),
         "sustainability_level": "Sostenibilità complessiva",
         **constraint_kpis,
         "critical constraint": "Vincolo Critico",
-        **minimal.get("kpi_labels", {}),
     }
     return {
         "mapper": mapper,

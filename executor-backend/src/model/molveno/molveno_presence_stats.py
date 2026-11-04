@@ -44,6 +44,14 @@ WEEKDAYS = (
     "saturday",
     "sunday",
 )
+# The day types of the model: the statistics are per weekday, Monday-Friday merged (A14)
+DAY_TYPES = {
+    "weekday": ("monday", "tuesday", "wednesday", "thursday", "friday"),
+    "saturday": ("saturday",),
+    "sunday": ("sunday",),
+}
+DAY_TYPE_WEIGHTS = {t: len(days) / len(WEEKDAYS) for t, days in DAY_TYPES.items()}
+DAY_TYPE_LABELS = {"weekday": "lunedì-venerdì", "saturday": "sabato", "sunday": "domenica"}
 WEATHERS = ("good", "cool", "rainy")
 PRESENCES = ("tourists", "excursionists")
 STAT_COLUMNS = tuple(f"{s}_{p}" for p in PRESENCES for s in ("mean", "std"))
@@ -64,10 +72,10 @@ class MolvenoTables:
 
     daily: dict[
         tuple[int, str, str], tuple[float, ...]
-    ]  # (summer day, weekday, weather) -> STAT_COLUMNS
+    ]  # (summer day, day type, weather) -> STAT_COLUMNS
     monthly: dict[
         tuple[int, str, str], tuple[float, ...]
-    ]  # (month, weekday, weather) -> STAT_COLUMNS
+    ]  # (month, day type, weather) -> STAT_COLUMNS
     day_month: tuple[int, ...]  # summer day -> month
     day_label: tuple[str, ...]  # summer day -> "MM-DD"
     weather_freq: dict[int, dict[str, float]]  # month -> {weather: frequency}
@@ -134,12 +142,14 @@ def load_tables(data_dir: str | Path | None = None) -> MolvenoTables:
         raise ValueError("Molveno statistics: non-positive SD")
 
     def table(df, key):
-        return {
-            (int(k), w, c): tuple(float(v) for v in vals)
-            for k, w, c, *vals in df[
-                [key, "weekday", "weather", *STAT_COLUMNS]
-            ].itertuples(index=False)
-        }
+        return _day_types(
+            {
+                (int(k), w, c): tuple(float(v) for v in vals)
+                for k, w, c, *vals in df[
+                    [key, "weekday", "weather", *STAT_COLUMNS]
+                ].itertuples(index=False)
+            }
+        )
 
     weather_freq = {
         int(m): dict(zip(g["weather"], g["freq_rel"].astype(float)))
@@ -153,6 +163,25 @@ def load_tables(data_dir: str | Path | None = None) -> MolvenoTables:
         day_label=tuple(days["month_day"]),
         weather_freq=weather_freq,
     )
+
+
+def _day_types(
+    cells: dict[tuple[int, str, str], tuple[float, ...]],
+) -> dict[tuple[int, str, str], tuple[float, ...]]:
+    """A14: the statistics per day type, from those per weekday: the mean of the weekdays'
+    means, the SD of their equal mixture (mean of the variances + variance of the means)."""
+    out = {}
+    for key, weather in {(k, c) for k, _, c in cells}:
+        for day_type, days in DAY_TYPES.items():
+            stats_ = [cells[(key, d, weather)] for d in days]
+            row = []
+            for j in range(0, len(STAT_COLUMNS), 2):
+                means = [s[j] for s in stats_]
+                mean = sum(means) / len(means)
+                var = sum(s[j + 1] ** 2 + (s[j] - mean) ** 2 for s in stats_) / len(stats_)
+                row += [mean, math.sqrt(var)]
+            out[(key, day_type, weather)] = tuple(row)
+    return out
 
 
 def summer_day(value: float, n_days: int) -> int:
