@@ -115,10 +115,6 @@ def _build_tc(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-def _extra_params(request: Request) -> dict:
-    """Strip all known/territorial params; return indicator-specific extras."""
-    return {k: v for k, v in request.query_params.items() if k not in _KNOWN_PARAMS}
-
 
 # ---------------------------------------------------------------------------
 # Date validation helpers
