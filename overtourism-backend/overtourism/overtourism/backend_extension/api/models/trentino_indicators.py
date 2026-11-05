@@ -927,7 +927,6 @@ class RedistributionBalanceIndicator(Indicator):
         "Punti di saturazione (positivo = sotto-rappresentato, negativo = sovraccarico)"
     )
     availableForVariation = False
-    year_only = True
 
     FLOWS_TOP_N = 50  # arrows returned with the map (the biggest ones)
 
