@@ -121,34 +121,32 @@ def test_period_percentage_impact_indicator_is_removed():
         get_indicator("incidenza-periodo")
 
 
-def test_hidden_tourism_falls_back_only_when_official_presences_are_zero():
+def test_hidden_tourism_falls_back_when_official_total_is_zero_or_missing():
     indicator = HiddenTourismIndicator("unused.parquet")
     values = pd.DataFrame(
         {
-            "presenze_vodafone": [10.0, 10.0, 10.0],
-            "presenze_alb": [5.0, 0.0, float("nan")],
-            "presenze_xalb": [float("nan"), 0.0, 5.0],
+            "presenze_vodafone": [10.0, 10.0, 10.0, 10.0],
+            "presenze_alb": [5.0, 0.0, 5.0, float("nan")],
+            "presenze_xalb": [5.0, 0.0, float("nan"), 5.0],
         }
     )
 
     result = indicator.combinator(values)
 
-    assert np.isnan(result.iloc[0])
-    assert result.iloc[1] == 10.0
-    assert np.isnan(result.iloc[2])
+    assert result.tolist() == [1.0, 10.0, 10.0, 10.0]
 
 
-def test_anthropogenic_load_uses_available_profile_and_requires_any_profile():
+def test_anthropogenic_load_requires_both_presence_profiles():
     indicator = AnthropogenicLoadIndicator("unused.parquet", "unused.parquet")
     values = pd.DataFrame(
         {
-            "presenze_vodafone": [float("nan"), float("nan")],
-            "presenze_escursionisti_vodafone": [5.0, float("nan")],
-            "population": [10.0, 10.0],
+            "presenze_vodafone": [2.0, float("nan"), 2.0],
+            "presenze_escursionisti_vodafone": [3.0, 3.0, float("nan")],
+            "population": [10.0, 10.0, 10.0],
         }
     )
 
     result = indicator.combinator(values)
 
     assert result.iloc[0] == 0.5
-    assert np.isnan(result.iloc[1])
+    assert result.iloc[1:].isna().all()
