@@ -57,11 +57,29 @@ from utils.window import Window, clip
 logger = logging.getLogger(__name__)
 
 
+def _assert_unique_keys(df: pd.DataFrame, keys: list[str], source: str) -> None:
+    duplicates = df.duplicated(keys, keep=False)
+    if duplicates.any():
+        examples = df.loc[duplicates, keys].head(5).to_dict("records")
+        raise ValueError(
+            f"{source} must have at most one row per {keys}; "
+            f"duplicate keys include {examples}"
+        )
+
+
 def compute_presenze_trentino(df_alb, df_extralb, df_vodafone):
     """Daily x comune presences dataframe: ISPAT alb + xalb and vodafone presences."""
+    keys = ["DATA", "ID_COMUNE"]
+    for source, frame in (
+        ("presenze alberghiere", df_alb),
+        ("presenze extra-alberghiere", df_extralb),
+        ("presenze Vodafone", df_vodafone),
+    ):
+        _assert_unique_keys(frame, keys, source)
+
     df = df_alb.merge(
-        df_extralb[["DATA", "ID_COMUNE", "presenze_xalb"]],
-        on=["DATA", "ID_COMUNE"],
+        df_extralb[keys + ["presenze_xalb"]],
+        on=keys,
         how="inner",
     )
 
@@ -69,13 +87,12 @@ def compute_presenze_trentino(df_alb, df_extralb, df_vodafone):
     df_mg = df.merge(
         df_vodafone[
             [
-                "DATA",
-                "ID_COMUNE",
+                *keys,
                 "presenze",
                 "presenze_escursionisti_vodafone",
             ]
         ].rename(columns={"presenze": "presenze_vodafone"}),
-        on=["DATA", "ID_COMUNE"],
+        on=keys,
         how="inner",
     )
 
@@ -115,6 +132,14 @@ def compute_consumption(df_ee, df_gas, df_ee_total, df_gas_total):
     """Combine daily electricity and gas consumption (services categories + totals), retaining the keys
     present in any source. Columns: DATA, ID_COMUNE, ee_services, ee_total, gas_services, gas_total."""
     keys = ["DATA", "ID_COMUNE"]
+    for source, frame in (
+        ("consumi elettrici servizi", df_ee),
+        ("consumi gas servizi", df_gas),
+        ("consumi elettrici totali", df_ee_total),
+        ("consumi gas totali", df_gas_total),
+    ):
+        _assert_unique_keys(frame, keys, source)
+
     out = df_ee
     for df in (df_gas, df_ee_total, df_gas_total):
         out = out.merge(df, on=keys, how="outer")
