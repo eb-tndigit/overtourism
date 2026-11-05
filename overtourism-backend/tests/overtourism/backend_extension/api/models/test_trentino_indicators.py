@@ -150,6 +150,8 @@ def test_anthropogenic_load_requires_both_presence_profiles():
 
     assert result.iloc[0] == 0.5
     assert result.iloc[1:].isna().all()
+
+
 def test_custom_legend_is_only_configured_for_seasonality_gini():
     assert get_indicator("gini-stagionalita").custom_legend == {
         "type": "cluster-value",
