@@ -213,6 +213,7 @@ def get_indicators_list():
                                 f"{getattr(indicator, 'category', 'Altro')} - "
                                 f"{indicator.name}"
                             ),
+                            "year_only": indicator.year_only,
                             "index_description": indicator.description,
                             "index_value_unit_description": (
                                 indicator.index_value_unit_description
@@ -360,6 +361,8 @@ def get_index_data(
                 "max_value": geo_data["max_value"],
             },
         }
+        if indicator.custom_legend is not None:
+            response["geo_data"]["legend"] = indicator.custom_legend
 
         # Optional overlay: indicators that also describe movements between areas (e.g. the redistribution
         # indicator) expose get_flows(); the arrows follow the same window and permissions as the map. Other

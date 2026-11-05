@@ -149,7 +149,9 @@ for model in list_models():
         )
         evaluation = crud_manager.create_evaluation(scenario_id)
         try:
-            result = call_executor(names_cfg.territory, scenario_config["param_overrides"])
+            result = call_executor(
+                names_cfg.territory, scenario_config["param_overrides"]
+            )
         except Exception:
             crud_manager.fail_evaluation(evaluation)
         else:

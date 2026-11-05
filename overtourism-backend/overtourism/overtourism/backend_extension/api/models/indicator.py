@@ -54,6 +54,7 @@ class Indicator:
     index_value_unit_description = "Valore indice territoriale"
     availableForVariation: bool = True
     extraFields: list[str] = []
+    custom_legend: dict[str, object] | None = None
     internal_only = False
     year_only = False
     _years_range: dict | None = None

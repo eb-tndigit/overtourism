@@ -150,3 +150,15 @@ def test_anthropogenic_load_requires_both_presence_profiles():
 
     assert result.iloc[0] == 0.5
     assert result.iloc[1:].isna().all()
+def test_custom_legend_is_only_configured_for_seasonality_gini():
+    assert get_indicator("gini-stagionalita").custom_legend == {
+        "type": "cluster-value",
+        "cluster_property": "cluster stagionale",
+        "clusters": [
+            {"id": 0, "label": "annuale", "color": "#4575b4"},
+            {"id": 1, "label": "estate_alpina", "color": "#d73027"},
+            {"id": 2, "label": "estate_spalle", "color": "#1a9850"},
+            {"id": 3, "label": "sci", "color": "#984ea3"},
+        ],
+    }
+    assert get_indicator("densita-turistica").custom_legend is None
