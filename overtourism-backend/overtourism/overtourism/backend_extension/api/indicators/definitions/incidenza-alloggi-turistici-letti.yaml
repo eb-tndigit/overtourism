@@ -1,0 +1,22 @@
+# incidenza-alloggi-turistici-letti
+# Share of tourist-accommodation beds over tourist + hotel + extra-hotel beds.
+#
+# See ../README.md for the format of this file.
+
+name: Incidenza Alloggi turistici (posti letto)
+category: Strutture
+order: 32
+index_value_unit_description: Quota dei posti letto sul totale
+description: >-
+  Misura la quota dei <strong>posti letto degli alloggi turistici</strong> sul totale composto da
+  alloggi turistici, strutture alberghiere ed extra-alberghiere (posti letto, non numero di
+  strutture). Valori alti indicano una capacità ricettiva concentrata negli alloggi turistici
+  privati rispetto alle strutture tradizionali. {{ispat_structures_source}} L'indice è annuale; le
+  aree senza posti letto non hanno valore.
+
+phenomena:
+  - {name: letti_alloggi_turistici, type: BedsPhenomenon, source: structures, col: letti_alloggi_turistici}
+  - {name: letti_alb, type: BedsPhenomenon, source: structures, col: letti_alb}
+  - {name: letti_exalb, type: BedsPhenomenon, source: structures, col: letti_exalb}
+
+formula: letti_alloggi_turistici / sum(letti_alloggi_turistici, letti_alb, letti_exalb)

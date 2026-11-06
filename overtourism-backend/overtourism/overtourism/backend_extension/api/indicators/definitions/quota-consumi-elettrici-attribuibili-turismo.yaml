@@ -1,0 +1,37 @@
+# quota-consumi-elettrici-attribuibili-turismo
+# Yearly share of the electricity consumption attributable to tourism (estimated offline).
+#
+# See ../README.md for the format of this file.
+
+name: Quota consumi elettrici attribuibili al turismo
+category: Consumi
+order: 152
+index_value_unit_description: Quota dei consumi elettrici attribuibile al turismo (0-1)
+year_only: true
+available_for_variation: false
+description: >-
+  L'indice misura la <strong>quota dei consumi elettrici del settore servizi attribuibile al
+  turismo</strong>: la parte del consumo medio giornaliero che varia insieme alle presenze di
+  turisti. La quota è stimata, per ogni comune e per ogni anno, con una <strong>regressione sui 12
+  mesi</strong> dell'anno che tiene conto della temperatura (gradi giorno di riscaldamento): i
+  comuni con dati mancanti in qualche mese non hanno valore. L'indice è un'associazione statistica,
+  non una misura diretta: il campo <em>affidabilità</em> (alta, media, bassa) indica quanto i dati
+  del solo comune sostengono un effetto positivo delle presenze; per i comuni vicini, che
+  condividono le presenze di una stessa area Vodafone, le stime non sono indipendenti. I consumi
+  sono mensili e distribuiti uniformemente sui giorni. <strong>Fonti dei dati</strong>: prelievi
+  mensili di energia elettrica del settore servizi (categorie ATECO legate al turismo); presenze
+  giornaliere di turisti Vodafone (i turisti sono il regressore; gli escursionisti hanno peso zero);
+  temperature giornaliere della stazione Meteotrentino più vicina a ciascun comune, da cui sono
+  ricavati i gradi giorno di riscaldamento (base 18 °C). La stima usa i dati dell'anno e la pendenza
+  è attratta verso quella provinciale dello stesso anno (pooling parziale). Affidabilità: «alta» se
+  il limite inferiore dell'intervallo al 95% dell'effetto è positivo, «media» se lo è solo quello
+  all'80%, «bassa» altrimenti (la quota è allora determinata soprattutto dalla stima provinciale);
+  una quota pari o superiore a 0,9 è sempre «bassa».
+
+phenomena:
+  - {name: quota_ee_turismo, type: ElectricityTourismSharePhenomenon, source: ee_tourism_share, col: quota_ee_turismo}
+  - {name: presenze_medie, type: ElectricityTourismSharePhenomenon, source: ee_tourism_share, col: presenze_medie}
+  - {name: consumo_medio, type: ElectricityTourismSharePhenomenon, source: ee_tourism_share, col: consumo_medio}
+  - {name: affidabilita, type: ElectricityTourismSharePhenomenon, source: ee_tourism_share, col: affidabilita, text: true}
+
+formula: quota_ee_turismo

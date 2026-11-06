@@ -1,0 +1,26 @@
+# impatto-turismo-consumi-gas
+# Services-sector gas consumption over the total.
+#
+# See ../README.md for the format of this file.
+
+name: Impatto turismo sui consumi di gas
+category: Consumi
+order: 151
+index_value_unit_description: Rapporto fra consumi del settore servizi e consumi totali
+description: >-
+  L'indice misura l'impatto del turismo sui consumi di gas come <strong>rapporto</strong> fra i
+  <strong>consumi di gas del settore servizi</strong> e i <strong>consumi di gas totali</strong>
+  dell'area. Valori alti indicano un'area in cui i consumi sono dominati dalle attività legate ai
+  servizi e quindi al turismo. I comuni senza consumi totali non hanno valore (ad esempio i comuni
+  privi di rete del gas); se mancano solo i consumi del settore servizi sono considerati pari a
+  zero. <strong>Fonte dei dati</strong>: prelievi mensili di gas per comune (Smc), per il settore
+  servizi (categorie ATECO legate al turismo: 49.3, 55.1, 56.1, 93.1, 96) e per il totale di tutti
+  gli usi. I consumi mensili sono distribuiti uniformemente sui giorni del mese; l'indice è il
+  rapporto fra le medie del periodo selezionato. È una misura indiretta: i consumi dei servizi non
+  sono solo turistici.
+
+phenomena:
+  - {name: gas_services, type: ConsumptionPhenomenon, source: consumption, col: gas_services}
+  - {name: gas_total, type: ConsumptionPhenomenon, source: consumption, col: gas_total}
+
+formula: coalesce(gas_services, 0) / gas_total

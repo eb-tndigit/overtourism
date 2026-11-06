@@ -1,0 +1,26 @@
+# dipendenza-domanda-prossimita
+# Share of the tourist arrivals from origins within 5 hours of travel.
+#
+# See ../README.md for the format of this file.
+
+name: Indice di dipendenza dalla domanda di prossimità
+category: Provenienza
+order: 105
+index_value_unit_description: Quota di turisti provenienti entro 5 ore (0-1)
+description: >-
+  Misura la <strong>quota di turisti che proviene da destinazioni raggiungibili entro 5 ore</strong>
+  di viaggio: il rapporto fra gli arrivi dalle provenienze con tempo di percorrenza fino a 5 ore e
+  gli arrivi totali. Valori alti indicano una forte dipendenza dalla domanda di prossimità. Sono
+  considerati solo i turisti, e solo le provenienze con arrivi e tempo di percorrenza noti.
+  <strong>Fonti dei dati</strong>: arrivi giornalieri di turisti per paese di provenienza rilevati
+  da Vodafone con i dati della rete di telefonia mobile; tempi di percorrenza stimati con
+  OpenStreetMap/OSRM dalla città di riferimento (Italia) o dalla capitale del paese (estero), in
+  auto o, oltre 1000 km, in aereo fino a Bergamo più auto. La quota è calcolata sugli arrivi
+  dell'intero periodo selezionato; i comuni senza arrivi non hanno valore.
+
+phenomena:
+  # max_minutes = 300: the "5 ore" of the description (keep them equal)
+  - {name: arrivals_within, type: TravelTimeArrivalsPhenomenon, source: travel_time, measure: arrivals_within, max_minutes: 300}
+  - {name: tourist_arrivals, type: TravelTimeArrivalsPhenomenon, source: travel_time, measure: arrivals}
+
+formula: arrivals_within / tourist_arrivals

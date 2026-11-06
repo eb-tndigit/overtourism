@@ -1,0 +1,28 @@
+# pagerank-discretizzato
+# PageRank of the flow network, discretized in quantile classes. Python combinator.
+#
+# See ../README.md for the format of this file.
+
+name: Centralità nella rete
+category: Flussi
+order: 101
+index_value_unit_description: 'Classe di PageRank (quantili: 1 = più basso)'
+year_only: true
+available_for_variation: false
+description: >-
+  Questo indice misura la <strong>centralità di un'area nella rete dei flussi</strong> fra aree: è
+  alto per le tappe che ricevono flusso da aree a loro volta rilevanti. Per la lettura su mappa il
+  valore è <strong>discretizzato in classi di quantili</strong> (1 = centralità più bassa, 5 = più
+  alta; 0 = dato non disponibile): le classi indicano la posizione relativa fra i comuni. Il
+  PageRank (fattore di smorzamento 0,85) è calcolato sulla rete orientata dei flussi pesati fra aree
+  Vodafone; hanno valore solo le aree che fanno parte della rete, cioè con almeno un flusso in
+  entrata o in uscita. {{flow_common}}
+
+phenomena:
+  - {name: pagerank_combined, type: FlowIndicatorPhenomenon, source: flows_od, col: pagerank_combined}
+  - {name: pagerank_tourist, type: FlowIndicatorPhenomenon, source: flows_od, col: pagerank_tourist}
+  - {name: pagerank_visitor, type: FlowIndicatorPhenomenon, source: flows_od, col: pagerank_visitor}
+
+# NB: the description says "5 = più alta": keep it equal to n_classes.
+combinator: quantile_class
+params: {column: pagerank_combined, n_classes: 5}

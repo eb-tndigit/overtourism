@@ -1,0 +1,23 @@
+# quota-intra-ambito
+# OD flows: share of an area's flows exchanged with areas of the same ambito.
+#
+# See ../README.md for the format of this file.
+
+name: Quota intra-ambito
+category: Flussi
+order: 52
+index_value_unit_description: Quota dei flussi con aree dello stesso ambito
+year_only: true
+description: >-
+  La quota intra-ambito misura la <strong>quota dei flussi di un'area (in ingresso e in uscita)
+  scambiati con aree dello stesso ambito turistico</strong>; il resto è mobilità inter-ambito.
+  Valori alti indicano un'area i cui flussi restano all'interno del proprio ambito. Per i comuni con
+  più aree Vodafone il valore è la media pesata sui flussi intra-ambito; è vuoto per le aree senza
+  flussi verso altre aree o con ambito sconosciuto. {{flow_common}}
+
+phenomena:
+  - {name: quota_intra_ambito_combined, type: FlowIndicatorPhenomenon, source: flows_od, col: quota_intra_ambito_combined}
+  - {name: quota_intra_ambito_tourist, type: FlowIndicatorPhenomenon, source: flows_od, col: quota_intra_ambito_tourist}
+  - {name: quota_intra_ambito_visitor, type: FlowIndicatorPhenomenon, source: flows_od, col: quota_intra_ambito_visitor}
+
+formula: quota_intra_ambito_combined

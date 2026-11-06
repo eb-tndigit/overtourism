@@ -1,0 +1,26 @@
+# densita-turistica
+# Tourists + excursionists (Vodafone) per km2 of the comune's surface.
+#
+# See ../README.md for the format of this file.
+
+name: Indice di densità turistica
+category: Pressione turistica
+order: 12
+index_value_unit_description: Presenze turistiche per km²
+description: >-
+  L'indice di densità turistica definisce il <strong>rapporto</strong> fra il <strong>numero medio
+  giornaliero di turisti ed escursionisti</strong> presenti in un comune e la sua
+  <strong>superficie</strong> in km². L'indice fornisce una misura della pressione turistica sul
+  territorio. <strong>Fonti dei dati</strong>: Vodafone (dati della rete di telefonia mobile) per le
+  presenze giornaliere di turisti (persone che pernottano) ed escursionisti (visitatori
+  giornalieri); confini amministrativi ISTAT per la superficie dei comuni. Per le aree Vodafone che
+  comprendono più comuni, i turisti sono attribuiti ai comuni in proporzione ai posti letto (ISPAT)
+  e gli escursionisti in proporzione alla popolazione residente. Se manca uno dei due profili è
+  considerato pari a zero; se mancano entrambi il comune non ha valore.
+
+phenomena:
+  - {name: presenze_vodafone, type: PresencesPhenomenon, source: presences, col: presenze_vodafone}
+  - {name: presenze_escursionisti_vodafone, type: PresencesPhenomenon, source: presences, col: presenze_escursionisti_vodafone}
+  - {name: superficie, type: SurfacePhenomenon, source: surface, col: Shape_Area}
+
+formula: sum(presenze_vodafone, presenze_escursionisti_vodafone) / superficie

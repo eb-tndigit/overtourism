@@ -1,0 +1,32 @@
+# Data files read by the phenomena of the indicators.
+#
+#   <name>: <path relative to index_data_path>
+#
+# A phenomenon of a definition names one of these (`source: presences`); a Python class names them in its
+# `sources:` mapping. To use a new data file, add a line here.
+
+surface: Com01012026_g/Com01012026_g_WGS84.shp   # municipality shapefile (also the map of the API)
+population: phen_popolazione.parquet
+structures: phen_strutture.parquet
+presences: phen_presenze.parquet
+
+# yearly OD flow indicators per comune
+flows_od: phen_flussi_od.parquet
+# yearly concentration (normalized HHI) of the source markets per comune
+provenienza: phen_provenienza.parquet
+# daily arrivals and travel time (minutes) of the tourists per comune and provenienza
+travel_time: phen_tempo_medio_turisti.parquet
+# daily electricity / gas consumption per comune (services and total)
+consumption: phen_consumption.parquet
+# yearly share of the electricity consumption attributable to tourism per comune (computed in the data preparation)
+ee_tourism_share: phen_ee_tourism_share.parquet
+
+# daily redistribution results per comune (computed offline: data_preparation/gen_redistribution_dataframes.py)
+redistribution: phen_ridistribuzione.parquet
+# daily optimal flows between the Vodafone nodes (the arrows of the map)
+redistribution_flows: phen_ridistribuzione_flussi.parquet
+# the nodes: WGS84 position, label and comuni
+redistribution_nodes: ridistribuzione_nodi.parquet
+
+# seasonality cluster of each comune, computed once in the data preparation (notebook gini_clustering)
+seasonality_clusters: mapping_comuni_cluster_stagionalita.json

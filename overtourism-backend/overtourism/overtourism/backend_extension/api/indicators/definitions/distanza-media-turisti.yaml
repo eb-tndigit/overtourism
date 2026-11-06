@@ -1,0 +1,33 @@
+# distanza-media-turisti
+# Arrival-weighted mean travel time of the tourists, in hours. Python combinator.
+#
+# See ../README.md for the format of this file.
+
+name: Distanza media turisti
+category: Provenienza
+order: 104
+index_value_unit_description: Ore (media pesata sugli arrivi)
+description: >-
+  L'indice stima il <strong>tempo medio impiegato dai turisti per raggiungere la località</strong>.
+  Per ogni paese o area di provenienza il dato riporta il tempo di percorrenza dei turisti verso il
+  comune: i tempi sono combinati con una <strong>media pesata sugli arrivi</strong>, così le
+  provenienze con più arrivi contano di più. Se il periodo selezionato comprende più giorni, la
+  media è pesata su tutti gli arrivi del periodo. Il valore è espresso in <strong>ore</strong> (es.
+  4,5 = 4 ore e 30 minuti) e può essere opzionalmente <strong>arrotondato a multipli di
+  mezz'ora</strong>. Sono considerati solo i turisti, e solo le provenienze con arrivi e tempo di
+  percorrenza noti. <strong>Fonti dei dati</strong>: arrivi giornalieri di turisti per paese di
+  provenienza rilevati da Vodafone con i dati della rete di telefonia mobile (attribuiti ai comuni
+  in proporzione ai posti letto ISPAT per le aree con più comuni); matrice dei tempi di percorrenza
+  verso i comuni trentini, calcolata con OpenStreetMap/OSRM (percorso in auto più veloce, senza
+  traffico, verso il capoluogo di ciascun comune). È una <strong>stima</strong> e non un viaggio
+  misurato: ogni arrivo italiano è rappresentato da un'unica città di riferimento, ogni arrivo
+  estero dalla capitale del paese (in auto se a meno di 1000 km da Trento, altrimenti volo fino
+  all'aeroporto di Bergamo e poi auto; il tempo di volo è stimato dalla distanza a velocità
+  costante, senza attese aeroportuali). Gli arrivi senza paese di origine non sono considerati.
+
+phenomena:
+  - {name: tourist_arrivals, type: TravelTimeArrivalsPhenomenon, source: travel_time, measure: arrivals}
+  - {name: arrival_minutes, type: TravelTimeArrivalsPhenomenon, source: travel_time, measure: arrival_minutes, hidden: true}
+
+combinator: average_travel_time
+params: {minutes_column: arrival_minutes, arrivals_column: tourist_arrivals}

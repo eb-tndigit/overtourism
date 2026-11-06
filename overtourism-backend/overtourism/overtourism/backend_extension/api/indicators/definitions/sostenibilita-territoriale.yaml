@@ -1,0 +1,12 @@
+# sostenibilita-territoriale
+# Explainable composite of tourism sustainability (0-100). Python class: the pillars, components and weights are in code.
+#
+# See ../README.md for the format of this file.
+
+name: Indice di sostenibilità territoriale
+category: Pressione turistica
+order: 17
+index_value_unit_description: Punteggio 0-100 (100 = massima sostenibilità)
+# description: built by the class (it lists the pillars and the components from the tables in code)
+
+class: TerritorialSustainabilityIndicator

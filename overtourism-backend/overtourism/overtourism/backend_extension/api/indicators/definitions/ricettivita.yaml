@@ -1,0 +1,24 @@
+# ricettivita
+# Beds per resident.
+#
+# See ../README.md for the format of this file.
+
+name: Indice di ricettività
+category: Pressione turistica
+order: 10
+index_value_unit_description: Rapporto posti letto / popolazione
+description: >-
+  L'indice di ricettività definisce il <strong>rapporto</strong> fra i <strong>letti presenti negli
+  esercizi ricettivi</strong> e gli <strong>abitanti</strong> di una stessa area. L'indice è una
+  misura della capacità turistica rispetto alla dimensione, in termini di popolazione, di un'area.
+  <strong>Fonti dei dati</strong>: ISPAT (Istituto di statistica della Provincia autonoma di Trento)
+  per la consistenza delle strutture ricettive (posti letto totali = alberghieri + extra-alberghieri
+  + alloggi turistici privati; gli alloggi a disposizione non sono inclusi nel totale, che è
+  ricalcolato dalle componenti) e per la popolazione residente al 1° gennaio dell'anno. L'indice è
+  annuale.
+
+phenomena:
+  - {name: beds, type: BedsPhenomenon, source: structures, col: tot_postiletto}
+  - {name: population, type: PopulationPhenomenon, source: population, col: popolazione}
+
+formula: beds / population

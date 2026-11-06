@@ -1,0 +1,22 @@
+# incidenza-alloggi-turistici-strutture
+# Share of tourist-accommodation facilities over tourist + hotel + extra-hotel facilities.
+#
+# See ../README.md for the format of this file.
+
+name: Incidenza Alloggi turistici (strutture)
+category: Strutture
+order: 30
+index_value_unit_description: Quota delle strutture sul totale
+description: >-
+  Misura la quota delle <strong>strutture degli alloggi turistici</strong> sul totale composto da
+  alloggi turistici, strutture alberghiere ed extra-alberghiere (numero di strutture, non di posti
+  letto). Valori alti indicano un'offerta ricettiva orientata agli alloggi turistici privati
+  rispetto alle strutture tradizionali. {{ispat_structures_source}} L'indice è annuale; le aree
+  senza strutture non hanno valore.
+
+phenomena:
+  - {name: strutture_alloggi_turistici, type: FacilitiesTotalPhenomenon, source: structures, col: strutture_alloggi_turistici}
+  - {name: strutture_alb, type: FacilitiesTotalPhenomenon, source: structures, col: strutture_alb}
+  - {name: strutture_exalb, type: FacilitiesTotalPhenomenon, source: structures, col: strutture_exalb}
+
+formula: strutture_alloggi_turistici / sum(strutture_alloggi_turistici, strutture_alb, strutture_exalb)

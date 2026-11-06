@@ -1,0 +1,32 @@
+# gini-stagionalita
+# Normalized Gini of the daily tourist presences (+ seasonality cluster columns). Python class.
+#
+# See ../README.md for the format of this file.
+
+name: Indice di stagionalità delle presenze
+category: Pressione turistica
+order: 16
+index_value_unit_description: Indice di Gini normalizzato (0 = uniforme, 1 = concentrato)
+year_only: true
+available_for_variation: false
+description: >-
+  L'indice di Gini quantifica la <strong>concentrazione temporale delle presenze turistiche
+  giornaliere</strong> nel periodo selezionato. Il valore 0 indica una distribuzione uniforme, il
+  valore 1 la concentrazione in un unico giorno.
+
+  <strong>Fonte dei dati</strong>: presenze giornaliere di turisti (persone che pernottano) rilevate
+  da Vodafone con i dati della rete di telefonia mobile. L'indice è calcolato sulla serie
+  giornaliera dei comuni, ordinata, ed è normalizzato tra 0 e 1. Il comune non ha valore se i giorni
+  con dato coprono meno dell'80% del periodo o se i giorni disponibili sono meno di due. Per le aree
+  Vodafone con più comuni, le presenze sono attribuite ai comuni in proporzione ai posti letto
+  (ISPAT). Per macro aree e province il valore è la media degli indici dei comuni.
+
+  Per ogni comune è indicato anche il <strong>cluster stagionale</strong> (codice e tipologia):
+  annuale, sci, estate + spalle, estate alpina. Il cluster è calcolato una sola volta sul profilo
+  mensile dei flussi Vodafone dell'intero periodo disponibile, quindi non dipende dal periodo
+  selezionato.
+
+class: TouristPresenceGiniIndicator
+sources:
+  source_file: presences
+  clusters_file: seasonality_clusters

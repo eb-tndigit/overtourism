@@ -1,0 +1,26 @@
+# turismo-sommerso
+# Vodafone-measured presences over the official (hotel + extra-hotel) ones.
+#
+# See ../README.md for the format of this file.
+
+name: Turismo non intercettato
+category: Pressione turistica
+order: 14
+index_value_unit_description: Rapporto fra presenze misurate e ufficiali
+description: >-
+  L'indice misura il <strong>rapporto</strong> fra le <strong>presenze di turisti misurate</strong>
+  attraverso l'analisi di dati da rete di telefonia mobile e le <strong>presenze ufficiali</strong>
+  di turisti in strutture alberghiere e extra-alberghiere. Valori superiori a 1 indicano la presenza
+  di turismo non registrato dalle statistiche ufficiali (ad esempio seconde case, alloggi privati,
+  ospiti di amici e parenti). <strong>Fonti dei dati</strong>: Vodafone per le presenze di turisti
+  misurate; ISPAT per le presenze ufficiali (movimento turistico) di alberghi ed extra-alberghieri.
+  Le presenze ISPAT sono mensili: sono distribuite sui giorni con un modello basato sulla durata
+  media del soggiorno e poi attribuite ai comuni in proporzione ai posti letto del tipo di
+  struttura. Dove le presenze ufficiali sono nulle, l'indice coincide con le presenze Vodafone.
+
+phenomena:
+  - {name: presenze_vodafone, type: PresencesPhenomenon, source: presences, col: presenze_vodafone}
+  - {name: presenze_alb, type: PresencesPhenomenon, source: presences, col: presenze_alb}
+  - {name: presenze_xalb, type: PresencesPhenomenon, source: presences, col: presenze_xalb}
+
+formula: coalesce(presenze_vodafone / (presenze_alb + presenze_xalb), presenze_vodafone)

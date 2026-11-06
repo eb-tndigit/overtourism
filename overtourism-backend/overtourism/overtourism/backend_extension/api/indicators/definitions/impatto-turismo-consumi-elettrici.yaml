@@ -1,0 +1,26 @@
+# impatto-turismo-consumi-elettrici
+# Services-sector electricity consumption over the total.
+#
+# See ../README.md for the format of this file.
+
+name: Impatto turismo sui consumi elettrici
+category: Consumi
+order: 150
+index_value_unit_description: Rapporto fra consumi del settore servizi e consumi totali
+description: >-
+  L'indice misura l'impatto del turismo sui consumi elettrici come <strong>rapporto</strong> fra i
+  <strong>consumi elettrici del settore servizi</strong> e i <strong>consumi elettrici
+  totali</strong> dell'area. Valori alti indicano un'area in cui i consumi sono dominati dalle
+  attività legate ai servizi e quindi al turismo. I comuni senza consumi totali non hanno valore; se
+  mancano solo i consumi del settore servizi sono considerati pari a zero. <strong>Fonte dei
+  dati</strong>: prelievi mensili di energia elettrica per comune (kWh), per il settore servizi
+  (categorie ATECO legate al turismo: 49.3, 55.1, 56.1, 93.1, 96) e per il totale di tutti gli usi.
+  I consumi mensili sono distribuiti uniformemente sui giorni del mese; l'indice è il rapporto fra
+  le medie del periodo selezionato. È una misura indiretta: i consumi dei servizi non sono solo
+  turistici.
+
+phenomena:
+  - {name: ee_services, type: ConsumptionPhenomenon, source: consumption, col: ee_services}
+  - {name: ee_total, type: ConsumptionPhenomenon, source: consumption, col: ee_total}
+
+formula: coalesce(ee_services, 0) / ee_total
