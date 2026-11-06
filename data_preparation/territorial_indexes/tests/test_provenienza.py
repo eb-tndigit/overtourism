@@ -153,4 +153,7 @@ def test_arrivals_without_country_column_still_count_in_total():
 
 
 def test_phenomenon_needs_only_vodafone_provenienza():
-    assert "phen_provenienza" in phenomena_to_recompute({"vodafone_provenienza"})
+    assert "phen_provenienza" not in phenomena_to_recompute({"vodafone_provenienza"})
+    assert "phen_provenienza" in phenomena_to_recompute(
+        {"vodafone_provenienza", "vodafone_arrivi"}
+    )

@@ -3,8 +3,10 @@ import pandas as pd
 import pytest
 from overtourism.overtourism.backend_extension.api.models.trentino_indicators import (
     _REGISTRY,
+    AnthropogenicLoadIndicator,
     AvailableAccommodationBedsIndicator,
     AvailableAccommodationFacilitiesIndicator,
+    HiddenTourismIndicator,
     MainMarketDependenceIndicator,
     TouristAccommodationBedsIndicator,
     TouristAccommodationFacilitiesIndicator,
@@ -96,9 +98,9 @@ def test_main_market_indicator_includes_top_market_names(tmp_path):
                 "ID_COMUNE": "001",
                 "volume_mercato_1": 150,
                 "volume_totale": 250,
-                "nome_mercato_1": "Italia",
-                "nome_mercato_2": "Germania",
-                "nome_mercato_3": "Francia",
+                "nome_mercato_1": "Italy",
+                "nome_mercato_2": "Germany",
+                "nome_mercato_3": "France",
             }
         ]
     ).to_csv(source, sep=";", index=False)
@@ -113,10 +115,41 @@ def test_main_market_indicator_includes_top_market_names(tmp_path):
 
 def test_period_percentage_impact_indicator_is_removed():
     assert "incidenza-periodo" not in _REGISTRY
-    assert "indice-stagionalita-presenze" in _REGISTRY
+    assert "gini-stagionalita" in _REGISTRY
 
     with pytest.raises(KeyError, match="Unknown indicator 'incidenza-periodo'"):
         get_indicator("incidenza-periodo")
+
+
+def test_hidden_tourism_falls_back_when_official_total_is_zero_or_missing():
+    indicator = HiddenTourismIndicator("unused.parquet")
+    values = pd.DataFrame(
+        {
+            "presenze_vodafone": [10.0, 10.0, 10.0, 10.0],
+            "presenze_alb": [5.0, 0.0, 5.0, float("nan")],
+            "presenze_xalb": [5.0, 0.0, float("nan"), 5.0],
+        }
+    )
+
+    result = indicator.combinator(values)
+
+    assert result.tolist() == [1.0, 10.0, 10.0, 10.0]
+
+
+def test_anthropogenic_load_requires_both_presence_profiles():
+    indicator = AnthropogenicLoadIndicator("unused.parquet", "unused.parquet")
+    values = pd.DataFrame(
+        {
+            "presenze_vodafone": [2.0, float("nan"), 2.0],
+            "presenze_escursionisti_vodafone": [3.0, 3.0, float("nan")],
+            "population": [10.0, 10.0, 10.0],
+        }
+    )
+
+    result = indicator.combinator(values)
+
+    assert result.iloc[0] == 0.5
+    assert result.iloc[1:].isna().all()
 
 
 def test_custom_legend_is_only_configured_for_seasonality_gini():

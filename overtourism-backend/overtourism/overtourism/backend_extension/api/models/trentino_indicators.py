@@ -163,9 +163,10 @@ def get_indicator(key: str) -> Indicator:
 
 
 class AccommodationCapacityIndicator(Indicator):
+    """Beds per resident: NUMLETTI_TOT / POPOLAZIONE."""
+
     category = "Pressione turistica"
     order = 10
-    """Beds per resident: NUMLETTI_TOT / POPOLAZIONE."""
 
     name = "Indice di ricettività"
     description = (
@@ -189,9 +190,10 @@ class AccommodationCapacityIndicator(Indicator):
 
 
 class TourismIndexIndicator(Indicator):
+    """Total presences per resident."""
+
     category = "Pressione turistica"
     order = 10
-    """Total presences per resident."""
 
     name = "Indice di turisticità"
     description = (
@@ -214,9 +216,10 @@ class TourismIndexIndicator(Indicator):
 
 
 class TouristDensityIndicator(Indicator):
+    """Vodafone tourists + visitors presences per km² of the comune's surface."""
+
     category = "Pressione turistica"
     order = 10
-    """Vodafone tourists + visitors presences per km² of the comune's surface."""
 
     name = "Indice di densità turistica"
     description = (
@@ -259,9 +262,10 @@ class TouristDensityIndicator(Indicator):
 
 
 class AnthropogenicDensityIndicator(Indicator):
+    """Inhabitants and Vodafone tourist presences per km² of comune area."""
+
     category = "Pressione turistica"
     order = 10
-    """Inhabitants and Vodafone tourist presences per km² of comune area."""
 
     name = "Indice di densità antropica"
     description = (
@@ -598,9 +602,10 @@ class AvailableAccommodationBedsIndicator(_HospitalityBedsShareIndicator):
 
 
 class HiddenTourismIndicator(Indicator):
+    """Calculates the hidden tourism indicator as the ratio between Vodafone registered attendences and accomodancy ones"""
+
     category = "Pressione turistica"
     order = 10
-    """Calculates the hidden tourism indicator as the ratio between Vodafone registered attendences and accomodancy ones"""
 
     name = "Turismo non intercettato"
     description = (
@@ -646,11 +651,13 @@ class HiddenTourismIndicator(Indicator):
 
 
 class AnthropogenicLoadIndicator(Indicator):
-    category = "Pressione turistica"
-    order = 10
     """Calculates the anthropogenic load as the ratio between Vodafone
     registered presences (tourists and excursionists) and resident population.
     """
+
+    category = "Pressione turistica"
+    order = 10
+
 
     name = "Carico Antropico"
     description = (
@@ -711,9 +718,9 @@ class AnthropogenicLoadIndicator(Indicator):
 
 _FLOW_PROFILE_SUFFIXES = ("combined", "tourist", "visitor")
 _FLOW_COMMON_DESCRIPTION = (
-    " Turisti ed escursionisti sono <strong>aggregati con un peso per ciascun profilo</strong>, "
-    "stimato dai dati (una giornata-utente di escursionista non pesa come una di turista); "
-    "i valori per singolo profilo sono riportati a fianco (turisti peso 1, escursionisti peso 0,5: coefficienti scelti, non stimati). "
+    " Turisti ed escursionisti sono <strong>aggregati con un peso per ciascun profilo</strong>: "
+    "una giornata-utente di escursionista conta 0,5 rispetto a una di turista (coefficienti scelti, non stimati dai dati). "
+    "I valori per singolo profilo sono riportati a fianco. "
     "<strong>Fonte dei dati</strong>: dati Vodafone di co-visitazione fra aree (flussi origine-destinazione di utenti della rete di telefonia mobile "
     "presenti in due aree nello stesso periodo), considerando solo le righe di totale, che Vodafone fornisce al netto delle soglie di privacy (conteggi inferiori a circa 15 utenti sono azzerati). "
     "L'indice è annuale e calcolato sulle giornate-utente dell'anno per ciascuna area Vodafone; "
@@ -744,9 +751,10 @@ class _FlowIndicator(Indicator):
 
 
 class InboundMobilityShareIndicator(_FlowIndicator):
+    """UD(*->j) / T(j): share of the users present in j who arrive from another area."""
     category = "Flussi"
     order = 50
-    """UD(*->j) / T(j): share of the users present in j who arrive from another area."""
+
 
     metric = "quota_ingresso"
     name = "Flussi - Quota di mobilità in ingresso"
@@ -764,9 +772,10 @@ class InboundMobilityShareIndicator(_FlowIndicator):
 
 
 class OutboundMobilityShareIndicator(_FlowIndicator):
+    """UD(j->*) / T(j): share of the users present in j who go on to another area."""
+
     category = "Flussi"
     order = 50
-    """UD(j->*) / T(j): share of the users present in j who go on to another area."""
 
     metric = "quota_uscita"
     name = "Quota di mobilità in uscita"
@@ -784,9 +793,9 @@ class OutboundMobilityShareIndicator(_FlowIndicator):
 
 
 class IntraAmbitoShareIndicator(_FlowIndicator):
+    """Share of the UD flow of an area that stays inside its own ambito."""
     category = "Flussi"
     order = 50
-    """Share of the UD flow of an area that stays inside its own ambito."""
 
     metric = "quota_intra_ambito"
     name = "Quota intra-ambito"
@@ -802,8 +811,6 @@ class IntraAmbitoShareIndicator(_FlowIndicator):
 
 
 class DiscretizedPageRankIndicator(_FlowIndicator):
-    category = "Flussi"
-    order = 100
     """
     PageRank of the network of the flows between areas, discretized in ``n_classes`` quantile classes.
 
@@ -813,6 +820,9 @@ class DiscretizedPageRankIndicator(_FlowIndicator):
     columns next to INDICE. Classes of different years are not comparable as a time series, hence
     ``availableForVariation = False``.
     """
+
+    category = "Flussi"
+    order = 100
 
     metric = "pagerank"
     name = "Centralità nella rete"
@@ -917,7 +927,6 @@ class RedistributionBalanceIndicator(Indicator):
         "Punti di saturazione (positivo = sotto-rappresentato, negativo = sovraccarico)"
     )
     availableForVariation = False
-    year_only = True
 
     FLOWS_TOP_N = 50  # arrows returned with the map (the biggest ones)
 
@@ -1915,8 +1924,6 @@ class TerritorialSustainabilityIndicator(Indicator):
 
 
 class VariationRateIndicator(Indicator):
-    category = "Internal"
-    order = 900
     """
     Generic "Tasso di variazione" (rate of variation) index.
 
@@ -1939,6 +1946,9 @@ class VariationRateIndicator(Indicator):
     class at all — ``_compute_indicator`` is fully overridden below, and
     ``phenomena``/``combinator`` are left empty/no-op.
     """
+
+    category = "Internal"
+    order = 900
 
     name = "Tasso di variazione"
     description = "Il tasso di variazione misura la <strong>variazione percentuale</strong> di un indicatore fra il <strong>periodo selezionato</strong> ed un <strong>periodo storicizzato di confronto</strong>. È utile per confrontare due intervalli temporali (es. due stagioni, due anni) sullo stesso indice. Il valore è (periodo selezionato − periodo di confronto) / periodo di confronto × 100; non ha valore dove l'indice del periodo di confronto è zero o mancante. Le fonti dei dati sono quelle dell'indicatore confrontato."
