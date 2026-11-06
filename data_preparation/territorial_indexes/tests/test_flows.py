@@ -1,10 +1,16 @@
+import logging
 import json
 
 import numpy as np
 import pandas as pd
 
 from utils.datasets import COVISITS_METRICS, COVISITS_PROFILE_WEIGHTS, COVISITS_PROFILES
-from utils.flows import AREA_COMUNE_OVERRIDES, build_area_comune, comune_flow_indicators
+from utils.flows import (
+    AREA_COMUNE_OVERRIDES,
+    area_indicators,
+    build_area_comune,
+    comune_flow_indicators,
+)
 
 # every comune named by AREA_COMUNE_OVERRIDES must be in the mapping
 MAPPING_COMUNI = {
@@ -129,3 +135,40 @@ def test_intra_ambito_is_computed_without_presence_denominator():
     assert pd.isna(b["quota_uscita_tourist"])
     assert np.isclose(b["quota_intra_ambito_tourist"], 1.0)
     assert np.isclose(b["quota_intra_ambito_combined"], 1.0)
+
+
+def test_sparse_presence_denominators_warn_and_keep_missing_shares(caplog):
+    yearly = pd.DataFrame(
+        [
+            {
+                "year": 2024,
+                "userProfile": "TOURIST",
+                "covisitType": "ND",
+                "sourceId": "*",
+                "targetId": "A",
+                "value": 200,
+                "value_raw": 200,
+            },
+            *[
+                {
+                    "year": 2024,
+                    "userProfile": "TOURIST",
+                    "covisitType": "UD",
+                    "sourceId": source,
+                    "targetId": target,
+                    "value": 10,
+                    "value_raw": 10,
+                }
+                for source, target in (("A", "B"), ("B", "C"), ("C", "A"))
+            ],
+        ]
+    )
+
+    with caplog.at_level(logging.WARNING, logger="utils.flows"):
+        result = area_indicators(
+            yearly, {"A": "X", "B": "X", "C": "X"}, min_t=100
+        ).set_index("areaId")
+
+    assert "only 1/3 areas meet the 100 user-day presence threshold" in caplog.text
+    assert result.loc["A", "quota_ingresso"] == 0
+    assert result.loc[["B", "C"], "quota_ingresso"].isna().all()

@@ -216,6 +216,17 @@ def area_indicators(yearly, ambito, min_t) -> pd.DataFrame:
                 n_pairs_only,
             )
         ok = d["T_raw"] >= min_t
+        coverage = ok.mean() if len(ok) else 0.0
+        if coverage < 0.5:
+            logger.warning(
+                "[flows] %s %s: only %d/%d areas meet the %s user-day presence threshold; "
+                "inbound/outbound shares are unavailable for most areas",
+                year,
+                prof,
+                int(ok.sum()),
+                len(ok),
+                min_t,
+            )
         t = d["T"].replace(0, np.nan)
         d["quota_ingresso"] = np.where(ok, d["UD_in"] / t, np.nan)
         d["quota_uscita"] = np.where(ok, d["UD_out"] / t, np.nan)
