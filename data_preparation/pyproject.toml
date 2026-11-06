@@ -37,3 +37,6 @@ download = [
 # This repository's import package is provided by its parent directory, so it is
 # used as an application environment rather than built as an installable wheel.
 package = false
+
+[tool.pytest.ini_options]
+pythonpath = [".", "territorial_indexes"]

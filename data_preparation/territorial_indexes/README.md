@@ -18,7 +18,8 @@ This README explains how to run the code and the steps that lead to the final fi
 ## Requirements
 
 * Python 3 with `pandas`, `numpy`, `pyyaml`, `unidecode`, `pyarrow` (parquet) and, for the tests, `pytest`.
-* The redistribution indicator also needs `scipy`, `scikit-learn`, `statsmodels`, `geopandas` and `pyproj`.
+* Anomaly detection and the redistribution indicator need `scikit-learn`; redistribution also needs `scipy`, `statsmodels`,
+  `geopandas` and `pyproj`.
 * `boto3`, `geopandas` and `digitalhub` are imported only when needed (download from the data lake / platform upload).
   The S3 credentials are read from the section `platform.dhcore_env` of the file `platform.credentials_file` (default `.dhcore.ini`) in the home folder.
 * To work without the data lake, put the files in a local folder and set `update.local_source_dir` in `config/settings.yaml`
@@ -32,6 +33,7 @@ territorial_indexes/
 ├── gen_phenomenon_dataframes.py     # entry point: base build, all steps (--with-update / --update-only: also the 2025 update)
 ├── update_phenomenon_dataframes.py  # entry point: yearly update
 ├── gen_redistribution_dataframes.py # entry point: redistribution indicator (run after the phenomena)
+├── detect_anomalies.py              # entry point: detect unusual daily observations in final phenomena
 ├── config/
 │   ├── settings.yaml                # directories, format, period, platform, ALL the file names
 │   └── updates/                     # one yaml per yearly update
@@ -234,6 +236,34 @@ a merger that are missing from the typology file are listed in `redistribution.m
 Intermediate results (nodes, demand, ceilings, model-selection and coefficient tables) are saved in
 `data_processed/redistribution/`; the three final tables are **always parquet**, whatever `type_format` is, because the
 backend reads them as parquet.
+
+## Detecting anomalies
+
+`detect_anomalies.py` scores unusual daily observations in the final phenomenon files. Run it after generating the
+phenomena. It models each comune separately over time, so anomalies are measured against that comune's own history
+rather than against the absolute size of other comuni. Numeric phenomenon values and calendar features (month, weekday,
+and day of year) are used by an Isolation Forest. Annual phenomena are not included by default because their time series
+are too short for reliable comune-level detection.
+
+```bash
+python detect_anomalies.py
+python detect_anomalies.py --datasets phen_presenze phen_consumption
+python detect_anomalies.py --contamination 0.02 --min-observations 120
+python detect_anomalies.py --severity 2
+python detect_anomalies.py --format csv
+```
+
+By default, the script reads `phen_presenze`, `phen_consumption` and `phen_meteo` from `Output/data/final_data/`, using
+the format configured by `type_format` in `config/settings.yaml`. It skips municipalities with fewer than 90 observations
+and uses an expected anomaly proportion (`--contamination`) of 0.01. Use `--datasets` to select other final phenomena;
+each selected dataset must contain `DATA` and `ID_COMUNE` columns. The minimum observation count must be at least 20,
+and contamination must be greater than 0 and less than 0.5.
+
+The script writes `anomaly_detection_scores.<format>` to `Output/data/final_data/`. The output contains `DATA`,
+`ID_COMUNE`, the source `phenomenon`, `anomaly_score` (higher means more anomalous), `is_anomaly`, the feature names
+used, and `severity_level`. The default `--severity 3` keeps rows with `abs(anomaly_score) > 0.3`; use `--severity 2`
+for `abs(anomaly_score) > 0.1`, `--severity 1` for rows flagged by the Isolation Forest, or `--severity 0` to keep all
+scored observations. This script only reads the phenomenon inputs; it writes the score file and does not modify them.
 
 ## Outputs
 
