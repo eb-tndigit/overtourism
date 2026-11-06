@@ -484,11 +484,11 @@ def test_overtourism_routes_use_db_scope_but_indexes_require_only_a_valid_jwt(
             headers={"Authorization": "Bearer signed-token"},
         )
         index_response = client.get(
-            "/api/default/indexes/get-index-list",
+            "/api/indexes/get-index-list",
             headers={"Authorization": "Bearer signed-token"},
         )
         unauthenticated_index_response = client.get(
-            "/api/default/indexes/get-index-list"
+            "/api/indexes/get-index-list"
         )
 
     assert problem_response.status_code == 403
@@ -537,7 +537,7 @@ def test_force_index_download_requires_global_admin(
 
     with TestClient(app) as client:
         response = client.post(
-            "/api/default/indexes/download-index-data",
+            "/api/indexes/download-index-data",
             headers={"Authorization": "Bearer signed-token"},
         )
 
