@@ -1,0 +1,23 @@
+# quota-mobilita-uscita
+# OD flows: share of the users present in an area who go on to another area.
+#
+# See ../README.md for the format of this file.
+
+name: Quota di mobilità in uscita
+category: Flussi
+order: 51
+index_value_unit_description: Rapporto fra utenti diretti verso altre aree e utenti presenti
+year_only: true
+description: >-
+  La quota di mobilità in uscita misura la <strong>quota degli utenti presenti in un'area che
+  proseguono verso un'altra area</strong> (rapporto fra gli utenti diretti verso altre aree e gli
+  utenti presenti). Valori alti indicano località da cui i visitatori ripartono per visitare altre
+  aree. Il valore può superare 1 perché un utente può essere contato in più aree; è lasciato vuoto
+  per le aree con meno di 100 giornate-utente annue di presenza. {{flow_common}}
+
+phenomena:
+  - {name: quota_uscita_combined, type: FlowIndicatorPhenomenon, source: flows_od, col: quota_uscita_combined}
+  - {name: quota_uscita_tourist, type: FlowIndicatorPhenomenon, source: flows_od, col: quota_uscita_tourist}
+  - {name: quota_uscita_visitor, type: FlowIndicatorPhenomenon, source: flows_od, col: quota_uscita_visitor}
+
+formula: quota_uscita_combined

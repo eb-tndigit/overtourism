@@ -1,0 +1,20 @@
+# tasso-variazione
+# Percentage change of ANY other indicator between two periods. Python class.
+#
+# See ../README.md for the format of this file.
+
+name: Tasso di variazione
+category: Internal
+order: 900
+index_value_unit_description: Percentuale di variazione tra due periodi
+available_for_variation: false
+internal_only: true
+description: >-
+  Il tasso di variazione misura la <strong>variazione percentuale</strong> di un indicatore fra il
+  <strong>periodo selezionato</strong> ed un <strong>periodo storicizzato di confronto</strong>. È
+  utile per confrontare due intervalli temporali (es. due stagioni, due anni) sullo stesso indice.
+  Il valore è (periodo selezionato − periodo di confronto) / periodo di confronto × 100; non ha
+  valore dove l'indice del periodo di confronto è zero o mancante. Le fonti dei dati sono quelle
+  dell'indicatore confrontato.
+
+class: VariationRateIndicator

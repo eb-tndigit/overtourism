@@ -1,0 +1,24 @@
+# turisticita
+# Tourist presences per resident.
+#
+# See ../README.md for the format of this file.
+
+name: Indice di turisticità
+category: Pressione turistica
+order: 11
+index_value_unit_description: Rapporto fra numero turisti e popolazione
+description: >-
+  L'indice di turisticità definisce il <strong>rapporto</strong> fra il <strong>numero medio
+  giornaliero di turisti</strong> di una specifica area e il <strong>numero di abitanti</strong>
+  della stessa area. L'indice fornisce una misura dell'effettiva incidenza del turismo rispetto alla
+  dimensione, in termini di popolazione, di un'area. <strong>Fonti dei dati</strong>: Vodafone
+  (analisi dei dati della rete di telefonia mobile) per le presenze giornaliere di turisti, cioè le
+  persone che pernottano; ISPAT per la popolazione residente al 1° gennaio. Le presenze Vodafone,
+  fornite per aree che possono comprendere più comuni, sono attribuite ai comuni in proporzione ai
+  posti letto (fonte ISPAT) dell'anno.
+
+phenomena:
+  - {name: presences, type: PresencesPhenomenon, source: presences, col: presenze_vodafone}
+  - {name: population, type: PopulationPhenomenon, source: population, col: popolazione}
+
+formula: presences / population

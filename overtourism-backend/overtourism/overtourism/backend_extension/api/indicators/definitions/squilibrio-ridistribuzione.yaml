@@ -1,0 +1,39 @@
+# squilibrio-ridistribuzione
+# Daily imbalance in saturation points + the arrows of the optimal redistribution. Python class.
+#
+# See ../README.md for the format of this file.
+
+name: Squilibrio di carico e ridistribuzione dei flussi
+category: Flussi
+order: 100
+index_value_unit_description: Punti di saturazione (positivo = sotto-rappresentato, negativo = sovraccarico)
+available_for_variation: false
+description: >-
+  L'indice confronta il <strong>carico di ogni area</strong> (turisti ed escursionisti rilevati da
+  Vodafone) con il suo <strong>tetto di carico</strong>, stimato dallo storico delle aree
+  comparabili, e lo mette a confronto con una <strong>distribuzione bilanciata</strong>, in cui
+  tutte le aree hanno la stessa saturazione (carico / tetto). Valori <strong>positivi</strong>
+  indicano un'area <strong>sotto-rappresentata</strong>, con margine per accogliere più visitatori;
+  valori <strong>negativi</strong> un'area <strong>sovraccarica</strong>. È espresso in punti di
+  saturazione ed è la <strong>media giornaliera del periodo selezionato</strong>. Le
+  <strong>frecce</strong> sulla mappa mostrano gli spostamenti a costo minimo con cui l'eccesso
+  potrebbe essere riassorbito entro circa 40 km (il costo cresce con la distanza e con la diversità
+  di tipo fra le aree): la parte che non trova posto entro il raggio resta «non assorbibile». Non è
+  un costo in euro. Il tetto è una stima incerta (intervallo al 90%: ×1,5 per i turisti, ×1,9 per
+  gli escursionisti) e «bilanciato = stessa saturazione» è una scelta normativa. Per le aree
+  Vodafone che comprendono più comuni il valore è quello dell'area. <strong>Fonti dei dati</strong>:
+  Vodafone (presenze giornaliere di turisti ed escursionisti e co-visitazioni fra aree, usate per
+  stimare il decadimento con la distanza e l'affinità fra aree); ISPAT (posti letto e popolazione
+  residente); ISTAT (confini e superficie dei comuni, tipologia turistica dei comuni). Il tetto di
+  carico è stimato con una regressione quantile (quantile 0,9) sui picchi annuali di carico delle
+  aree comparabili, in funzione di posti letto, residenti, seconde case o superficie e profilo
+  stagionale. Nella versione combinata gli escursionisti pesano 0,5 rispetto ai turisti. Il calcolo
+  è eseguito una volta nella preparazione dei dati; le colonne affiancate indicano le persone al
+  giorno da attrarre (+) o da spostare (−), gli spostamenti netti e l'eccesso non assorbibile entro
+  il raggio.
+
+class: RedistributionBalanceIndicator
+sources:
+  source_file: redistribution
+  flows_file: redistribution_flows
+  nodes_file: redistribution_nodes

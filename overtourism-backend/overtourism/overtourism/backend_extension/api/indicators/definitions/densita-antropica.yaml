@@ -1,0 +1,26 @@
+# densita-antropica
+# Residents + tourists + excursionists per km2.
+#
+# See ../README.md for the format of this file.
+
+name: Indice di densità antropica
+category: Pressione turistica
+order: 13
+index_value_unit_description: Abitanti e presenze turistiche per km²
+description: >-
+  L'indice di densità antropica misura il rapporto fra la <strong>somma di popolazione residente e
+  numero medio giornaliero di turisti ed escursionisti</strong> rilevati da Vodafone e la
+  <strong>superficie</strong> del comune in km². Misura quindi quante persone, residenti e presenti,
+  insistono su ogni km² di territorio. <strong>Fonti dei dati</strong>: ISPAT per la popolazione
+  residente al 1° gennaio; Vodafone (dati della rete di telefonia mobile) per le presenze di turisti
+  ed escursionisti; confini amministrativi ISTAT per la superficie. Per le aree Vodafone con più
+  comuni, i turisti sono attribuiti in proporzione ai posti letto (ISPAT) e gli escursionisti alla
+  popolazione residente.
+
+phenomena:
+  - {name: presenze_vodafone, type: PresencesPhenomenon, source: presences, col: presenze_vodafone}
+  - {name: presenze_escursionisti_vodafone, type: PresencesPhenomenon, source: presences, col: presenze_escursionisti_vodafone}
+  - {name: population, type: PopulationPhenomenon, source: population, col: popolazione}
+  - {name: superficie, type: SurfacePhenomenon, source: surface, col: Shape_Area}
+
+formula: (sum(presenze_vodafone, presenze_escursionisti_vodafone) + population) / superficie

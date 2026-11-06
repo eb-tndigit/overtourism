@@ -66,7 +66,7 @@ def test_indexes_router_registers_under_default_api_namespace(handler) -> None:
 
     app = create_app(handler, extra_routers=[indexes_router])
 
-    assert "/api/default/indexes/get-index-list" in app.openapi()["paths"]
+    assert "/api/indexes/get-index-list" in app.openapi()["paths"]
 
 
 def test_create_app_exposes_bearer_auth_in_openapi(handler) -> None:
