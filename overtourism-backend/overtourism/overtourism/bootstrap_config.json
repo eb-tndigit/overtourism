@@ -15,8 +15,8 @@
     "scenarios": [
       {
         "key": "august_no_booking",
-        "name": "Agosto, nessun parcheggio su prenotazione",
-        "description": "1–31 agosto senza posti su prenotazione (regole 2023–2024): chi non trova posto nei parcheggi a pagamento sosta altrove.",
+        "name": "Agosto, regole attuali",
+        "description": "1–31 agosto con le regole attuali: nessun posto solo su prenotazione (a Ischia la prenotazione è facoltativa); chi non trova posto nei parcheggi a pagamento sosta altrove.",
         "param_overrides": {
           "day of summer": [
             61.0,
@@ -27,8 +27,8 @@
       },
       {
         "key": "august_booking_ischia",
-        "name": "Agosto, Ischia su prenotazione",
-        "description": "1–31 agosto con il parcheggio Ischia (195 posti) solo su prenotazione, come dal 2025.",
+        "name": "Agosto, Ischia solo su prenotazione",
+        "description": "1–31 agosto con il parcheggio Ischia (195 posti) solo su prenotazione obbligatoria: gli escursionisti in auto oltre i posti disponibili rinunciano nella quota dei posti su prenotazione (ipotesi A13).",
         "param_overrides": {
           "day of summer": [
             61.0,
