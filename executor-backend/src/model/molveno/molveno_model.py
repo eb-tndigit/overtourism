@@ -520,9 +520,9 @@ class MolvenoModel(Model):
             i_xo_excursionists_parking=Index(
                 "excursionists in parking rotation factor", 2.0
             ),
-            # D15: spaces under compulsory booking (one car per space and day); default: the
-            # Ischia car park, booking-only since 2025
-            i_booked_parking_spaces=Index("booked parking spaces", 195.0),
+            # D15: spaces under compulsory booking (one car per space and day); default: none,
+            # booking is optional in 2025 (195 = the Ischia car park, 529 = all the paid ones)
+            i_booked_parking_spaces=Index("booked parking spaces", 0.0),
             # Beach parameters (A10: BS4 counters 2023, entries per day ~ 0.35 x tourists +
             # 0.78 x excursionists, 2.1 entries per place at once)
             i_u_tourists_beach=Index("tourist beach usage factor", 0.35),

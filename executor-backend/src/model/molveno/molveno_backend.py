@@ -389,14 +389,15 @@ class MolvenoBackend:
                 label="Posti auto solo su prenotazione",
                 description=(
                     "Posti dei parcheggi a pagamento accessibili solo su prenotazione, "
-                    "a giornata intera (un'auto per posto al giorno). Dal 2025 il parcheggio "
-                    "Ischia: 195 posti; 529 = tutti i parcheggi a pagamento, 0 = nessuno. "
+                    "a giornata intera (un'auto per posto al giorno). Oggi nessuno (0): nel 2025 "
+                    "la prenotazione è facoltativa; 195 = il parcheggio Ischia, 529 = tutti i "
+                    "parcheggi a pagamento. "
                     "Gli escursionisti in auto oltre i posti disponibili rinunciano in "
                     "proporzione alla quota di posti su prenotazione; gli altri sostano "
                     "altrove (alberghi, aree private, lungo la strada)."
                 ),
                 category="Parcheggi",
-                default=195.0,
+                default=0.0,
                 min_value=0.0,
                 max_value=529.0,
                 step=1.0,

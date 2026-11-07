@@ -68,20 +68,22 @@ _MOLVENO_SCENARIOS: list[dict[str, Any]] = [
     },
     {
         "key": "august_no_booking",
-        "label": "Agosto, nessun parcheggio su prenotazione",
+        "label": "Agosto, regole attuali",
         "category": "Prenotazione dei parcheggi",
         "description": (
-            "1–31 agosto senza posti su prenotazione (regole 2023–2024): chi non trova posto "
-            "nei parcheggi a pagamento sosta altrove."
+            "1–31 agosto con le regole attuali: nessun posto solo su prenotazione (a Ischia la "
+            "prenotazione è facoltativa); chi non trova posto nei parcheggi a pagamento sosta altrove."
         ),
         "overrides": {"day of summer": (61.0, 92.0), "booked parking spaces": 0.0},
     },
     {
         "key": "august_booking_ischia",
-        "label": "Agosto, Ischia su prenotazione",
+        "label": "Agosto, Ischia solo su prenotazione",
         "category": "Prenotazione dei parcheggi",
         "description": (
-            "1–31 agosto con il parcheggio Ischia (195 posti) solo su prenotazione, come dal 2025."
+            "1–31 agosto con il parcheggio Ischia (195 posti) solo su prenotazione obbligatoria: gli "
+            "escursionisti in auto oltre i posti disponibili rinunciano nella quota dei posti su "
+            "prenotazione (ipotesi A13)."
         ),
         "overrides": {"day of summer": (61.0, 92.0), "booked parking spaces": 195.0},
     },
