@@ -18,6 +18,8 @@ The download step NEVER fetches a file that is already in raw_data / mapping (ch
 Usage:
     python -m gen_phenomenon_dataframes                  # base build (2022-2024), all steps
     python -m gen_phenomenon_dataframes --with-update    # base build, then the 2025 update (appended)
+    python -m gen_phenomenon_dataframes --all            # base build, then redistribution
+    python -m gen_phenomenon_dataframes --all --with-update  # base build, 2025 update, then redistribution
     python -m gen_phenomenon_dataframes --update-only    # ONLY the 2025 update (the base build must exist)
     python -m gen_phenomenon_dataframes --skip-download  # raw_data already there
     python -m gen_phenomenon_dataframes --force-download # download again the files already in raw_data
@@ -99,6 +101,35 @@ def main_compute_phenomena_dfs(
     return dict_dfs
 
 
+def main_compute_all_dfs(
+    type_format=TYPE_FORMAT,
+    local=True,
+    skip_download=False,
+    force_download=False,
+    with_update=False,
+    update_config=DEFAULT_UPDATE_CONFIG,
+):
+    """Runs the base build, optionally the 2025 update, and then redistribution."""
+    phenomena = main_compute_phenomena_dfs(
+        type_format=type_format,
+        local=local,
+        skip_download=skip_download,
+        force_download=force_download,
+        with_update=with_update,
+        update_config=update_config,
+    )
+
+    from gen_redistribution_dataframes import main_compute_redistribution_dfs
+
+    redistribution = main_compute_redistribution_dfs(
+        type_format=type_format,
+        local=local,
+        skip_download=skip_download,
+        force_download=force_download,
+    )
+    return {"phenomena": phenomena, "redistribution": redistribution}
+
+
 def _parse_args(argv=None):
     p = argparse.ArgumentParser(
         description="Base build of the phenomenon dataframes (all steps)."
@@ -117,6 +148,11 @@ def _parse_args(argv=None):
         "--with-update",
         action="store_true",
         help="after the base build, also run the update of 2025 only",
+    )
+    p.add_argument(
+        "--all",
+        action="store_true",
+        help="after generating phenomena, also run the redistribution indicator",
     )
     p.add_argument(
         "--update-only",
@@ -142,11 +178,22 @@ if __name__ == "__main__":
     args = _parse_args()
     if args.with_update and args.update_only:
         raise SystemExit("--with-update and --update-only are mutually exclusive")
-    main_compute_phenomena_dfs(
-        local=not args.upload,
-        skip_download=args.skip_download,
-        force_download=args.force_download,
-        with_update=args.with_update,
-        update_only=args.update_only,
-        update_config=args.update_config,
-    )
+    if args.all and args.update_only:
+        raise SystemExit("--all and --update-only are mutually exclusive")
+    if args.all:
+        main_compute_all_dfs(
+            local=not args.upload,
+            skip_download=args.skip_download,
+            force_download=args.force_download,
+            with_update=args.with_update,
+            update_config=args.update_config,
+        )
+    else:
+        main_compute_phenomena_dfs(
+            local=not args.upload,
+            skip_download=args.skip_download,
+            force_download=args.force_download,
+            with_update=args.with_update,
+            update_only=args.update_only,
+            update_config=args.update_config,
+        )

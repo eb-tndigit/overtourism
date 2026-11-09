@@ -38,20 +38,6 @@ data_preparation/
 Both follow the same flow: `server (data lake) -> raw_data -> normalized -> processed / reference -> final_data`
 (the models write in a sub-folder of their own, e.g. `final_data/molveno`).
 
-### Shared and duplicated code
-
-The two pipelines do not import each other. What they both need is **duplicated on purpose**, each copy trimmed to its use:
-
-| Territorial indexes | Models | Content |
-|---|---|---|
-| `territorial_indexes/utils/config.py` | `model/common/config.py` | loads the settings, exposes directories and platform constants. The territorial one also has references, datasets, phenomena and the time window |
-| `territorial_indexes/utils/io.py` | `model/common/io.py` | writing of dataframes (the territorial one also reads and has the raw-file path helper) |
-| `territorial_indexes/utils/remote.py` | `model/common/remote.py` | S3 / DigitalHub (the model copy has only `init_s3` and `log_dataframe`) |
-| `territorial_indexes/config/settings.yaml` | `model/config/settings.yaml` | `output_dir`, `paths.raw / normalized / final` and `platform` must be the same in the two files |
-
-Everything else in `territorial_indexes/utils/` (cleaning, adapters, disaggregation, flows, steps, ...) is used by the
-territorial indexes only; `model/common/` (`sources.py`, `weather.py`) by the models only. If you change a shared
-constant (a directory, the platform project, the bucket) change it in **both** settings files.
 
 ## Setup
 
@@ -59,6 +45,22 @@ constant (a directory, the platform project, the bucket) change it in **both** s
 uv sync                      # from data_preparation/ (pyproject.toml, uv.lock); extras: cloud, download
 ```
 S3 and platform access need the credentials of the DHCLI in `~/.dhcore.ini` (section `platform.dhcore_env` of the settings).
+
+## Generate the data currently in use
+
+From `territorial_indexes/`, generate the phenomenon data, then the redistribution indicator that reads those phenomena:
+
+```bash
+python gen_phenomenon_dataframes.py --all --with-update
+```
+
+`--all` runs the base build and then `gen_redistribution_dataframes.py`. Add `--with-update` to append the 2025 update
+before redistribution. Without `--all`, `--with-update` runs only the base build and update. The redistribution step
+checks that its required phenomenon dataframes exist and reports a `FileNotFoundError` if any are missing.
+
+Add `--skip-download` to `--all` to reuse the existing raw and mapping inputs. In this checkout, `gen_data` is not
+defined as a command; the equivalent update-only command is `python -m gen_phenomenon_dataframes --update-only`. The
+base build must already exist in the same `Output/` folder when using update-only.
 
 ## Tests
 

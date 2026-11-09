@@ -123,6 +123,8 @@ The dataset → phenomenon mapping is in the `phenomena` section of `config/sett
 ```bash
 python -m gen_phenomenon_dataframes                   # base build 2022-2024, all steps, parquet
 python -m gen_phenomenon_dataframes --with-update     # base build, then the update of 2025 (appended)
+python -m gen_phenomenon_dataframes --all             # base build, then redistribution
+python -m gen_phenomenon_dataframes --all --with-update  # base build, update of 2025, then redistribution
 python -m gen_phenomenon_dataframes --update-only     # ONLY the update of 2025 (the base build must already exist)
 python -m gen_phenomenon_dataframes --update-config config/updates/update_2025.yaml   # yaml used by the two options above
 python -m gen_phenomenon_dataframes --skip-download   # reuse Output/data/raw_data, step 0 not run
@@ -229,6 +231,9 @@ python -m gen_redistribution_dataframes --upload         # also log the final ta
 
 Run it **after** `gen_phenomenon_dataframes.py` (and after the yearly update): it reads `phen_presenze`, `phen_strutture` and
 `phen_popolazione` from `final_data` and recomputes the ceilings and the daily solution for every year in them.
+Use `--all` to run redistribution after the base build. Add `--with-update` to apply the 2025 update before
+redistribution. The redistribution step checks for its required phenomenon dataframes and fails with a
+`FileNotFoundError` if any are missing.
 Besides the Vodafone areas geojson and the mappings (already used by the phenomena) it needs two extra mapping inputs, listed in
 `config/settings.yaml` (section `redistribution`, together with every model parameter): the ISTAT comuni shapefile
 (`PRO_COM_T`, `COMUNE`, `Shape_Area` in m²) and the ISTAT tourist typology (`PROCOM`, `COMUNE`, `COD_CAT`). The comuni born from
