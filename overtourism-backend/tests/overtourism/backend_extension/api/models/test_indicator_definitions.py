@@ -43,6 +43,11 @@ def test_registry_is_sorted_by_order():
     assert orders == sorted(orders)
 
 
+def test_redistribution_indicator_uses_a_diverging_legend():
+    indicator = t.get_indicator("squilibrio-ridistribuzione")
+    assert indicator.custom_legend == {"type": "diverging"}
+
+
 def _edge_frame(columns, rows=300, seed=0):
     """Random values with plenty of zeros and missing values."""
     rng = np.random.default_rng(seed)

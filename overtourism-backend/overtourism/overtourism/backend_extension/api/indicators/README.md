@@ -71,6 +71,9 @@ That is the whole indicator.
 | `extra_fields` | no | Request parameters passed to the calculation (combinators and classes only) |
 | `custom_legend`, `column_aggs` | no | Legend definition / how the extra columns are aggregated on macro areas |
 
+`custom_legend` supports `type: cluster-value` for cluster-based colors and
+`type: diverging` for a zero-centered red/blue scale (negative red, positive blue).
+
 Unknown keys, repeated keys and wrong types stop the start-up with a message that names the file.
 
 ### Phenomena

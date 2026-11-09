@@ -8,6 +8,8 @@ category: Flussi
 order: 100
 index_value_unit_description: Punti di saturazione (positivo = sotto-rappresentato, negativo = sovraccarico)
 available_for_variation: false
+custom_legend:
+  type: diverging
 description: >-
   L'indice confronta il <strong>carico di ogni area</strong> (turisti ed escursionisti rilevati da
   Vodafone) con il suo <strong>tetto di carico</strong>, stimato dallo storico delle aree
