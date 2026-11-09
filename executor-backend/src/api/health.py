@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+"""Liveness and readiness probes, at the root path of the API (no `/health` prefix)."""
 
 from __future__ import annotations
 
@@ -6,7 +7,7 @@ from fastapi import APIRouter, Response
 
 from src.api.registry import BACKEND_REGISTRY, MODEL_TITLES
 
-router = APIRouter(prefix="/health", tags=["Health"])
+router = APIRouter(tags=["Health"])
 
 
 @router.get("/live")

@@ -4,7 +4,7 @@ import typing
 
 import requests
 
-MODEL_BACKEND_URL = os.environ.get("MODEL_BACKEND_URL", "http://localhost:8001")
+MODEL_BACKEND_URL = os.environ.get("MODEL_BACKEND_URL", "http://localhost:8082")
 MODEL_BACKEND_USER = os.environ.get("MODEL_BACKEND_USER")
 MODEL_BACKEND_PASSWORD = os.environ.get("MODEL_BACKEND_PASSWORD")
 
@@ -60,7 +60,7 @@ def call_download_data(model: str) -> dict[str, str]:
 def call_health_ready() -> requests.Response:
     """Call the model backend readiness endpoint."""
     return requests.get(
-        f"{MODEL_BACKEND_URL.rstrip('/')}/health/ready",
+        f"{MODEL_BACKEND_URL.rstrip('/')}/ready",
         auth=get_model_backend_auth(),
         timeout=1,
     )

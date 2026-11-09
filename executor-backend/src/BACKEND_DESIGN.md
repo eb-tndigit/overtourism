@@ -401,9 +401,12 @@ choices about the axis grid, not per-evaluation quality knobs.
 **Location**: `overtourism/layer_3/api/`, run with:
 
 ```bash
-uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8001 \
+uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8082 \
   --proxy-headers --log-config uvicorn_log_config.json
 ```
+
+The service listens on one port, `8082`, for both the models API and the health probes. The container
+image (`Dockerfile.model`) exposes only `8082` and starts uvicorn on it with `uvicorn_log_config.json`.
 
 A REST layer over the Layer 3 backends. Depends only on
 `src.model.*` — never on `src.dt_studio.*` — so it can be
@@ -418,6 +421,20 @@ contract by convention (§Layer 3), so one generic route set parameterized by
 | `GET /models/{model_key}/schema` | `ModelSchema` — full presentation metadata built from the backend's minimal set, plus `indexes`. |
 | `POST /models/{model_key}/evaluate?as_snapshot=true` | `{param_overrides: {...}}` → evaluation result. |
 | `POST /models/{model_key}/download-data` | Downloads the model's data files from the platform again (Fazzon and Molveno; 404 for models without downloadable data) and drops the cached backend, so the next request uses the new data. `200 {message, data_dir}`; `502` if the download fails (the current files stay in place). Not authenticated: the wrapping layers must restrict it to administrators. |
+
+Health probes (`src.api.health`) are served by the same app on port `8082`, at the root path. They have no
+`/health` prefix: `/health/live` and `/health/ready` return `404`.
+
+| Endpoint | Description |
+|---|---|
+| `GET /live` | `200 {"status": "alive"}` while the process answers. It checks no external dependency. |
+| `GET /ready` | `200 {"status": "ready"}` when the model registry is consistent; otherwise `503 {"status": "not_ready"}`. |
+
+Uvicorn opens port `8082` only after the startup below has completed, so both probes get a refused
+connection while the model data downloads. In Kubernetes, point the liveness and readiness probes at
+`8082` (`/live` and `/ready`) and give the startup time to finish, with a `startupProbe` or a liveness
+`initialDelaySeconds` longer than the download; otherwise the liveness probe restarts the container during
+the download.
 
 Models with data files (`src.api.registry.DATA_STARTUP`: Fazzon, Molveno) are checked at startup (FastAPI
 lifespan): unless `DT_OVERTURISM_STANDALONE_MODE=true` (the default) the files are downloaded from the platform
@@ -532,7 +549,7 @@ shell (`dashboard/adapter.py`, `dashboard/app.py`) doesn't import
   container split (see the Status note at the top of this document).
 
   ```bash
-  uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8001 \
+  uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8082 \
     --proxy-headers --log-config uvicorn_log_config.json
   uv run streamlit run src/dt_studio/fazzon_api_dashboard.py
   uv run streamlit run src/dt_studio/molveno_api_dashboard.py

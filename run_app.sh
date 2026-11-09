@@ -47,11 +47,11 @@ export AUTH_AUDIENCE="${AUTH_AUDIENCE:-c_50e8e205e30243588df8f1ad9425831a}"
 export AUTH_IDENTIFIER_CLAIM="${AUTH_IDENTIFIER_CLAIM:-email}"
 export AUTH_ALGORITHMS="${AUTH_ALGORITHMS:-RS256}"
 export AUTH_LEEWAY_SECONDS="${AUTH_LEEWAY_SECONDS:-30}"
-export MODEL_BACKEND_URL="${MODEL_BACKEND_URL:-http://localhost:8001}"
+export MODEL_BACKEND_URL="${MODEL_BACKEND_URL:-http://localhost:8082}"
 
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-8000}"
-MAIN_PORT="${MAIN_PORT:-8001}"
+MAIN_PORT="${MAIN_PORT:-8082}"
 HEALTH_CHECK_TIMEOUT_SECONDS="${HEALTH_CHECK_TIMEOUT_SECONDS:-60}"
 
 kill -9 $(lsof -t -i:$MAIN_PORT) >/dev/null 2>&1 || true
@@ -71,12 +71,13 @@ fi
 wait_for_readiness() {
 	local service_name="$1"
 	local service_port="$2"
-	local process_id="$3"
-	local python_executable="$4"
+	local readiness_path="$3"
+	local process_id="$4"
+	local python_executable="$5"
 	local attempt
 
 	for ((attempt = 0; attempt < HEALTH_CHECK_TIMEOUT_SECONDS; attempt++)); do
-		if "$python_executable" -c 'import sys; from urllib.request import urlopen; urlopen(f"http://127.0.0.1:{sys.argv[1]}/health/ready", timeout=1)' "$service_port" >/dev/null 2>&1; then
+		if "$python_executable" -c 'import sys; from urllib.request import urlopen; urlopen(f"http://127.0.0.1:{sys.argv[1]}{sys.argv[2]}", timeout=1)' "$service_port" "$readiness_path" >/dev/null 2>&1; then
 			return 0
 		fi
 		if ! kill -0 "$process_id" >/dev/null 2>&1; then
@@ -109,7 +110,8 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
-if ! wait_for_readiness "Executor backend" "$MAIN_PORT" "$MAIN_PID" "$EXECUTOR_DIR/.venv/bin/python"; then
+# The Model API serves its probes at the root path; the CRUD API under /health.
+if ! wait_for_readiness "Executor backend" "$MAIN_PORT" /ready "$MAIN_PID" "$EXECUTOR_DIR/.venv/bin/python"; then
 	exit 1
 fi
 
@@ -122,7 +124,7 @@ fi
 API_PID=$!
 
 if [[ $# -eq 1 ]]; then
-	if ! wait_for_readiness "API backend" "$PORT" "$API_PID" "$API_DIR/.venv/bin/python"; then
+	if ! wait_for_readiness "API backend" "$PORT" /health/ready "$API_PID" "$API_DIR/.venv/bin/python"; then
 		exit 1
 	fi
 fi

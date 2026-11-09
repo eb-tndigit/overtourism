@@ -18,7 +18,7 @@ variables:
   MODEL_CONTAINER_IMAGE_LATEST: smartcommunitylab/overtourism-model:latest
   MODEL_DEPLOYMENT_NAME: overtourism-model
   MODEL_CONTAINER_NAME: overtourism-model
-  MODEL_BACKEND_URL: http://overtourism-model:8001
+  MODEL_BACKEND_URL: http://overtourism-model:8082
   CS_IMAGE: smartcommunitylab/overtourism-backend:latest
 
 include:

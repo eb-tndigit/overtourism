@@ -22,13 +22,13 @@ def test_layer_3_cors_uses_configured_origins(monkeypatch) -> None:
 
     with TestClient(configured_app) as client:
         frontend_response = client.get(
-            "/health/live", headers={"Origin": "https://frontend.example"}
+            "/live", headers={"Origin": "https://frontend.example"}
         )
         admin_response = client.get(
-            "/health/live", headers={"Origin": "https://admin.example"}
+            "/live", headers={"Origin": "https://admin.example"}
         )
         rejected_response = client.get(
-            "/health/live", headers={"Origin": "https://unlisted.example"}
+            "/live", headers={"Origin": "https://unlisted.example"}
         )
 
     assert frontend_response.headers["access-control-allow-origin"] == (
@@ -46,7 +46,7 @@ def test_layer_3_cors_defaults_to_wildcard(monkeypatch) -> None:
 
     with TestClient(default_app) as client:
         response = client.get(
-            "/health/live", headers={"Origin": "https://frontend.example"}
+            "/live", headers={"Origin": "https://frontend.example"}
         )
 
     assert response.headers["access-control-allow-origin"] == (
@@ -56,8 +56,8 @@ def test_layer_3_cors_defaults_to_wildcard(monkeypatch) -> None:
 
 def test_layer_3_health_probes_report_live_and_ready() -> None:
     with TestClient(app) as client:
-        live_response = client.get("/health/live")
-        ready_response = client.get("/health/ready")
+        live_response = client.get("/live")
+        ready_response = client.get("/ready")
 
     assert live_response.status_code == 200
     assert live_response.json() == {"status": "alive"}
@@ -69,10 +69,16 @@ def test_layer_3_is_not_ready_when_model_registry_is_invalid(monkeypatch) -> Non
     monkeypatch.setattr(health_api, "BACKEND_REGISTRY", {})
 
     with TestClient(app) as client:
-        response = client.get("/health/ready")
+        response = client.get("/ready")
 
     assert response.status_code == 503
     assert response.json() == {"status": "not_ready"}
+
+
+def test_layer_3_health_probes_have_no_health_prefix() -> None:
+    with TestClient(app) as client:
+        assert client.get("/health/live").status_code == 404
+        assert client.get("/health/ready").status_code == 404
 
 
 def test_evaluate_returns_frontend_shape_when_snapshot_is_false(monkeypatch) -> None:

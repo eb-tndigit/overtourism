@@ -14,7 +14,8 @@ RUN useradd -m -u 8877 nonroot
 RUN mkdir -p /app/overtourism/overtourism/database && chown -R 8877:8877 /app
 USER 8877
 
-EXPOSE 8001
+# One port for the models API and the /live and /ready probes.
+EXPOSE 8082
 
 # Run the model-computation FastAPI application with the service log format.
-ENTRYPOINT ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8001", "--log-config", "/app/uvicorn_log_config.json"]
+ENTRYPOINT ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8082", "--log-config", "/app/uvicorn_log_config.json"]

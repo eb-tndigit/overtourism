@@ -106,7 +106,7 @@ class HttpOvertourismAdapter(OvertourismAdapter):
         Dashboard page title.
     base_url : str
         Base URL of the running `overtourism.api` service (e.g.
-        ``"http://localhost:8001"``).
+        ``"http://localhost:8082"``).
     timeout : float
         Per-request timeout, in seconds. Evaluation requests can take a few
         seconds (full ensemble evaluation), so this is generous by default.

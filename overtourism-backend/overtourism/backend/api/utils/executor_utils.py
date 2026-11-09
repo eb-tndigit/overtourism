@@ -4,7 +4,7 @@ import typing
 
 import requests
 
-model_backend_url = os.environ.get("MODEL_BACKEND_URL", "http://localhost:8001")
+model_backend_url = os.environ.get("MODEL_BACKEND_URL", "http://localhost:8082")
 
 
 def get_model_backend_auth() -> tuple[str, str] | None:

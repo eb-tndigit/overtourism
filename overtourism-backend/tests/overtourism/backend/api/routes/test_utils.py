@@ -266,7 +266,7 @@ def test_model_backend_requests_use_basic_auth_only_with_both_credentials(
 
     assert observed_auth == [expected_auth] * 5
     assert observed_gets[-1] == (
-        "http://model.test/health/ready",
+        "http://model.test/ready",
         {"auth": expected_auth, "timeout": 1},
     )
 
